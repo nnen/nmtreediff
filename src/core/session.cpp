@@ -1,5 +1,6 @@
 #include "core/session.h"
 
+#include "core/provider.h"
 #include "core/textdiff.h"
 
 #include <chrono>
@@ -17,6 +18,8 @@ const char* describe(Stage stage) noexcept {
             return "sources loaded";
         case Stage::TextReady:
             return "text diff ready";
+        case Stage::TreesParsed:
+            return "trees parsed";
         case Stage::TreeReady:
             return "tree diff ready";
         case Stage::Failed:
@@ -104,6 +107,57 @@ void Session::runOpen(const SessionRequest& request, std::stop_token token, Gene
 
     result.stage = Stage::TextReady;
     result.text = std::move(text);
+    result.elapsedMillis = elapsedMillis();
+    publish(result, generation);
+
+    // Parsing is the last stage M2 provides. Matching, and the node view that
+    // reads it, arrive at M3 and M4.
+    bool unknownFormat = false;
+    const IFormatProvider* provider =
+        registry_.resolve(*result.left, request.format, &unknownFormat);
+    if (unknownFormat || provider == nullptr) {
+        result.stage = Stage::Failed;
+        result.message = "unknown format '" + request.format + "'; known formats are: ";
+        bool first = true;
+        for (const auto known : registry_.names()) {
+            if (!first) {
+                result.message += ", ";
+            }
+            first = false;
+            result.message.append(known);
+        }
+        publish(std::move(result), generation);
+        return;
+    }
+
+    auto leftTree = provider->parse(*result.left, token);
+    if (token.stop_requested()) {
+        return;
+    }
+    if (!leftTree) {
+        result.stage = Stage::Failed;
+        result.message = result.left->label() + ": " + describe(leftTree.error());
+        result.elapsedMillis = elapsedMillis();
+        publish(std::move(result), generation);
+        return;
+    }
+
+    auto rightTree = provider->parse(*result.right, token);
+    if (token.stop_requested()) {
+        return;
+    }
+    if (!rightTree) {
+        result.stage = Stage::Failed;
+        result.message = result.right->label() + ": " + describe(rightTree.error());
+        result.elapsedMillis = elapsedMillis();
+        publish(std::move(result), generation);
+        return;
+    }
+
+    result.stage = Stage::TreesParsed;
+    result.provider = provider;
+    result.leftTree = std::make_shared<const Tree>(std::move(leftTree).value());
+    result.rightTree = std::make_shared<const Tree>(std::move(rightTree).value());
     result.elapsedMillis = elapsedMillis();
     publish(std::move(result), generation);
 }

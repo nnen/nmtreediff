@@ -16,8 +16,11 @@
 
 #include "core/source.h"
 #include "core/textdiff.h"
+#include "core/tree.h"
 
 namespace nmxd {
+
+class IFormatProvider;
 
 // How far the pipeline has got. The interface shows this, so it never presents
 // partial results as complete.
@@ -26,7 +29,8 @@ enum class Stage {
     Loading,
     SourcesReady,  // both sides read; raw text can be shown
     TextReady,     // line diff computed; the text view is usable (M1)
-    TreeReady,     // parsed and matched; the node view is usable (M3)
+    TreesParsed,   // both sides parsed into trees (M2)
+    TreeReady,     // matched; the node view is usable (M3)
     Failed,
 };
 
@@ -42,6 +46,13 @@ struct DiffSnapshot {
 
     // Present from Stage::TextReady onward.
     std::shared_ptr<const TextDiff> text;
+
+    // Present from Stage::TreesParsed onward. The provider that produced them
+    // is held alongside, because reading a tree means asking the provider for
+    // titles, colours and property order.
+    std::shared_ptr<const Tree> leftTree;
+    std::shared_ptr<const Tree> rightTree;
+    const IFormatProvider* provider = nullptr;
 
     // Set when stage is Failed. Shown verbatim, so it says what went wrong and
     // which side it went wrong on.

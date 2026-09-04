@@ -18,6 +18,16 @@ set(CLI11_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CLI11_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(cli11)
 
+# -------------------------------------------------------------- pugixml -----
+FetchContent_Declare(
+    pugixml
+    GIT_REPOSITORY https://github.com/zeux/pugixml.git
+    GIT_TAG        ee86beb30e4973f5feffe3ce63bfa4fbadf72f38  # v1.15
+    GIT_SHALLOW    TRUE
+)
+set(PUGIXML_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(pugixml)
+
 # ----------------------------------------------------------------- GUI ------
 if(NMXD_BUILD_GUI)
     find_package(OpenGL REQUIRED)

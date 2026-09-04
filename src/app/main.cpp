@@ -15,7 +15,7 @@ namespace {
 int runHeadless(const nmxd::Options& options) {
     nmxd::Session session;
     session.open(nmxd::SessionRequest{options.leftPath, options.rightPath, options.leftLabel,
-                                      options.rightLabel});
+                                      options.rightLabel, options.format});
     session.waitIdle();
 
     const auto snapshot = session.snapshot();

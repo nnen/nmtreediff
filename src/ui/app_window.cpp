@@ -84,7 +84,7 @@ int AppWindow::run() {
     // window is already up and drawing.
     if (options_.hasInputs()) {
         session_.open(SessionRequest{options_.leftPath, options_.rightPath, options_.leftLabel,
-                                     options_.rightLabel});
+                                     options_.rightLabel, options_.format});
     }
 
     // Vertical sync pins the frame rate to the display, which would make a
@@ -175,7 +175,7 @@ void AppWindow::drawMenuBar() {
     if (ImGui::BeginMenu("File")) {
         if (ImGui::MenuItem("Reload", "Ctrl+R", false, options_.hasInputs())) {
             session_.open(SessionRequest{options_.leftPath, options_.rightPath, options_.leftLabel,
-                                         options_.rightLabel});
+                                         options_.rightLabel, options_.format});
         }
         ImGui::Separator();
         if (ImGui::MenuItem("Exit", "Alt+F4")) {
@@ -293,13 +293,85 @@ void AppWindow::drawDetails(const DiffSnapshot& snapshot) {
         ImGui::TableSetColumnIndex(2);
         ImGui::Text("%zu", snapshot.right->lineCount());
 
+        if (snapshot.leftTree && snapshot.rightTree) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextUnformatted("Nodes");
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%zu", snapshot.leftTree->size());
+            ImGui::TableSetColumnIndex(2);
+            ImGui::Text("%zu", snapshot.rightTree->size());
+        }
+
         ImGui::EndTable();
     }
 
+    if (snapshot.leftTree == nullptr || snapshot.provider == nullptr) {
+        ImGui::Spacing();
+        ImGui::TextDisabled(snapshot.stage == Stage::Failed ? "Not parsed." : "Parsing...");
+        ImGui::End();
+        return;
+    }
+
     ImGui::Spacing();
-    ImGui::TextDisabled("Node properties appear here once the parser lands at M2.");
+    ImGui::Text("Format: %.*s", static_cast<int>(snapshot.provider->displayName().size()),
+                snapshot.provider->displayName().data());
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // An outline of the parsed left tree. Nothing is coloured by change status
+    // yet; matching arrives at M3 and the node view at M4. What this does show
+    // is that the provider's titles, colours and property order are real.
+    if (ImGui::BeginChild("outline")) {
+        drawTreeOutline(*snapshot.leftTree, *snapshot.provider, snapshot.leftTree->root());
+    }
+    ImGui::EndChild();
 
     ImGui::End();
+}
+
+void AppWindow::drawTreeOutline(const Tree& tree, const IFormatProvider& provider, NodeId id) {
+    if (id == kInvalidNode || id >= tree.size()) {
+        return;
+    }
+    const Node& node = tree.node(id);
+    const NodeStyle style = provider.style(tree, id);
+
+    ImGui::PushID(static_cast<int>(id));
+    ImGui::PushStyleColor(ImGuiCol_Text,
+                          IM_COL32(style.accent.r, style.accent.g, style.accent.b, 255));
+
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen;
+    if (node.isLeaf() && node.properties.empty()) {
+        flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+    }
+
+    const bool open = ImGui::TreeNodeEx("node", flags, "%s", style.title.c_str());
+    ImGui::PopStyleColor();
+
+    if (!style.subtitle.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", style.subtitle.c_str());
+    }
+
+    if (open) {
+        // Properties in the provider's order, not document order. Ranking is
+        // presentation only; matching still treats them as an unordered set.
+        for (const auto index : propertyDisplayOrder(provider, tree, id)) {
+            const Property& property = node.properties[index];
+            ImGui::TextDisabled("%s", property.name.c_str());
+            ImGui::SameLine();
+            ImGui::TextUnformatted(property.value.c_str());
+        }
+        for (const NodeId child : node.children) {
+            drawTreeOutline(tree, provider, child);
+        }
+        if ((flags & ImGuiTreeNodeFlags_NoTreePushOnOpen) == 0) {
+            ImGui::TreePop();
+        }
+    }
+    ImGui::PopID();
 }
 
 void AppWindow::drawStatusBar(const DiffSnapshot& snapshot) {

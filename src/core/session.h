@@ -10,6 +10,7 @@
 #include <string>
 
 #include "core/jobs.h"
+#include "core/registry.h"
 #include "core/snapshot.h"
 
 namespace nmxd {
@@ -19,6 +20,11 @@ struct SessionRequest {
     std::filesystem::path rightPath;
     std::string leftLabel;
     std::string rightLabel;
+
+    // Empty means sniff. A name the registry does not know is reported rather
+    // than quietly ignored, because it is usually a typo in a diff-tool
+    // configuration that would otherwise go unnoticed for a long time.
+    std::string format;
 };
 
 class Session {
@@ -41,6 +47,8 @@ public:
     [[nodiscard]] bool busy() const { return jobs_.outstanding() > 0; }
     [[nodiscard]] unsigned threadCount() const noexcept { return jobs_.threadCount(); }
 
+    [[nodiscard]] const ProviderRegistry& registry() const noexcept { return registry_; }
+
     // Blocks until the pipeline settles. For tests and headless runs only.
     void waitIdle() const { jobs_.waitIdle(); }
 
@@ -49,6 +57,7 @@ private:
     void publish(DiffSnapshot snapshot, Generation generation);
 
     JobSystem jobs_;
+    ProviderRegistry registry_ = makeDefaultRegistry();
     SnapshotBox<DiffSnapshot> box_;
 };
 

@@ -9,6 +9,7 @@
 #include <string>
 
 #include "app/cli.h"
+#include "core/provider.h"
 #include "core/session.h"
 #include "ui/text_view.h"
 
@@ -39,6 +40,7 @@ private:
     void drawNodeView(const DiffSnapshot& snapshot);
     void drawDetails(const DiffSnapshot& snapshot);
     void drawStatusBar(const DiffSnapshot& snapshot);
+    void drawTreeOutline(const Tree& tree, const IFormatProvider& provider, NodeId id);
     void layoutDockSpaceOnce();
 
     Options options_;

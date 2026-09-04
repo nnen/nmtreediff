@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 
+#include "core/provider.h"
 #include "core/session.h"
 
 using nmxd::Session;
@@ -38,7 +39,8 @@ TEST_CASE("opening a pair publishes both sources", "[session]") {
 
     const auto snapshot = session.snapshot();
     REQUIRE(snapshot);
-    REQUIRE(snapshot->stage == Stage::TextReady);
+    // The last stage the pipeline reaches today. Matching lands at M3.
+    REQUIRE(snapshot->stage == Stage::TreesParsed);
     REQUIRE(snapshot->hasSources());
     CHECK(snapshot->left->label() == "left");
     CHECK(snapshot->right->label() == "right");
@@ -99,6 +101,73 @@ TEST_CASE("each publication bumps the snapshot version", "[session]") {
     // The version is what lets the frame loop tell a new snapshot from the one
     // it drew last frame without comparing contents.
     CHECK(session.snapshotVersion() > before);
+
+    std::filesystem::remove(left);
+    std::filesystem::remove(right);
+}
+
+TEST_CASE("both sides are parsed into trees", "[session]") {
+    const auto left = writeTemp("nmxd_session_tree_left.xml", "<root><a id=\"1\"/></root>\n");
+    const auto right = writeTemp("nmxd_session_tree_right.xml", "<root><a id=\"1\"/><b/></root>\n");
+
+    Session session(2);
+    session.open(SessionRequest{left, right, "left", "right", ""});
+    session.waitIdle();
+
+    const auto snapshot = session.snapshot();
+    REQUIRE(snapshot);
+    REQUIRE(snapshot->stage == Stage::TreesParsed);
+    REQUIRE(snapshot->leftTree);
+    REQUIRE(snapshot->rightTree);
+    REQUIRE(snapshot->provider != nullptr);
+
+    CHECK(snapshot->provider->name() == "xml");
+    CHECK(snapshot->leftTree->size() == 2);
+    CHECK(snapshot->rightTree->size() == 3);
+
+    // The text diff is still there: parsing adds to the snapshot rather than
+    // replacing what an earlier stage produced.
+    REQUIRE(snapshot->text);
+    CHECK_FALSE(snapshot->text->identical());
+
+    std::filesystem::remove(left);
+    std::filesystem::remove(right);
+}
+
+TEST_CASE("an unknown format is reported, not silently sniffed", "[session]") {
+    const auto left = writeTemp("nmxd_session_fmt_left.xml", "<root/>\n");
+    const auto right = writeTemp("nmxd_session_fmt_right.xml", "<root/>\n");
+
+    Session session(1);
+    session.open(SessionRequest{left, right, "left", "right", "not-a-format"});
+    session.waitIdle();
+
+    const auto snapshot = session.snapshot();
+    REQUIRE(snapshot);
+    CHECK(snapshot->stage == Stage::Failed);
+    CHECK(snapshot->message.find("not-a-format") != std::string::npos);
+    CHECK(snapshot->message.find("xml") != std::string::npos);
+
+    std::filesystem::remove(left);
+    std::filesystem::remove(right);
+}
+
+TEST_CASE("a malformed document fails after the text diff succeeded", "[session]") {
+    // The text view still works on a file the parser rejects, which is exactly
+    // why the stages publish separately.
+    const auto left = writeTemp("nmxd_session_bad_left.xml", "<root></root>\n");
+    const auto right = writeTemp("nmxd_session_bad_right.xml", "<root><unclosed></root>\n");
+
+    Session session(1);
+    session.open(SessionRequest{left, right, "left", "right", ""});
+    session.waitIdle();
+
+    const auto snapshot = session.snapshot();
+    REQUIRE(snapshot);
+    CHECK(snapshot->stage == Stage::Failed);
+    CHECK(snapshot->message.find("well formed") != std::string::npos);
+    REQUIRE(snapshot->text);
+    CHECK(snapshot->text->rows.size() > 0);
 
     std::filesystem::remove(left);
     std::filesystem::remove(right);

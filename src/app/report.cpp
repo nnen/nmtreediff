@@ -1,5 +1,7 @@
 #include "app/report.h"
 
+#include "core/provider.h"
+
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -82,6 +84,11 @@ int writeReport(std::ostream& out, const DiffSnapshot& snapshot, const Options& 
         out << "  \"modified\": " << text.modifiedRows << ",\n";
         out << "  \"unchanged\": " << text.equalRows << ",\n";
         out << "  \"changeBlocks\": " << text.changeBlocks.size() << ",\n";
+        if (snapshot.provider != nullptr && snapshot.leftTree && snapshot.rightTree) {
+            out << "  \"format\": \"" << jsonEscape(snapshot.provider->name()) << "\",\n";
+            out << "  \"leftNodes\": " << snapshot.leftTree->size() << ",\n";
+            out << "  \"rightNodes\": " << snapshot.rightTree->size() << ",\n";
+        }
         out << "  \"elapsedMillis\": " << snapshot.elapsedMillis << ",\n";
         out << "  \"left\": { \"label\": \"" << jsonEscape(snapshot.left->label())
             << "\", \"bytes\": " << snapshot.left->size()
@@ -101,6 +108,10 @@ int writeReport(std::ostream& out, const DiffSnapshot& snapshot, const Options& 
             out << "+" << text.addedRows << " -" << text.deletedRows << " ~" << text.modifiedRows
                 << " across " << text.changeBlocks.size() << " change"
                 << (text.changeBlocks.size() == 1 ? "" : "s") << "\n";
+        }
+        if (snapshot.provider != nullptr && snapshot.leftTree && snapshot.rightTree) {
+            out << "format " << snapshot.provider->name() << ": " << snapshot.leftTree->size()
+                << " and " << snapshot.rightTree->size() << " nodes\n";
         }
         if (text.quality != TextDiffQuality::Full) {
             out << "warning: " << describe(text.quality) << "\n";
