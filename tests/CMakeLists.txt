@@ -1,11 +1,13 @@
 include(Catch)
 
 add_executable(nmxd_tests
+    test_budgets.cpp
     test_cli.cpp
     test_jobs.cpp
     test_result.cpp
     test_session.cpp
     test_source.cpp
+    test_textdiff.cpp
 )
 
 target_link_libraries(nmxd_tests

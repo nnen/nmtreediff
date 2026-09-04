@@ -23,9 +23,6 @@ void reportGlfwError(int code, const char* description) {
     std::fprintf(stderr, "glfw error %d: %s\n", code, description ? description : "");
 }
 
-// Rendered for whichever side has fewer lines, so the two columns stay aligned.
-constexpr const char* kNoLine = "";
-
 }  // namespace
 
 AppWindow::AppWindow(const Options& options, std::chrono::steady_clock::time_point processStart)
@@ -51,7 +48,10 @@ bool AppWindow::open() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    const std::string title = "NM Tree Diff  -  " + options_.leftLabel + "  vs  " + options_.rightLabel;
+    const std::string title =
+        options_.hasInputs()
+            ? "NM Tree Diff  -  " + options_.leftLabel + "  vs  " + options_.rightLabel
+            : std::string("NM Tree Diff");
     window_ = glfwCreateWindow(1440, 900, title.c_str(), nullptr, nullptr);
     if (window_ == nullptr) {
         glfwTerminate();
@@ -82,8 +82,10 @@ int AppWindow::run() {
 
     // Queued before the first frame so the read happens on a worker while the
     // window is already up and drawing.
-    session_.open(SessionRequest{options_.leftPath, options_.rightPath, options_.leftLabel,
-                                 options_.rightLabel});
+    if (options_.hasInputs()) {
+        session_.open(SessionRequest{options_.leftPath, options_.rightPath, options_.leftLabel,
+                                     options_.rightLabel});
+    }
 
     // Vertical sync pins the frame rate to the display, which would make a
     // fixed-frame timing run measure the monitor rather than the program.
@@ -149,6 +151,16 @@ void AppWindow::buildFrame() {
     static const DiffSnapshot kEmpty;
     const DiffSnapshot& current = snapshot ? *snapshot : kEmpty;
 
+    // Change navigation is bound globally rather than to a focused widget, so
+    // it works wherever the caret happens to be.
+    if (ImGui::IsKeyPressed(ImGuiKey_F8, false)) {
+        if (ImGui::GetIO().KeyShift) {
+            textView_.goToPreviousChange(current);
+        } else {
+            textView_.goToNextChange(current);
+        }
+    }
+
     drawTextView(current);
     drawNodeView(current);
     drawDetails(current);
@@ -161,7 +173,7 @@ void AppWindow::drawMenuBar() {
     }
 
     if (ImGui::BeginMenu("File")) {
-        if (ImGui::MenuItem("Reload", "Ctrl+R")) {
+        if (ImGui::MenuItem("Reload", "Ctrl+R", false, options_.hasInputs())) {
             session_.open(SessionRequest{options_.leftPath, options_.rightPath, options_.leftLabel,
                                          options_.rightLabel});
         }
@@ -221,66 +233,7 @@ void AppWindow::drawTextView(const DiffSnapshot& snapshot) {
         ImGui::End();
         return;
     }
-
-    if (!snapshot.hasSources()) {
-        ImGui::TextUnformatted(snapshot.stage == Stage::Failed ? snapshot.message.c_str()
-                                                              : "Loading...");
-        ImGui::End();
-        return;
-    }
-
-    const SourceFile& left = *snapshot.left;
-    const SourceFile& right = *snapshot.right;
-    const int rows = static_cast<int>(std::max(left.lineCount(), right.lineCount()));
-
-    constexpr ImGuiTableFlags kFlags = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY |
-                                       ImGuiTableFlags_ScrollX | ImGuiTableFlags_Resizable;
-
-    if (ImGui::BeginTable("sides", 4, kFlags)) {
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 56.0f);
-        ImGui::TableSetupColumn(left.label().c_str(), ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("# ", ImGuiTableColumnFlags_WidthFixed, 56.0f);
-        ImGui::TableSetupColumn(right.label().c_str(), ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableHeadersRow();
-
-        // The clipper is what keeps a twenty-megabyte file off the frame
-        // budget: only the visible rows are ever built.
-        ImGuiListClipper clipper;
-        clipper.Begin(rows);
-        while (clipper.Step()) {
-            for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
-                const auto index = static_cast<std::size_t>(row);
-                ImGui::TableNextRow();
-
-                ImGui::TableSetColumnIndex(0);
-                if (index < left.lineCount()) {
-                    ImGui::TextDisabled("%d", row + 1);
-                }
-                ImGui::TableSetColumnIndex(1);
-                if (index < left.lineCount()) {
-                    const auto text = left.line(index);
-                    ImGui::TextUnformatted(text.data(), text.data() + text.size());
-                } else {
-                    ImGui::TextUnformatted(kNoLine);
-                }
-
-                ImGui::TableSetColumnIndex(2);
-                if (index < right.lineCount()) {
-                    ImGui::TextDisabled("%d", row + 1);
-                }
-                ImGui::TableSetColumnIndex(3);
-                if (index < right.lineCount()) {
-                    const auto text = right.line(index);
-                    ImGui::TextUnformatted(text.data(), text.data() + text.size());
-                } else {
-                    ImGui::TextUnformatted(kNoLine);
-                }
-            }
-        }
-        ImGui::EndTable();
-    }
-
+    textView_.draw(snapshot);
     ImGui::End();
 }
 
@@ -372,6 +325,42 @@ void AppWindow::drawStatusBar(const DiffSnapshot& snapshot) {
         ImGui::SameLine(0.0f, 24.0f);
         if (ImGui::SmallButton("Cancel")) {
             session_.cancel();
+        }
+    }
+
+    if (snapshot.text != nullptr) {
+        const TextDiff& text = *snapshot.text;
+        ImGui::Separator();
+
+        if (text.identical()) {
+            ImGui::TextUnformatted("Files are identical.");
+        } else {
+            ImGui::TextColored(ImVec4(0.27f, 0.75f, 0.49f, 1.0f), "+%u", text.addedRows);
+            ImGui::SameLine(0.0f, 10.0f);
+            ImGui::TextColored(ImVec4(0.89f, 0.43f, 0.41f, 1.0f), "-%u", text.deletedRows);
+            ImGui::SameLine(0.0f, 10.0f);
+            ImGui::TextColored(ImVec4(0.88f, 0.69f, 0.32f, 1.0f), "~%u", text.modifiedRows);
+            ImGui::SameLine(0.0f, 16.0f);
+            ImGui::Text("in %zu change%s", text.changeBlocks.size(),
+                        text.changeBlocks.size() == 1 ? "" : "s");
+
+            ImGui::SameLine(0.0f, 20.0f);
+            if (ImGui::SmallButton("Previous")) {
+                textView_.goToPreviousChange(snapshot);
+            }
+            ImGui::SameLine(0.0f, 6.0f);
+            if (ImGui::SmallButton("Next")) {
+                textView_.goToNextChange(snapshot);
+            }
+            ImGui::SameLine(0.0f, 8.0f);
+            ImGui::TextDisabled("(F8)");
+        }
+
+        // A trimmed result is stated outright. Under-reporting differences
+        // without saying so is the one failure a diff tool does not survive.
+        if (text.quality != TextDiffQuality::Full) {
+            ImGui::TextColored(ImVec4(0.88f, 0.69f, 0.32f, 1.0f), "Reduced: %s",
+                               describe(text.quality));
         }
     }
 

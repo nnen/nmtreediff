@@ -10,6 +10,7 @@
 
 #include "app/cli.h"
 #include "core/session.h"
+#include "ui/text_view.h"
 
 struct GLFWwindow;
 
@@ -42,6 +43,7 @@ private:
 
     Options options_;
     Session session_;
+    TextView textView_;
 
     GLFWwindow* window_ = nullptr;
     bool running_ = false;

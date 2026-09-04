@@ -1,5 +1,7 @@
 #include "core/session.h"
 
+#include "core/textdiff.h"
+
 #include <chrono>
 #include <utility>
 
@@ -88,6 +90,20 @@ void Session::runOpen(const SessionRequest& request, std::stop_token token, Gene
     result.stage = Stage::SourcesReady;
     result.left = std::make_shared<const SourceFile>(std::move(left).value());
     result.right = std::make_shared<const SourceFile>(std::move(right).value());
+    result.elapsedMillis = elapsedMillis();
+
+    // Published before the diff runs. On a large pair the raw text is on
+    // screen while the alignment is still going, rather than the window
+    // sitting empty until everything is finished.
+    publish(result, generation);
+
+    auto text = std::make_shared<TextDiff>(diffText(*result.left, *result.right, token));
+    if (token.stop_requested() || text->cancelled) {
+        return;
+    }
+
+    result.stage = Stage::TextReady;
+    result.text = std::move(text);
     result.elapsedMillis = elapsedMillis();
     publish(std::move(result), generation);
 }

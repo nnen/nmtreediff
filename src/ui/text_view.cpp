@@ -1,0 +1,309 @@
+#include "ui/text_view.h"
+
+#include <algorithm>
+#include <string_view>
+#include <vector>
+
+#include <imgui.h>
+
+namespace nmxd {
+
+namespace {
+
+// Status colours. The fills sit behind text, so they are kept low in alpha;
+// the marks in the gutter and the overview carry the saturation.
+constexpr ImU32 kAddedFill = IM_COL32(46, 160, 100, 38);
+constexpr ImU32 kDeletedFill = IM_COL32(210, 90, 85, 38);
+constexpr ImU32 kModifiedFill = IM_COL32(215, 165, 70, 30);
+
+constexpr ImU32 kAddedWord = IM_COL32(46, 160, 100, 96);
+constexpr ImU32 kDeletedWord = IM_COL32(210, 90, 85, 96);
+
+constexpr ImU32 kAddedMark = IM_COL32(70, 190, 125, 255);
+constexpr ImU32 kDeletedMark = IM_COL32(226, 110, 105, 255);
+constexpr ImU32 kModifiedMark = IM_COL32(224, 176, 82, 255);
+
+constexpr float kOverviewWidth = 14.0f;
+
+ImU32 fillFor(RowStatus status) {
+    switch (status) {
+        case RowStatus::Added:
+            return kAddedFill;
+        case RowStatus::Deleted:
+            return kDeletedFill;
+        case RowStatus::Modified:
+            return kModifiedFill;
+        case RowStatus::Equal:
+            break;
+    }
+    return 0;
+}
+
+ImU32 markFor(RowStatus status) {
+    switch (status) {
+        case RowStatus::Added:
+            return kAddedMark;
+        case RowStatus::Deleted:
+            return kDeletedMark;
+        case RowStatus::Modified:
+            return kModifiedMark;
+        case RowStatus::Equal:
+            break;
+    }
+    return 0;
+}
+
+// Draws one line, tinting the runs the word diff marked as changed. Falls back
+// to plain text when there is no word detail, which is the common case.
+void drawLine(std::string_view text, const std::vector<WordSegment>* segments, ImU32 highlight) {
+    if (text.empty()) {
+        ImGui::TextUnformatted("");
+        return;
+    }
+    if (segments == nullptr || segments->empty()) {
+        ImGui::TextUnformatted(text.data(), text.data() + text.size());
+        return;
+    }
+
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    bool first = true;
+    for (const auto& segment : *segments) {
+        if (segment.end <= segment.begin || segment.begin >= text.size()) {
+            continue;
+        }
+        const char* begin = text.data() + segment.begin;
+        const char* end = text.data() + std::min<std::size_t>(segment.end, text.size());
+
+        if (!first) {
+            ImGui::SameLine(0.0f, 0.0f);
+        }
+        first = false;
+
+        if (segment.changed) {
+            const ImVec2 pos = ImGui::GetCursorScreenPos();
+            const ImVec2 size = ImGui::CalcTextSize(begin, end);
+            draw->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), highlight, 2.0f);
+        }
+        ImGui::TextUnformatted(begin, end);
+    }
+    if (first) {
+        ImGui::TextUnformatted("");
+    }
+}
+
+}  // namespace
+
+void TextView::draw(const DiffSnapshot& snapshot) {
+    if (!snapshot.hasSources()) {
+        if (snapshot.stage == Stage::Failed) {
+            ImGui::TextColored(ImVec4(0.88f, 0.45f, 0.43f, 1.0f), "%s", snapshot.message.c_str());
+        } else if (snapshot.stage == Stage::Idle) {
+            ImGui::TextDisabled("Nothing open.");
+            ImGui::Spacing();
+            ImGui::TextWrapped(
+                "Pass two files on the command line, for example:\n\n"
+                "    nmxmldiff before.xml after.xml\n\n"
+                "Perforce and Git can be configured to do that for you; see "
+                "docs/vcs-integration.md.");
+        } else {
+            ImGui::TextDisabled("Loading...");
+        }
+        return;
+    }
+
+    if (snapshot.stage == Stage::SourcesReady || !snapshot.text) {
+        // The files are read but the alignment is still running. Showing the
+        // raw text now beats showing nothing until the diff lands.
+        ImGui::TextDisabled("Aligning lines...");
+        ImGui::Separator();
+        drawRawText(*snapshot.left, *snapshot.right);
+        return;
+    }
+
+    const float available = ImGui::GetContentRegionAvail().y;
+    ImGui::BeginChild("rows", ImVec2(ImGui::GetContentRegionAvail().x - kOverviewWidth - 4.0f, 0),
+                      ImGuiChildFlags_None);
+    drawRows(*snapshot.left, *snapshot.right, *snapshot.text);
+    ImGui::EndChild();
+
+    ImGui::SameLine(0.0f, 4.0f);
+    drawOverview(*snapshot.text, available);
+}
+
+void TextView::drawRows(const SourceFile& left, const SourceFile& right, const TextDiff& diff) {
+    constexpr ImGuiTableFlags kFlags = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY |
+                                       ImGuiTableFlags_ScrollX | ImGuiTableFlags_Resizable;
+
+    if (!ImGui::BeginTable("rows", 5, kFlags)) {
+        return;
+    }
+
+    ImGui::TableSetupScrollFreeze(0, 1);
+    ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 6.0f);
+    ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+    ImGui::TableSetupColumn(left.label().c_str(), ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn("# ", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+    ImGui::TableSetupColumn(right.label().c_str(), ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableHeadersRow();
+
+    rowHeight_ = ImGui::GetTextLineHeightWithSpacing();
+    visibleRows_ = static_cast<std::uint32_t>(
+        std::max(1.0f, ImGui::GetContentRegionAvail().y / std::max(rowHeight_, 1.0f)));
+
+    if (scrollToRow_ >= 0) {
+        // Rows are one text line tall, so the target scroll position is exact
+        // and there is no need to render the row first to find it.
+        const float target = static_cast<float>(scrollToRow_) * rowHeight_;
+        ImGui::SetScrollY(std::max(0.0f, target - rowHeight_ * 3.0f));
+        scrollToRow_ = -1;
+    }
+
+    const auto rowCount = static_cast<int>(diff.rows.size());
+    ImGuiListClipper clipper;
+    clipper.Begin(rowCount);
+    while (clipper.Step()) {
+        for (int index = clipper.DisplayStart; index < clipper.DisplayEnd; ++index) {
+            const DiffRow& row = diff.rows[static_cast<std::size_t>(index)];
+            const std::vector<WordSegment>* leftWords = nullptr;
+            const std::vector<WordSegment>* rightWords = nullptr;
+            if (row.words != kNoLine && row.words < diff.wordRuns.size()) {
+                leftWords = &diff.wordRuns[row.words].left;
+                rightWords = &diff.wordRuns[row.words].right;
+            }
+
+            ImGui::TableNextRow();
+
+            // Gutter: a solid stripe, so the shape of the change is readable
+            // without reading any of the text.
+            ImGui::TableSetColumnIndex(0);
+            if (row.status != RowStatus::Equal) {
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, markFor(row.status));
+            }
+
+            const ImU32 fill = fillFor(row.status);
+            const bool leftChanged =
+                row.status == RowStatus::Deleted || row.status == RowStatus::Modified;
+            const bool rightChanged =
+                row.status == RowStatus::Added || row.status == RowStatus::Modified;
+
+            ImGui::TableSetColumnIndex(1);
+            if (row.leftLine != kNoLine) {
+                ImGui::TextDisabled("%u", row.leftLine + 1);
+            }
+            ImGui::TableSetColumnIndex(2);
+            if (leftChanged) {
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, fill);
+            }
+            if (row.leftLine != kNoLine) {
+                drawLine(left.line(row.leftLine), leftWords, kDeletedWord);
+            }
+
+            ImGui::TableSetColumnIndex(3);
+            if (row.rightLine != kNoLine) {
+                ImGui::TextDisabled("%u", row.rightLine + 1);
+            }
+            ImGui::TableSetColumnIndex(4);
+            if (rightChanged) {
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, fill);
+            }
+            if (row.rightLine != kNoLine) {
+                drawLine(right.line(row.rightLine), rightWords, kAddedWord);
+            }
+        }
+    }
+
+    ImGui::EndTable();
+}
+
+void TextView::drawOverview(const TextDiff& diff, float height) {
+    ImGui::BeginChild("overview", ImVec2(kOverviewWidth, height), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoScrollbar);
+
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const ImVec2 size = ImGui::GetContentRegionAvail();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+
+    draw->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + size.y),
+                        IM_COL32(255, 255, 255, 10), 2.0f);
+
+    const auto rowCount = static_cast<float>(std::max<std::size_t>(diff.rows.size(), 1));
+    for (std::size_t index = 0; index < diff.rows.size(); ++index) {
+        const ImU32 mark = markFor(diff.rows[index].status);
+        if (mark == 0) {
+            continue;
+        }
+        // Every change is at least a pixel tall, so a single changed line in a
+        // large file is still findable.
+        const float y = origin.y + (static_cast<float>(index) / rowCount) * size.y;
+        draw->AddRectFilled(ImVec2(origin.x + 2.0f, y),
+                            ImVec2(origin.x + size.x - 2.0f, y + 2.0f), mark);
+    }
+
+    ImGui::InvisibleButton("overview_hit", size);
+    if (ImGui::IsItemActive() || ImGui::IsItemClicked()) {
+        const float local = ImGui::GetIO().MousePos.y - origin.y;
+        const float fraction = std::clamp(local / std::max(size.y, 1.0f), 0.0f, 1.0f);
+        scrollToRow_ = static_cast<std::int64_t>(fraction * rowCount);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    }
+
+    ImGui::EndChild();
+}
+
+void TextView::drawRawText(const SourceFile& left, const SourceFile& right) {
+    constexpr ImGuiTableFlags kFlags =
+        ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY | ImGuiTableFlags_ScrollX;
+
+    if (!ImGui::BeginTable("raw", 2, kFlags)) {
+        return;
+    }
+    ImGui::TableSetupScrollFreeze(0, 1);
+    ImGui::TableSetupColumn(left.label().c_str(), ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn(right.label().c_str(), ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableHeadersRow();
+
+    const int rows = static_cast<int>(std::max(left.lineCount(), right.lineCount()));
+    ImGuiListClipper clipper;
+    clipper.Begin(rows);
+    while (clipper.Step()) {
+        for (int index = clipper.DisplayStart; index < clipper.DisplayEnd; ++index) {
+            const auto line = static_cast<std::size_t>(index);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            if (line < left.lineCount()) {
+                const auto text = left.line(line);
+                ImGui::TextUnformatted(text.data(), text.data() + text.size());
+            }
+            ImGui::TableSetColumnIndex(1);
+            if (line < right.lineCount()) {
+                const auto text = right.line(line);
+                ImGui::TextUnformatted(text.data(), text.data() + text.size());
+            }
+        }
+    }
+    ImGui::EndTable();
+}
+
+void TextView::goToNextChange(const DiffSnapshot& snapshot) {
+    if (!snapshot.text || snapshot.text->changeBlocks.empty()) {
+        return;
+    }
+    const auto& blocks = snapshot.text->changeBlocks;
+    currentBlock_ = std::min<std::int64_t>(currentBlock_ + 1, static_cast<std::int64_t>(blocks.size()) - 1);
+    selectedRow_ = blocks[static_cast<std::size_t>(currentBlock_)];
+    scrollToRow_ = selectedRow_;
+}
+
+void TextView::goToPreviousChange(const DiffSnapshot& snapshot) {
+    if (!snapshot.text || snapshot.text->changeBlocks.empty()) {
+        return;
+    }
+    const auto& blocks = snapshot.text->changeBlocks;
+    currentBlock_ = std::max<std::int64_t>(currentBlock_ - 1, 0);
+    selectedRow_ = blocks[static_cast<std::size_t>(currentBlock_)];
+    scrollToRow_ = selectedRow_;
+}
+
+}  // namespace nmxd

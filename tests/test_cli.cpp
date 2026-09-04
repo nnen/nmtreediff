@@ -63,14 +63,26 @@ TEST_CASE("a format can be forced", "[cli]") {
     CHECK(parsed.options->format == "bt-xml");
 }
 
-TEST_CASE("missing paths are refused", "[cli]") {
+TEST_CASE("no arguments opens an empty window rather than exiting", "[cli]") {
+    // Double-clicking the executable used to flash a console and vanish. With
+    // no paths the window is expected to open and explain itself instead.
     const auto none = parseArguments({});
-    CHECK_FALSE(none.shouldRun());
-    CHECK(none.exitCode != 0);
+    REQUIRE(none.shouldRun());
+    CHECK(none.exitCode == 0);
+    CHECK_FALSE(none.options->hasInputs());
+}
 
+TEST_CASE("one path alone is refused", "[cli]") {
+    // Half a pair is a mistake rather than a deliberate empty start.
     const auto one = parseArguments({"only.xml"});
     CHECK_FALSE(one.shouldRun());
     CHECK(one.exitCode != 0);
+}
+
+TEST_CASE("headless still requires both paths", "[cli]") {
+    const auto parsed = parseArguments({"--headless"});
+    CHECK_FALSE(parsed.shouldRun());
+    CHECK(parsed.exitCode != 0);
 }
 
 TEST_CASE("an unknown view is refused rather than guessed", "[cli]") {

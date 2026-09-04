@@ -22,6 +22,8 @@ enum class ReportFormat {
 };
 
 struct Options {
+    // Both may be empty: launched with no arguments the window opens in an
+    // empty state rather than flashing a console and exiting.
     std::filesystem::path leftPath;
     std::filesystem::path rightPath;
 
@@ -40,6 +42,10 @@ struct Options {
     // Zero runs until the window is closed. This is how the budget test
     // measures startup without a person watching the window.
     unsigned maxFrames = 0;
+
+    [[nodiscard]] bool hasInputs() const noexcept {
+        return !leftPath.empty() && !rightPath.empty();
+    }
 };
 
 // The outcome of parsing: either options to run with, or a process exit code

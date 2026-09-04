@@ -5,6 +5,7 @@ add_library(nmxd_core STATIC
     jobs.cpp
     session.cpp
     source.cpp
+    textdiff.cpp
 )
 
 target_include_directories(nmxd_core PUBLIC ${CMAKE_SOURCE_DIR}/src)

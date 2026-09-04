@@ -58,13 +58,30 @@ int writeReport(std::ostream& out, const DiffSnapshot& snapshot, const Options& 
         return 2;
     }
 
-    const bool identical = snapshot.left->bytes() == snapshot.right->bytes();
+    if (!snapshot.text) {
+        const char* message = "the diff did not complete";
+        if (options.report == ReportFormat::Json) {
+            out << "{\n  \"status\": \"error\",\n  \"message\": \"" << message << "\"\n}\n";
+        } else {
+            out << "error: " << message << "\n";
+        }
+        return 2;
+    }
+
+    const TextDiff& text = *snapshot.text;
+    const bool identical = text.identical();
 
     if (options.report == ReportFormat::Json) {
         out << "{\n";
         out << "  \"status\": \"ok\",\n";
-        out << "  \"comparison\": \"bytes\",\n";
+        out << "  \"comparison\": \"lines\",\n";
         out << "  \"identical\": " << (identical ? "true" : "false") << ",\n";
+        out << "  \"quality\": \"" << jsonEscape(describe(text.quality)) << "\",\n";
+        out << "  \"added\": " << text.addedRows << ",\n";
+        out << "  \"deleted\": " << text.deletedRows << ",\n";
+        out << "  \"modified\": " << text.modifiedRows << ",\n";
+        out << "  \"unchanged\": " << text.equalRows << ",\n";
+        out << "  \"changeBlocks\": " << text.changeBlocks.size() << ",\n";
         out << "  \"elapsedMillis\": " << snapshot.elapsedMillis << ",\n";
         out << "  \"left\": { \"label\": \"" << jsonEscape(snapshot.left->label())
             << "\", \"bytes\": " << snapshot.left->size()
@@ -78,8 +95,16 @@ int writeReport(std::ostream& out, const DiffSnapshot& snapshot, const Options& 
             << snapshot.left->lineCount() << " lines\n";
         out << snapshot.right->label() << ": " << snapshot.right->size() << " bytes, "
             << snapshot.right->lineCount() << " lines\n";
-        out << (identical ? "identical" : "different") << " (byte comparison; the tree diff "
-                                                          "arrives at M3)\n";
+        if (identical) {
+            out << "identical\n";
+        } else {
+            out << "+" << text.addedRows << " -" << text.deletedRows << " ~" << text.modifiedRows
+                << " across " << text.changeBlocks.size() << " change"
+                << (text.changeBlocks.size() == 1 ? "" : "s") << "\n";
+        }
+        if (text.quality != TextDiffQuality::Full) {
+            out << "warning: " << describe(text.quality) << "\n";
+        }
     }
 
     if (options.useExitCode) {

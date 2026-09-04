@@ -2,6 +2,7 @@
 
 #include <CLI/CLI.hpp>
 
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -17,8 +18,8 @@ ParseResult parseInto(CLI::App& app, std::vector<std::string> reversedArgs) {
     std::string viewName = "text";
     std::string reportName = "text";
 
-    app.add_option("left", options.leftPath, "Left (older) file")->required();
-    app.add_option("right", options.rightPath, "Right (newer) file")->required();
+    app.add_option("left", options.leftPath, "Left (older) file");
+    app.add_option("right", options.rightPath, "Right (newer) file");
 
     app.add_option("--format", options.format,
                    "Format provider to use; sniffed from the file when omitted");
@@ -42,6 +43,14 @@ ParseResult parseInto(CLI::App& app, std::vector<std::string> reversedArgs) {
         app.parse(std::move(reversedArgs));
     } catch (const CLI::ParseError& error) {
         return ParseResult{std::nullopt, app.exit(error)};
+    }
+
+    const bool onlyOneGiven = options.leftPath.empty() != options.rightPath.empty();
+    if (onlyOneGiven || (options.headless && !options.hasInputs())) {
+        std::cerr << "nmxmldiff: two files are required"
+                  << (options.headless ? " in headless mode" : "") << '\n'
+                  << "usage: nmxmldiff [options] <left> <right>\n";
+        return ParseResult{std::nullopt, 2};
     }
 
     options.view = (viewName == "node") ? InitialView::Node : InitialView::Text;

@@ -15,6 +15,7 @@
 #include <utility>
 
 #include "core/source.h"
+#include "core/textdiff.h"
 
 namespace nmxd {
 
@@ -38,6 +39,9 @@ struct DiffSnapshot {
 
     std::shared_ptr<const SourceFile> left;
     std::shared_ptr<const SourceFile> right;
+
+    // Present from Stage::TextReady onward.
+    std::shared_ptr<const TextDiff> text;
 
     // Set when stage is Failed. Shown verbatim, so it says what went wrong and
     // which side it went wrong on.
