@@ -1,0 +1,77 @@
+# Build output
+build/
+out/
+bin/
+lib/
+cmake-build-*/
+CMakeUserPresets.json
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+install_manifest.txt
+Testing/
+
+# vcpkg
+vcpkg_installed/
+vcpkg/
+.vcpkg-root
+
+# Visual Studio
+.vs/
+*.vcxproj.user
+*.suo
+*.user
+*.sln.docstates
+*.VC.db
+*.VC.opendb
+*.aps
+
+# Other editors and tools
+.idea/
+.cache/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# Compiled and linked artifacts
+*.o
+*.obj
+*.lo
+*.slo
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.idb
+*.exp
+*.gch
+*.pch
+*.ifc
+
+# Dear ImGui runtime state
+imgui.ini
+
+# Test and profiling output
+*.gcda
+*.gcno
+*.profraw
+*.profdata
+/testdata/generated/
+
+# OS clutter
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs and scratch
+*.log
+*.tmp
