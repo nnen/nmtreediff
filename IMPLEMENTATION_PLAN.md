@@ -353,7 +353,7 @@ jobs rather than fine-grained parallelism.
 | --- | --- | --- | --- |
 | Window visible, cold start | under 200 ms | 207-211 ms (M0, over) | `--max-frames` timing run |
 | Frame time, any state | under 16 ms | 1.8-2.1 ms (M0) | `--max-frames` timing run |
-| Text view usable, 20 MB pair | under 800 ms | not yet | M1 performance test |
+| Text view usable, 20 MB pair | under 800 ms | 145 ms (M1) | M1 budget test |
 | Full match, 100k nodes | under 2 s | not yet | M3 performance test |
 | Cancellation acknowledged | under 50 ms | not yet | M3 cancellation test |
 
@@ -381,6 +381,11 @@ node whose span contains it.
   provider before diffing, so whitespace or attribute-order churn stops
   drowning real edits. Off by default, because a diff tool that silently
   reformats its input is one people stop trusting.
+- **Two guards, both of which announce themselves.** An edit-distance ceiling,
+  and a step budget on the alignment. The step budget is the one that bounds
+  time: alignment costs roughly the edit distance squared, so capping the
+  distance alone still allows billions of steps on two files that share
+  nothing.
 
 ### Node view
 
@@ -431,7 +436,7 @@ submissions, and it is also how the end-to-end tests run.
 | # | Milestone | Contents | Done when |
 | --- | --- | --- | --- |
 | M0 &check; | Skeleton and job system | CMake with pinned FetchContent, ImGui window with docking, worker pool with stop tokens, snapshot publishing, argument parsing, headless reporting | Done, except that startup measures 207-211 ms against the 200 ms target; file loading is off the frame loop and the worst frame is 2.1 ms |
-| M1 | Text diff | SourceFile, Myers line diff, word highlighting, synchronised scrolling, gutter and overview, staged publishing with progress | A 20 MB pair is readable inside the budget with the frame loop never stalling |
+| M1 &check; | Text diff | SourceFile, Myers line diff, word highlighting, synchronised scrolling, gutter and overview, staged publishing with progress | A 20 MB pair is readable inside the budget with the frame loop never stalling |
 | M2 | Model and generic XML | Tree arena, spans, provider interface, property ranking, registry, generic XML provider, subtree hashing | A parsed tree round-trips its spans and hashes deterministically |
 | M3 | Diff engine | The four passes, DiffModel, size guard with visible degraded mode, cancellation, golden-file tests, performance tests | Golden tests pass and the hundred-thousand-node case meets its budget |
 | M4 | Node view | Canvas, tidy-tree layout on a worker, node cards, status colouring, collapsing, view switching, shared selection | Both views show the same snapshot and cross-select |
