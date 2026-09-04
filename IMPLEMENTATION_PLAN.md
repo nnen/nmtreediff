@@ -61,7 +61,7 @@ this plan. It moves four things from nice-to-have into scope.
 | GUI | Dear ImGui, docking branch | Docking is what the text, node, and details panel layout needs. |
 | Backend | GLFW + OpenGL 3.3 | One code path on Windows, Linux, and macOS. A DirectX 11 backend can sit behind the same interface if Windows startup time demands it. |
 | Build | CMake 3.25+ with pinned FetchContent | Dependencies are pinned by exact git ref rather than taken from a package manager, so a contributor needs only CMake, Ninja and a compiler. Revisit vcpkg if binary caching in CI becomes worth the extra prerequisite. |
-| XML parser | pugixml | Small, fast, preserves document order, and exposes byte offsets, which the node view needs to link back to the text view. |
+| XML parser | pugixml | Small, fast, and preserves document order. Its offsets are only half the story: it reports where a node starts but not where it ends, and reports nothing for attributes, so spans are recovered by scanning the original bytes with quote awareness. Worth knowing before assuming a parser swap is cheap. |
 | JSON parser | simdjson, on-demand API | The deciding factor is byte offsets, not speed: node spans are what link the two views, and simdjson exposes a source location for every value. nlohmann/json does not, which rules it out despite being the obvious default. See the note on comment-bearing JSON in section 6. |
 | Argument parsing | CLI11 | Plain named options are enough, because Perforce lets the user define the argument order for a custom diff tool. No tolerance hacks needed. |
 | Licence | MIT | Permissive enough to clear a studio legal review without a conversation, which is a precondition for the adoption this tool is aiming at. It also lets a studio vendor the core library into an internal tool. |
@@ -236,8 +236,10 @@ early forces every provider to be written with round-tripping in mind.
 
 The registry resolves a provider by an explicit format option first, then by
 the highest sniffing score, then falls back to the generic XML provider.
-Registration is a static initializer per format, so adding a format is one
-translation unit and no edits anywhere else. Since this interface is the
+Registration is an explicit list rather than a static initialiser per format.
+In a static library the linker drops a translation unit nothing references,
+taking its self-registration with it, and a format that silently vanishes from
+a release build is far worse than one list that has to be edited. Since this interface is the
 studio-facing surface, it carries a version number from the first release and
 changes to it are additive.
 
@@ -437,7 +439,7 @@ submissions, and it is also how the end-to-end tests run.
 | --- | --- | --- | --- |
 | M0 &check; | Skeleton and job system | CMake with pinned FetchContent, ImGui window with docking, worker pool with stop tokens, snapshot publishing, argument parsing, headless reporting | Done, except that startup measures 207-211 ms against the 200 ms target; file loading is off the frame loop and the worst frame is 2.1 ms |
 | M1 &check; | Text diff | SourceFile, Myers line diff, word highlighting, synchronised scrolling, gutter and overview, staged publishing with progress | A 20 MB pair is readable inside the budget with the frame loop never stalling |
-| M2 | Model and generic XML | Tree arena, spans, provider interface, property ranking, registry, generic XML provider, subtree hashing | A parsed tree round-trips its spans and hashes deterministically |
+| M2 &check; | Model and generic XML | Tree arena, spans, provider interface, property ranking, registry, generic XML provider, subtree hashing | A parsed tree round-trips its spans and hashes deterministically |
 | M3 | Diff engine | The four passes, DiffModel, size guard with visible degraded mode, cancellation, golden-file tests, performance tests | Golden tests pass and the hundred-thousand-node case meets its budget |
 | M4 | Node view | Canvas, tidy-tree layout on a worker, node cards, status colouring, collapsing, view switching, shared selection | Both views show the same snapshot and cross-select |
 | M5 | JSON | Generic JSON provider on simdjson, spans from source locations, ordered arrays and unordered object members, sniffing between the two built-ins | A JSON pair diffs correctly and no interface change was needed to get there |

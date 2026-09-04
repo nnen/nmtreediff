@@ -5,12 +5,13 @@ A lightweight GUI tool for diffing tree-shaped data. It shows the same diff two
 ways, as text and as a node graph, and it runs from the command line so it can
 serve as the diff tool for Perforce or another version control system.
 
-**Status: early. Milestones M0 and M1 have landed.** The text view works:
+**Status: early. Milestones M0 to M2 have landed.** The text view works:
 it aligns the two files, marks added, deleted and modified lines, picks out
-the changed words within a rewritten line, and navigates between changes. The
-headless path reports those counts and returns exit codes. There is no tree
-parser or node view yet. The sections below describe the tool that is being
-built, not one that is finished.
+the changed words within a rewritten line, and navigates between changes. Both
+sides are parsed into trees through the format provider interface, and the
+details panel shows the parsed outline. The trees are not matched against each
+other yet, so there is no node view. The sections below describe the tool that
+is being built, not one that is finished.
 
 Why
 ---
