@@ -1,0 +1,17 @@
+# The core library links against no GUI target. That is what keeps the engine
+# testable in continuous integration and reusable by a future merge tool.
+
+add_library(nmxd_core STATIC
+    jobs.cpp
+    session.cpp
+    source.cpp
+)
+
+target_include_directories(nmxd_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_compile_features(nmxd_core PUBLIC cxx_std_20)
+target_link_libraries(nmxd_core PRIVATE nmxd_warnings)
+
+find_package(Threads REQUIRED)
+target_link_libraries(nmxd_core PUBLIC Threads::Threads)
+
+add_library(nmxd::core ALIAS nmxd_core)

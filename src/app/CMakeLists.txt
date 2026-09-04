@@ -1,0 +1,40 @@
+# The command line surface and the entry point. The GUI is a separate library
+# so that the headless path, and the tests, never link a window toolkit.
+
+add_library(nmxd_cli STATIC
+    cli.cpp
+    report.cpp
+)
+target_include_directories(nmxd_cli PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(nmxd_cli
+    PUBLIC nmxd::core
+    PRIVATE CLI11::CLI11 nmxd_warnings
+)
+target_compile_definitions(nmxd_cli PRIVATE NMXD_VERSION="${PROJECT_VERSION}")
+add_library(nmxd::cli ALIAS nmxd_cli)
+
+if(NMXD_BUILD_GUI)
+    add_library(nmxd_ui STATIC
+        ${CMAKE_SOURCE_DIR}/src/ui/app_window.cpp
+    )
+    target_include_directories(nmxd_ui PUBLIC ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(nmxd_ui
+        PUBLIC nmxd::core nmxd::cli
+        PRIVATE imgui::imgui nmxd_warnings
+    )
+    add_library(nmxd::ui ALIAS nmxd_ui)
+endif()
+
+add_executable(nmxmldiff main.cpp)
+target_link_libraries(nmxmldiff PRIVATE nmxd::cli nmxd_warnings)
+
+if(NMXD_BUILD_GUI)
+    target_link_libraries(nmxmldiff PRIVATE nmxd::ui)
+    target_compile_definitions(nmxmldiff PRIVATE NMXD_HAVE_GUI=1)
+else()
+    target_compile_definitions(nmxmldiff PRIVATE NMXD_HAVE_GUI=0)
+endif()
+
+# A GUI subsystem binary on Windows would lose stdout, which the headless path
+# and every version control integration depend on. Stay a console application.
+set_target_properties(nmxmldiff PROPERTIES WIN32_EXECUTABLE OFF)

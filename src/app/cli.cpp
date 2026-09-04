@@ -1,0 +1,79 @@
+#include "app/cli.h"
+
+#include <CLI/CLI.hpp>
+
+#include <string>
+#include <vector>
+
+namespace nmxd {
+
+namespace {
+
+constexpr const char* kDescription =
+    "Diff tree-shaped data in XML and JSON, as text and as a node graph.";
+
+ParseResult parseInto(CLI::App& app, std::vector<std::string> reversedArgs) {
+    Options options;
+    std::string viewName = "text";
+    std::string reportName = "text";
+
+    app.add_option("left", options.leftPath, "Left (older) file")->required();
+    app.add_option("right", options.rightPath, "Right (newer) file")->required();
+
+    app.add_option("--format", options.format,
+                   "Format provider to use; sniffed from the file when omitted");
+    app.add_option("--left-label", options.leftLabel, "Title to show for the left side");
+    app.add_option("--right-label", options.rightLabel, "Title to show for the right side");
+    app.add_option("--view", viewName, "Initial view")
+        ->check(CLI::IsMember({"text", "node"}));
+    app.add_option("--config", options.configPath, "Configuration file to load");
+
+    app.add_flag("--headless", options.headless, "Run without opening a window");
+    app.add_option("--report", reportName, "Headless output format")
+        ->check(CLI::IsMember({"text", "json"}));
+    app.add_flag("--exit-code", options.useExitCode,
+                 "Exit 0 when the inputs match and 1 when they differ");
+    app.add_option("--max-frames", options.maxFrames,
+                   "Render this many frames, print the timings and exit (0 runs normally)");
+
+    try {
+        // CLI11 consumes the vector from the back, which is why the caller
+        // hands it over already reversed.
+        app.parse(std::move(reversedArgs));
+    } catch (const CLI::ParseError& error) {
+        return ParseResult{std::nullopt, app.exit(error)};
+    }
+
+    options.view = (viewName == "node") ? InitialView::Node : InitialView::Text;
+    options.report = (reportName == "json") ? ReportFormat::Json : ReportFormat::Text;
+
+    if (options.leftLabel.empty()) {
+        options.leftLabel = options.leftPath.string();
+    }
+    if (options.rightLabel.empty()) {
+        options.rightLabel = options.rightPath.string();
+    }
+
+    return ParseResult{std::move(options), 0};
+}
+
+}  // namespace
+
+ParseResult parseArguments(const std::vector<std::string>& arguments) {
+    CLI::App app{kDescription, "nmxmldiff"};
+    app.set_version_flag("--version", std::string(NMXD_VERSION));
+
+    std::vector<std::string> reversed(arguments.rbegin(), arguments.rend());
+    return parseInto(app, std::move(reversed));
+}
+
+ParseResult parseCommandLine(int argc, char** argv) {
+    std::vector<std::string> arguments;
+    arguments.reserve(argc > 1 ? static_cast<std::size_t>(argc - 1) : 0);
+    for (int i = 1; i < argc; ++i) {
+        arguments.emplace_back(argv[i]);
+    }
+    return parseArguments(arguments);
+}
+
+}  // namespace nmxd
