@@ -56,11 +56,11 @@ this plan. It moves four things from nice-to-have into scope.
 
 | Decision | Choice | Rationale |
 | --- | --- | --- |
-| Language | C++20, headers | Settled. Modules are permitted, but a codebase this small gains little compile time from them while still paying for uneven toolchain and package-manager support, and maintenance ease counts. Keep one interface header per translation unit so the layout stays module-shaped, and reopen the question only if build times become measurably painful. |
+| Language | C++20, headers | Settled. Modules are permitted, but a codebase this small gains little compile time from them while still paying for uneven toolchain and package-manager support, and maintenance ease counts. Keep one interface header per translation unit so the layout stays module-shaped, and reopen the question only if build times become measurably painful. Note that `std::expected` is C++23, so core carries its own `Result<T, E>` of the same shape. |
 | Concurrency | UI thread plus a small `jthread` pool | Coarse cancellable jobs and immutable published snapshots. C++20 stop tokens give cancellation without a bespoke mechanism. |
 | GUI | Dear ImGui, docking branch | Docking is what the text, node, and details panel layout needs. |
 | Backend | GLFW + OpenGL 3.3 | One code path on Windows, Linux, and macOS. A DirectX 11 backend can sit behind the same interface if Windows startup time demands it. |
-| Build | CMake 3.25+, vcpkg manifest | Pinned dependencies, works from Visual Studio and from the command line. |
+| Build | CMake 3.25+ with pinned FetchContent | Dependencies are pinned by exact git ref rather than taken from a package manager, so a contributor needs only CMake, Ninja and a compiler. Revisit vcpkg if binary caching in CI becomes worth the extra prerequisite. |
 | XML parser | pugixml | Small, fast, preserves document order, and exposes byte offsets, which the node view needs to link back to the text view. |
 | JSON parser | simdjson, on-demand API | The deciding factor is byte offsets, not speed: node spans are what link the two views, and simdjson exposes a source location for every value. nlohmann/json does not, which rules it out despite being the obvious default. See the note on comment-bearing JSON in section 6. |
 | Argument parsing | CLI11 | Plain named options are enough, because Perforce lets the user define the argument order for a custom diff tool. No tolerance hacks needed. |
@@ -94,12 +94,14 @@ each side, and composes the two matchings.
 ```
 nmxmldiff/
   CMakeLists.txt
-  vcpkg.json
+  cmake/Dependencies.cmake   pinned FetchContent declarations
   LICENSE              MIT
   src/
     core/          # no GUI, no I/O beyond reading files
-      jobs.h/.cpp          worker pool, stop tokens, job chaining
+      result.h             Result<T, E>, standing in for std::expected
+      jobs.h/.cpp          worker pool, stop tokens, cancellation
       snapshot.h           DiffSnapshot, the one thing the UI reads
+      session.h/.cpp       owns the pool and the snapshot box
       source.h/.cpp        SourceFile: bytes, line index, label
       tree.h/.cpp          Node, Tree, NodeId, Property, SourceSpan
       provider.h           IFormatProvider and its value types
@@ -197,7 +199,7 @@ public:
     virtual int score(const SourceFile&) const = 0;
 
     // Called on a worker; must not touch shared mutable state.
-    virtual std::expected<Tree, ParseError>
+    virtual Result<Tree, ParseError>
         parse(const SourceFile&, std::stop_token) const = 0;
 
     // Consulted by the matcher before any structural heuristic runs.
@@ -215,9 +217,9 @@ public:
     virtual bool childrenOrdered(const Tree&, NodeId) const { return true; }
 
     // Reserved for the merge milestone; the default reports unsupported.
-    virtual std::expected<std::string, SerializeError>
+    virtual Result<std::string, SerializeError>
         serialize(const Tree&) const {
-        return std::unexpected(SerializeError::NotSupported);
+        return fail(SerializeError::NotSupported);
     }
 };
 ```
@@ -347,13 +349,13 @@ jobs rather than fine-grained parallelism.
 
 ### Budgets
 
-| Measure | Target | Verified by |
-| --- | --- | --- |
-| Window visible, cold start | under 200 ms | M0 startup test |
-| Frame time, any state | under 16 ms | frame histogram in debug builds |
-| Text view usable, 20 MB pair | under 800 ms | M1 performance test |
-| Full match, 100k nodes | under 2 s | M3 performance test |
-| Cancellation acknowledged | under 50 ms | M3 cancellation test |
+| Measure | Target | Measured | Verified by |
+| --- | --- | --- | --- |
+| Window visible, cold start | under 200 ms | 207-211 ms (M0, over) | `--max-frames` timing run |
+| Frame time, any state | under 16 ms | 1.8-2.1 ms (M0) | `--max-frames` timing run |
+| Text view usable, 20 MB pair | under 800 ms | not yet | M1 performance test |
+| Full match, 100k nodes | under 2 s | not yet | M3 performance test |
+| Cancellation acknowledged | under 50 ms | not yet | M3 cancellation test |
 
 These numbers are first estimates to design against and to measure early, not
 measurements. The point of writing them down now is that missing one is a
@@ -428,7 +430,7 @@ submissions, and it is also how the end-to-end tests run.
 
 | # | Milestone | Contents | Done when |
 | --- | --- | --- | --- |
-| M0 | Skeleton and job system | CMake, vcpkg manifest, ImGui window with docking, worker pool with stop tokens, snapshot publishing, argument parsing, CI on Windows and Linux | The window appears inside the startup budget and file loading happens off the frame loop |
+| M0 &check; | Skeleton and job system | CMake with pinned FetchContent, ImGui window with docking, worker pool with stop tokens, snapshot publishing, argument parsing, headless reporting | Done, except that startup measures 207-211 ms against the 200 ms target; file loading is off the frame loop and the worst frame is 2.1 ms |
 | M1 | Text diff | SourceFile, Myers line diff, word highlighting, synchronised scrolling, gutter and overview, staged publishing with progress | A 20 MB pair is readable inside the budget with the frame loop never stalling |
 | M2 | Model and generic XML | Tree arena, spans, provider interface, property ranking, registry, generic XML provider, subtree hashing | A parsed tree round-trips its spans and hashes deterministically |
 | M3 | Diff engine | The four passes, DiffModel, size guard with visible degraded mode, cancellation, golden-file tests, performance tests | Golden tests pass and the hundred-thousand-node case meets its budget |

@@ -5,9 +5,11 @@ A lightweight GUI tool for diffing tree-shaped data. It shows the same diff two
 ways, as text and as a node graph, and it runs from the command line so it can
 serve as the diff tool for Perforce or another version control system.
 
-**Status: planning. There is no code in this repository yet.** What exists is
-the requirements and a plan for building against them. The sections below
-describe the tool that is being built, not one that runs today.
+**Status: early. Milestone M0 has landed.** The window opens, docks its
+panels, reads both files on a worker thread and shows them side by side, and
+the headless path reports and returns exit codes. There is no diff engine yet,
+so what it reports today is a byte comparison. The sections below describe the
+tool that is being built, not one that is finished.
 
 Why
 ---
@@ -40,9 +42,38 @@ What it does
 Planned stack
 -------------
 
-C++20 with Dear ImGui on GLFW and OpenGL 3.3, built with CMake and vcpkg.
-pugixml for XML, simdjson for JSON, Catch2 for tests. See the implementation
-plan for why each was chosen.
+C++20 with Dear ImGui on GLFW and OpenGL 3.3, built with CMake. Dependencies
+are fetched and pinned by exact git ref, so you need only CMake, a generator
+and a compiler. pugixml for XML, simdjson for JSON, Catch2 for tests. See the
+implementation plan for why each was chosen.
+
+Building
+--------
+
+Needs CMake 3.25 or newer and a C++20 compiler. Dependencies are fetched and
+pinned by the build, so nothing else has to be installed. On Windows the
+Microsoft toolchain is the tested one; Clang needs version 19 or newer to
+match the Microsoft standard library it compiles against.
+
+```
+cmake -S . -B build
+cmake --build build --config RelWithDebInfo
+```
+
+Run the tests:
+
+```
+ctest --test-dir build -C RelWithDebInfo --output-on-failure
+```
+
+Compare two files:
+
+```
+build/bin/RelWithDebInfo/nmxmldiff testdata/sample/tree_before.xml testdata/sample/tree_after.xml
+```
+
+Add `--headless --report json --exit-code` to run without a window, which is
+also how a script or a continuous integration check would use it.
 
 Repository contents
 -------------------
