@@ -3,6 +3,8 @@
 
 #include "ui/text_view.h"
 
+#include "core/layout_tree.h"
+
 #include <algorithm>
 #include <string_view>
 #include <vector>
@@ -127,7 +129,49 @@ void drawLine(std::string_view text, const std::vector<WordSegment>* segments, I
 
 }  // namespace
 
-void TextView::draw(const DiffSnapshot& snapshot) {
+namespace {
+
+/// \brief Turns a clicked row into a selection in the corresponding tree.
+///
+/// \param snapshot The snapshot being displayed.
+/// \param row The row that was clicked.
+/// \param selection The shared selection to write.
+///
+/// \remarks Prefers the right side, because that is the version being reviewed;
+///          a row that exists only on the left resolves against the left tree
+///          instead. A row whose tree has not been parsed yet selects nothing.
+void selectRow(const DiffSnapshot& snapshot, const DiffRow& row, Selection& selection) {
+    const bool useRight = row.rightLine != kNoLine && snapshot.rightTree != nullptr;
+    const bool useLeft = row.leftLine != kNoLine && snapshot.leftTree != nullptr;
+    if (!useRight && !useLeft) {
+        return;
+    }
+
+    const Side side = useRight ? Side::Right : Side::Left;
+    const SourceFile& source = useRight ? *snapshot.right : *snapshot.left;
+    const Tree& tree = useRight ? *snapshot.rightTree : *snapshot.leftTree;
+    const std::uint32_t line = useRight ? row.rightLine : row.leftLine;
+
+    // The first non-blank column of the line, so clicking an indented element
+    // lands on that element rather than on its parent.
+    std::uint32_t offset = source.lineStart(line);
+    const std::string_view text = source.line(line);
+    for (char c : text) {
+        if (c != ' ' && c != '\t') {
+            break;
+        }
+        ++offset;
+    }
+
+    const NodeId node = findNodeAt(tree, offset);
+    if (node != kInvalidNode) {
+        selection.select(side, node, tree.node(node).span.begin);
+    }
+}
+
+}  // namespace
+
+void TextView::draw(const DiffSnapshot& snapshot, Selection& selection) {
     if (!snapshot.hasSources()) {
         if (snapshot.stage == Stage::Failed) {
             ImGui::TextColored(ImVec4(0.88f, 0.45f, 0.43f, 1.0f), "%s", snapshot.message.c_str());
@@ -154,17 +198,50 @@ void TextView::draw(const DiffSnapshot& snapshot) {
         return;
     }
 
+    followSelection(snapshot, selection);
+
     const float available = ImGui::GetContentRegionAvail().y;
     ImGui::BeginChild("rows", ImVec2(ImGui::GetContentRegionAvail().x - kOverviewWidth - 4.0f, 0),
                       ImGuiChildFlags_None);
-    drawRows(*snapshot.left, *snapshot.right, *snapshot.text);
+    drawRows(snapshot, *snapshot.text, selection);
     ImGui::EndChild();
 
     ImGui::SameLine(0.0f, 4.0f);
     drawOverview(*snapshot.text, available);
 }
 
-void TextView::drawRows(const SourceFile& left, const SourceFile& right, const TextDiff& diff) {
+/// \brief Scrolls to the row holding a selection made in the other view.
+///
+/// \param snapshot The snapshot being displayed.
+/// \param selection The shared selection.
+///
+/// \remarks Acts only on a revision it has not seen, so the view follows a
+///          selection someone else made without fighting the one it made itself.
+void TextView::followSelection(const DiffSnapshot& snapshot, const Selection& selection) {
+    if (!selection.active() || selection.revision == followedRevision_ || !snapshot.text) {
+        return;
+    }
+    followedRevision_ = selection.revision;
+
+    const SourceFile* source =
+        selection.side == Side::Left ? snapshot.left.get() : snapshot.right.get();
+    if (source == nullptr) {
+        return;
+    }
+
+    const std::size_t line = source->lineAt(selection.offset);
+    const auto& lineToRow =
+        selection.side == Side::Left ? snapshot.text->leftLineToRow : snapshot.text->rightLineToRow;
+    if (line >= lineToRow.size()) {
+        return;
+    }
+    scrollToRow_ = lineToRow[line];
+    selectedRow_ = lineToRow[line];
+}
+
+void TextView::drawRows(const DiffSnapshot& snapshot, const TextDiff& diff, Selection& selection) {
+    const SourceFile& left = *snapshot.left;
+    const SourceFile& right = *snapshot.right;
     constexpr ImGuiTableFlags kFlags = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY |
                                        ImGuiTableFlags_ScrollX | ImGuiTableFlags_Resizable;
 
@@ -242,6 +319,17 @@ void TextView::drawRows(const SourceFile& left, const SourceFile& right, const T
             }
             if (row.rightLine != kNoLine) {
                 drawLine(right.line(row.rightLine), rightWords, kAddedWord);
+            }
+
+            // The whole row is the click target, so selecting does not depend on
+            // hitting the text rather than the space beside it.
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+                ImGui::IsMouseHoveringRect(
+                    ImVec2(ImGui::GetWindowPos().x, ImGui::GetCursorScreenPos().y - rowHeight_),
+                    ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth(),
+                           ImGui::GetCursorScreenPos().y))) {
+                selectRow(snapshot, row, selection);
+                selectedRow_ = static_cast<std::uint32_t>(index);
             }
         }
     }

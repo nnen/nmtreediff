@@ -3,6 +3,7 @@
 
 #include "core/session.h"
 
+#include "core/layout_tree.h"
 #include "core/provider.h"
 #include "core/textdiff.h"
 
@@ -170,8 +171,15 @@ void Session::runOpen(const SessionRequest& request, std::stop_token token, Gene
         return;
     }
 
+    auto layout = std::make_shared<TreeLayout>(
+        buildLayout(*result.leftTree, *result.rightTree, *treeDiff, *provider, token));
+    if (token.stop_requested() || layout->cancelled) {
+        return;
+    }
+
     result.stage = Stage::TreeReady;
     result.treeDiff = std::move(treeDiff);
+    result.layout = std::move(layout);
     result.elapsedMillis = elapsedMillis();
     publish(std::move(result), generation);
 }

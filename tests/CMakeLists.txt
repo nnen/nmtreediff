@@ -7,6 +7,7 @@ add_executable(nmxd_tests
     test_hash.cpp
     test_match.cpp
     test_jobs.cpp
+    test_layout.cpp
     test_result.cpp
     test_session.cpp
     test_source.cpp

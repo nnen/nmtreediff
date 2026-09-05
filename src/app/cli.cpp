@@ -48,6 +48,8 @@ ParseResult parseInto(CLI::App& app, std::vector<std::string> reversedArgs) {
                  "Exit 0 when the inputs match and 1 when they differ");
     app.add_option("--max-frames", options.maxFrames,
                    "Render this many frames, print the timings and exit (0 runs normally)");
+    app.add_option("--screenshot", options.screenshotPath,
+                   "Save the last rendered frame to this file as a bitmap");
 
     try {
         // CLI11 consumes the vector from the back, which is why the caller

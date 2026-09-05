@@ -52,6 +52,13 @@ struct Options {
     /// \brief Whether to exit 0 for identical inputs and 1 for different ones.
     bool useExitCode = false;
 
+    /// \brief Save the last rendered frame to this file, then exit.
+    ///
+    /// \remarks Empty saves nothing. Meant for looking at the interface without
+    ///          a person watching it, and for catching a visual regression that
+    ///          no assertion would notice.
+    std::filesystem::path screenshotPath;
+
     /// \brief Render this many frames, print the timings and exit.
     ///
     /// \remarks Zero runs until the window is closed. This is how the budget

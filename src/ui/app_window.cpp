@@ -3,6 +3,8 @@
 
 #include "ui/app_window.h"
 
+#include "ui/screenshot.h"
+
 #include <algorithm>
 #include <cstdio>
 
@@ -143,6 +145,13 @@ int AppWindow::run() {
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
+        // Read back before the swap, while the frame just drawn is still
+        // the one attached to the context.
+        if (!options_.screenshotPath.empty() && options_.maxFrames > 0 &&
+            framesPresented_ + 1 >= options_.maxFrames) {
+            captureFrame(width, height);
+        }
+
         glfwSwapBuffers(window_);
 
         const auto frameEnd = std::chrono::steady_clock::now();
@@ -180,6 +189,22 @@ int AppWindow::run() {
     return 0;
 }
 
+void AppWindow::captureFrame(int width, int height) {
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+    std::vector<std::uint8_t> pixels(static_cast<std::size_t>(width) *
+                                     static_cast<std::size_t>(height) * 4);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+
+    if (writeBitmap(options_.screenshotPath, width, height, pixels)) {
+        std::printf("screenshot=%s\n", options_.screenshotPath.string().c_str());
+    } else {
+        std::fprintf(stderr, "could not write %s\n", options_.screenshotPath.string().c_str());
+    }
+}
+
 void AppWindow::buildFrame() {
     drawMenuBar();
     layoutDockSpaceOnce();
@@ -191,7 +216,16 @@ void AppWindow::buildFrame() {
     // Change navigation is bound globally rather than to a focused widget, so
     // it works wherever the caret happens to be.
     if (ImGui::IsKeyPressed(ImGuiKey_F8, false)) {
-        if (ImGui::GetIO().KeyShift) {
+        const bool backwards = ImGui::GetIO().KeyShift;
+        if (view_ == InitialView::Node) {
+            // Node changes and line changes are different lists, so navigation
+            // follows whichever view the reader is actually looking at.
+            if (backwards) {
+                nodeView_.goToPreviousChange(current, selection_);
+            } else {
+                nodeView_.goToNextChange(current, selection_);
+            }
+        } else if (backwards) {
             textView_.goToPreviousChange(current);
         } else {
             textView_.goToNextChange(current);
@@ -202,6 +236,14 @@ void AppWindow::buildFrame() {
     drawNodeView(current);
     drawDetails(current);
     drawStatusBar(current);
+
+    // Focusing a window requires it to exist, and the panels are only created
+    // by the calls above. Doing this after the first frame has built them is
+    // what makes --view actually pick the tab that opens.
+    if (!initialViewFocused_ && framesPresented_ > 0) {
+        ImGui::SetWindowFocus(view_ == InitialView::Node ? kNodeViewTitle : kTextViewTitle);
+        initialViewFocused_ = true;
+    }
 }
 
 void AppWindow::drawMenuBar() {
@@ -270,7 +312,7 @@ void AppWindow::drawTextView(const DiffSnapshot& snapshot) {
         ImGui::End();
         return;
     }
-    textView_.draw(snapshot);
+    textView_.draw(snapshot, selection_);
     ImGui::End();
 }
 
@@ -280,19 +322,7 @@ void AppWindow::drawNodeView(const DiffSnapshot& snapshot) {
         return;
     }
 
-    ImGui::TextDisabled("The node view arrives at milestone M4.");
-    ImGui::Spacing();
-    ImGui::TextWrapped(
-        "It will draw the union of both trees as a graph, coloured by change status, sharing its "
-        "selection with the text view.");
-
-    if (snapshot.hasSources()) {
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
-        ImGui::Text("Sources are loaded and ready for the parser at M2.");
-    }
-
+    nodeView_.draw(snapshot, selection_);
     ImGui::End();
 }
 

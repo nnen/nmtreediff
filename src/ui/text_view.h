@@ -6,6 +6,7 @@
 #include <cstdint>
 
 #include "core/snapshot.h"
+#include "ui/selection.h"
 
 namespace nmxd {
 
@@ -19,7 +20,13 @@ public:
     ///
     /// \param snapshot What to draw. Earlier stages render an explanatory state
     ///        rather than an empty pane.
-    void draw(const DiffSnapshot& snapshot);
+    /// \param selection The selection shared with the node view, read and
+    ///        written.
+    ///
+    /// \remarks Clicking a row selects the innermost node covering that line, so
+    ///          the node view follows. A selection made elsewhere scrolls this
+    ///          view to the line the node starts on.
+    void draw(const DiffSnapshot& snapshot, Selection& selection);
 
     /// \brief Scrolls to the next block of changed rows.
     ///
@@ -37,7 +44,8 @@ public:
     [[nodiscard]] std::uint32_t selectedRow() const noexcept { return selectedRow_; }
 
 private:
-    void drawRows(const SourceFile& left, const SourceFile& right, const TextDiff& diff);
+    void drawRows(const DiffSnapshot& snapshot, const TextDiff& diff, Selection& selection);
+    void followSelection(const DiffSnapshot& snapshot, const Selection& selection);
     void drawOverview(const TextDiff& diff, float height);
     void drawRawText(const SourceFile& left, const SourceFile& right);
 
@@ -46,6 +54,7 @@ private:
     std::int64_t currentBlock_ = -1;  // index into TextDiff::changeBlocks
     float rowHeight_ = 0.0f;
     std::uint32_t visibleRows_ = 0;
+    std::uint64_t followedRevision_ = 0;
 };
 
 }  // namespace nmxd

@@ -1,0 +1,479 @@
+/// \file
+/// \brief Implementation of the node view canvas.
+
+#include "ui/node_view.h"
+
+#include <algorithm>
+#include <cmath>
+#include <string>
+
+#include <imgui.h>
+
+namespace nmxd {
+
+namespace {
+
+/// \brief Card outline and text colour for an added node.
+constexpr ImU32 kAddedInk = IM_COL32(96, 200, 140, 255);
+/// \brief Card outline and text colour for a deleted node.
+constexpr ImU32 kDeletedInk = IM_COL32(226, 110, 105, 255);
+/// \brief Card outline and text colour for a modified node.
+constexpr ImU32 kModifiedInk = IM_COL32(224, 176, 82, 255);
+/// \brief Card outline and text colour for a moved node.
+constexpr ImU32 kMovedInk = IM_COL32(168, 143, 224, 255);
+
+/// \brief Card fill behind an unchanged node.
+constexpr ImU32 kUnchangedFill = IM_COL32(38, 42, 50, 255);
+/// \brief Card outline for an unchanged node.
+constexpr ImU32 kUnchangedEdge = IM_COL32(78, 86, 98, 255);
+/// \brief Colour of the lines joining a parent to its children.
+constexpr ImU32 kEdgeColour = IM_COL32(110, 120, 134, 190);
+/// \brief Colour of the dashed line back to where a moved node used to sit.
+constexpr ImU32 kGhostColour = IM_COL32(168, 143, 224, 120);
+/// \brief Outline drawn around the selected card.
+constexpr ImU32 kSelectionColour = IM_COL32(240, 244, 250, 255);
+/// \brief Background of the canvas.
+constexpr ImU32 kCanvasColour = IM_COL32(22, 25, 31, 255);
+
+/// \brief Below this zoom, cards are drawn as plain boxes with no text.
+///
+/// \remarks Text is the expensive part of drawing a card, and below this scale
+///          it is illegible anyway.
+constexpr float kTextZoomThreshold = 0.55f;
+
+/// \brief Size of the minimap along its longest edge, in pixels.
+constexpr float kMinimapSize = 150.0f;
+
+/// \brief Chooses the ink colour for a change status.
+///
+/// \param status The node's status.
+///
+/// \returns The colour to outline and letter the card in.
+ImU32 inkFor(NodeStatus status) {
+    switch (status) {
+        case NodeStatus::Added:
+            return kAddedInk;
+        case NodeStatus::Deleted:
+            return kDeletedInk;
+        case NodeStatus::Modified:
+            return kModifiedInk;
+        case NodeStatus::Moved:
+            return kMovedInk;
+        case NodeStatus::Unchanged:
+            break;
+    }
+    return kUnchangedEdge;
+}
+
+/// \brief Blends a colour towards transparency.
+///
+/// \param colour The colour to fade.
+/// \param alpha The alpha to apply, from 0 to 255.
+///
+/// \returns The faded colour.
+ImU32 withAlpha(ImU32 colour, int alpha) {
+    return (colour & 0x00FFFFFFu) | (static_cast<ImU32>(std::clamp(alpha, 0, 255)) << 24);
+}
+
+/// \brief Draws a dashed line, used for the edge back to a former parent.
+///
+/// \param draw The draw list to add to.
+/// \param from Where the line starts.
+/// \param to Where the line ends.
+/// \param colour The line colour.
+/// \param dash Length of one dash and of the gap that follows it.
+void addDashedLine(ImDrawList* draw, const ImVec2& from, const ImVec2& to, ImU32 colour,
+                   float dash) {
+    const float dx = to.x - from.x;
+    const float dy = to.y - from.y;
+    const float length = std::sqrt(dx * dx + dy * dy);
+    if (length < 1.0f || dash < 0.5f) {
+        return;
+    }
+    const float stepX = dx / length;
+    const float stepY = dy / length;
+    for (float at = 0.0f; at < length; at += dash * 2.0f) {
+        const float end = std::min(at + dash, length);
+        draw->AddLine(ImVec2(from.x + stepX * at, from.y + stepY * at),
+                      ImVec2(from.x + stepX * end, from.y + stepY * end), colour, 1.2f);
+    }
+}
+
+}  // namespace
+
+void NodeView::draw(const DiffSnapshot& snapshot, Selection& selection) {
+    if (snapshot.stage == Stage::Failed) {
+        ImGui::TextColored(ImVec4(0.88f, 0.45f, 0.43f, 1.0f), "%s", snapshot.message.c_str());
+        return;
+    }
+    if (!snapshot.layout || snapshot.layout->empty()) {
+        if (snapshot.stage == Stage::Idle) {
+            ImGui::TextDisabled("Nothing open.");
+        } else {
+            ImGui::TextDisabled("Building the node view...");
+        }
+        return;
+    }
+
+    const TreeLayout& layout = *snapshot.layout;
+
+    // A new layout invalidates a pan and zoom that belonged to the old one.
+    const auto stamp = reinterpret_cast<std::uint64_t>(&layout);
+    if (stamp != layoutStamp_) {
+        layoutStamp_ = stamp;
+        framed_ = false;
+        collapsed_.clear();
+        currentChange_ = -1;
+        collapseUnchanged(snapshot);
+    }
+
+    if (ImGui::SmallButton("Fit")) {
+        framed_ = false;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Expand all")) {
+        expandAll();
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Collapse unchanged")) {
+        collapseUnchanged(snapshot);
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("%zu nodes  |  drag to pan, wheel to zoom", layout.size());
+
+    drawCanvas(layout, snapshot, selection);
+}
+
+void NodeView::drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot,
+                          Selection& selection) {
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    ImVec2 size = ImGui::GetContentRegionAvail();
+    size.x = std::max(size.x, 64.0f);
+    size.y = std::max(size.y, 64.0f);
+
+    canvasX_ = origin.x;
+    canvasY_ = origin.y;
+    canvasWidth_ = size.x;
+    canvasHeight_ = size.y;
+
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + size.y), kCanvasColour);
+    draw->PushClipRect(origin, ImVec2(origin.x + size.x, origin.y + size.y), true);
+
+    if (!framed_) {
+        // Fit the whole drawing, but never magnify past life size on a small
+        // tree, which would look like a mistake rather than a choice.
+        const float scaleX = size.x / std::max(layout.width, 1.0f);
+        const float scaleY = size.y / std::max(layout.height, 1.0f);
+        zoom_ = std::clamp(std::min(scaleX, scaleY) * 0.92f, 0.05f, 1.0f);
+        panX_ = (size.x - layout.width * zoom_) * 0.5f;
+        // Centred vertically too, so a small tree sits in the canvas rather
+        // than clinging to the top of a mostly empty one.
+        panY_ = std::max(24.0f, (size.y - layout.height * zoom_) * 0.5f);
+        framed_ = true;
+    }
+
+    followSelection(layout, selection);
+
+    ImGui::InvisibleButton("canvas", size,
+                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+    const bool hovered = ImGui::IsItemHovered();
+    const ImGuiIO& io = ImGui::GetIO();
+
+    if (hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+        panX_ += io.MouseDelta.x;
+        panY_ += io.MouseDelta.y;
+    }
+    if (hovered && io.MouseWheel != 0.0f) {
+        // Zoom about the cursor, so the thing under the pointer stays under it.
+        const float previous = zoom_;
+        zoom_ = std::clamp(zoom_ * std::pow(1.12f, io.MouseWheel), 0.05f, 3.0f);
+        const float localX = io.MousePos.x - origin.x;
+        const float localY = io.MousePos.y - origin.y;
+        panX_ = localX - (localX - panX_) * (zoom_ / previous);
+        panY_ = localY - (localY - panY_) * (zoom_ / previous);
+    }
+
+    const auto toScreen = [&](float x, float y) {
+        return ImVec2(origin.x + panX_ + x * zoom_, origin.y + panY_ + y * zoom_);
+    };
+
+    hovered_ = kInvalidLayout;
+    const LayoutId selected =
+        selection.active() ? layout.find(selection.side, selection.node) : kInvalidLayout;
+
+    // Edges first, so a card always sits on top of the lines reaching it.
+    for (std::size_t i = 0; i < layout.nodes.size(); ++i) {
+        const LayoutNode& card = layout.nodes[i];
+        if (card.parent == kInvalidLayout || hiddenByCollapse(layout, static_cast<LayoutId>(i))) {
+            continue;
+        }
+        const LayoutNode& parent = layout.nodes[card.parent];
+        const ImVec2 from = toScreen(parent.x + parent.width * 0.5f, parent.y + parent.height);
+        const ImVec2 to = toScreen(card.x + card.width * 0.5f, card.y);
+        if (std::max(from.y, to.y) < origin.y || std::min(from.y, to.y) > origin.y + size.y) {
+            continue;
+        }
+        draw->AddBezierCubic(from, ImVec2(from.x, (from.y + to.y) * 0.5f),
+                             ImVec2(to.x, (from.y + to.y) * 0.5f), to, kEdgeColour, 1.4f);
+    }
+
+    // A ghost edge shows where a moved node came from, so a move reads as one
+    // node that went somewhere rather than two unrelated changes.
+    for (std::size_t i = 0; i < layout.nodes.size(); ++i) {
+        const LayoutNode& card = layout.nodes[i];
+        if (card.movedFrom == kInvalidLayout || hiddenByCollapse(layout, static_cast<LayoutId>(i))) {
+            continue;
+        }
+        const LayoutNode& from = layout.nodes[card.movedFrom];
+        addDashedLine(draw, toScreen(from.x + from.width * 0.5f, from.y + from.height * 0.5f),
+                      toScreen(card.x + card.width * 0.5f, card.y + card.height * 0.5f),
+                      kGhostColour, 6.0f);
+    }
+
+    const bool drawText = zoom_ >= kTextZoomThreshold;
+
+    for (std::size_t i = 0; i < layout.nodes.size(); ++i) {
+        const auto id = static_cast<LayoutId>(i);
+        const LayoutNode& card = layout.nodes[i];
+        if (hiddenByCollapse(layout, id)) {
+            continue;
+        }
+
+        const ImVec2 topLeft = toScreen(card.x, card.y);
+        const ImVec2 bottomRight = toScreen(card.x + card.width, card.y + card.height);
+
+        // Culled by bounding box, which is what keeps a large tree affordable:
+        // only what is on screen is ever drawn.
+        if (bottomRight.x < origin.x || topLeft.x > origin.x + size.x ||
+            bottomRight.y < origin.y || topLeft.y > origin.y + size.y) {
+            continue;
+        }
+
+        const ImU32 ink = inkFor(card.status);
+        const ImU32 fill = card.status == NodeStatus::Unchanged
+                               ? kUnchangedFill
+                               : withAlpha(ink, 46);
+
+        draw->AddRectFilled(topLeft, bottomRight, fill, 3.0f);
+        draw->AddRect(topLeft, bottomRight, ink, 3.0f, 0, card.status == NodeStatus::Unchanged
+                                                             ? 1.0f
+                                                             : 1.8f);
+
+        // A stripe in the provider's own colour, so two node kinds stay
+        // distinguishable even when both are unchanged.
+        draw->AddRectFilled(
+            topLeft, ImVec2(topLeft.x + 3.0f * zoom_, bottomRight.y),
+            IM_COL32(card.accent.r, card.accent.g, card.accent.b, 255), 3.0f);
+
+        if (ImGui::IsMouseHoveringRect(topLeft, bottomRight) && hovered) {
+            hovered_ = id;
+            draw->AddRect(topLeft, bottomRight, withAlpha(kSelectionColour, 120), 3.0f, 0, 1.5f);
+        }
+        if (id == selected) {
+            draw->AddRect(ImVec2(topLeft.x - 2.0f, topLeft.y - 2.0f),
+                          ImVec2(bottomRight.x + 2.0f, bottomRight.y + 2.0f), kSelectionColour,
+                          4.0f, 0, 2.0f);
+        }
+
+        if (drawText) {
+            const float pad = 6.0f * zoom_;
+            draw->AddText(ImVec2(topLeft.x + pad + 3.0f * zoom_, topLeft.y + pad),
+                          card.status == NodeStatus::Unchanged ? IM_COL32(220, 226, 234, 255) : ink,
+                          card.title.c_str());
+            if (!card.subtitle.empty()) {
+                draw->AddText(
+                    ImVec2(topLeft.x + pad + 3.0f * zoom_, topLeft.y + pad + 16.0f * zoom_),
+                    IM_COL32(150, 158, 170, 255), card.subtitle.c_str());
+            }
+        }
+
+        // A collapsed card says how much it stands for, so nothing is hidden
+        // without the reader being told it is there.
+        if (collapsed_.count(id) != 0 && !card.children.empty()) {
+            const std::string chip = "+" + std::to_string(card.hiddenDescendants);
+            const ImVec2 at(topLeft.x + (bottomRight.x - topLeft.x) * 0.5f - 10.0f * zoom_,
+                            bottomRight.y + 3.0f * zoom_);
+            draw->AddText(at, IM_COL32(150, 158, 170, 255), chip.c_str());
+        }
+    }
+
+    if (hovered && ImGui::IsItemClicked(ImGuiMouseButton_Left) && hovered_ != kInvalidLayout) {
+        const LayoutNode& card = layout.nodes[hovered_];
+        const Tree& tree = card.side == Side::Left ? *snapshot.leftTree : *snapshot.rightTree;
+        selection.select(card.side, card.node, tree.node(card.node).span.begin);
+        followedRevision_ = selection.revision;
+    }
+    if (hovered && ImGui::IsItemClicked(ImGuiMouseButton_Right) && hovered_ != kInvalidLayout) {
+        if (collapsed_.count(hovered_) != 0) {
+            collapsed_.erase(hovered_);
+        } else if (!layout.nodes[hovered_].children.empty()) {
+            collapsed_.insert(hovered_);
+        }
+    }
+
+    draw->PopClipRect();
+    drawMinimap(layout);
+
+    if (hovered_ != kInvalidLayout) {
+        const LayoutNode& card = layout.nodes[hovered_];
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted(card.title.c_str());
+        if (!card.subtitle.empty()) {
+            ImGui::TextDisabled("%s", card.subtitle.c_str());
+        }
+        ImGui::Separator();
+        ImGui::TextDisabled("%s", describe(card.status));
+        if (!card.children.empty()) {
+            ImGui::TextDisabled("right-click to %s %u below",
+                                collapsed_.count(hovered_) != 0 ? "expand" : "collapse",
+                                card.hiddenDescendants);
+        }
+        ImGui::EndTooltip();
+    }
+}
+
+void NodeView::drawMinimap(const TreeLayout& layout) {
+    if (layout.width <= 0.0f || layout.height <= 0.0f) {
+        return;
+    }
+
+    const float scale = kMinimapSize / std::max(layout.width, layout.height);
+    const float mapWidth = layout.width * scale;
+    const float mapHeight = layout.height * scale;
+
+    const ImVec2 at(canvasX_ + canvasWidth_ - mapWidth - 12.0f,
+                    canvasY_ + canvasHeight_ - mapHeight - 12.0f);
+
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(at, ImVec2(at.x + mapWidth, at.y + mapHeight), IM_COL32(16, 18, 23, 210),
+                        3.0f);
+    draw->AddRect(at, ImVec2(at.x + mapWidth, at.y + mapHeight), IM_COL32(90, 98, 112, 200), 3.0f);
+
+    // Only changed nodes are plotted: the minimap answers "where are the
+    // changes", and plotting everything would answer nothing.
+    for (const LayoutNode& card : layout.nodes) {
+        if (card.status == NodeStatus::Unchanged) {
+            continue;
+        }
+        const ImVec2 dot(at.x + card.x * scale, at.y + card.y * scale);
+        draw->AddRectFilled(dot, ImVec2(dot.x + std::max(2.0f, card.width * scale), dot.y + 2.5f),
+                            inkFor(card.status));
+    }
+
+    // The viewport rectangle, so the reader can see where they are looking. It
+    // is clamped to the minimap: when the view is larger than the drawing, an
+    // unclamped rectangle sprawls across the canvas and reads as a bug.
+    const float viewX = -panX_ / std::max(zoom_, 0.001f);
+    const float viewY = -panY_ / std::max(zoom_, 0.001f);
+    const float viewW = canvasWidth_ / std::max(zoom_, 0.001f);
+    const float viewH = canvasHeight_ / std::max(zoom_, 0.001f);
+
+    const ImVec2 viewTopLeft(std::clamp(at.x + viewX * scale, at.x, at.x + mapWidth),
+                             std::clamp(at.y + viewY * scale, at.y, at.y + mapHeight));
+    const ImVec2 viewBottomRight(
+        std::clamp(at.x + (viewX + viewW) * scale, at.x, at.x + mapWidth),
+        std::clamp(at.y + (viewY + viewH) * scale, at.y, at.y + mapHeight));
+
+    if (viewBottomRight.x - viewTopLeft.x > 2.0f && viewBottomRight.y - viewTopLeft.y > 2.0f) {
+        draw->AddRect(viewTopLeft, viewBottomRight, IM_COL32(240, 244, 250, 150), 2.0f);
+    }
+}
+
+bool NodeView::hiddenByCollapse(const TreeLayout& layout, LayoutId id) const {
+    if (collapsed_.empty()) {
+        return false;
+    }
+    // Hidden when any ancestor is collapsed. Walking up is bounded by the depth
+    // of the tree rather than its size.
+    for (LayoutId at = layout.nodes[id].parent; at != kInvalidLayout;
+         at = layout.nodes[at].parent) {
+        if (collapsed_.count(at) != 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void NodeView::expandAll() { collapsed_.clear(); }
+
+void NodeView::collapseUnchanged(const DiffSnapshot& snapshot) {
+    collapsed_.clear();
+    if (!snapshot.layout) {
+        return;
+    }
+    const TreeLayout& layout = *snapshot.layout;
+    for (std::size_t i = 0; i < layout.nodes.size(); ++i) {
+        const LayoutNode& card = layout.nodes[i];
+        if (card.children.empty() || card.subtreeChanged) {
+            continue;
+        }
+        // Only the topmost unchanged card is collapsed; collapsing one already
+        // inside a collapsed subtree would achieve nothing.
+        if (!hiddenByCollapse(layout, static_cast<LayoutId>(i))) {
+            collapsed_.insert(static_cast<LayoutId>(i));
+        }
+    }
+}
+
+void NodeView::centreOn(const TreeLayout& layout, LayoutId id) {
+    if (id == kInvalidLayout || id >= layout.nodes.size()) {
+        return;
+    }
+    const LayoutNode& card = layout.nodes[id];
+    panX_ = canvasWidth_ * 0.5f - (card.x + card.width * 0.5f) * zoom_;
+    panY_ = canvasHeight_ * 0.5f - (card.y + card.height * 0.5f) * zoom_;
+    framed_ = true;
+}
+
+void NodeView::followSelection(const TreeLayout& layout, const Selection& selection) {
+    if (!selection.active() || selection.revision == followedRevision_) {
+        return;
+    }
+    followedRevision_ = selection.revision;
+
+    const LayoutId id = layout.find(selection.side, selection.node);
+    if (id == kInvalidLayout) {
+        return;
+    }
+    // Reveal the node by expanding whatever was hiding it, then centre on it.
+    for (LayoutId at = layout.nodes[id].parent; at != kInvalidLayout;
+         at = layout.nodes[at].parent) {
+        collapsed_.erase(at);
+    }
+    centreOn(layout, id);
+}
+
+void NodeView::goToNextChange(const DiffSnapshot& snapshot, Selection& selection) {
+    if (!snapshot.layout || !snapshot.treeDiff || snapshot.treeDiff->changes.empty()) {
+        return;
+    }
+    const auto& changes = snapshot.treeDiff->changes;
+    currentChange_ =
+        std::min<std::int64_t>(currentChange_ + 1, static_cast<std::int64_t>(changes.size()) - 1);
+
+    const Change& change = changes[static_cast<std::size_t>(currentChange_)];
+    const bool onRight = change.right != kInvalidNode;
+    const Side side = onRight ? Side::Right : Side::Left;
+    const NodeId node = onRight ? change.right : change.left;
+    const Tree& tree = onRight ? *snapshot.rightTree : *snapshot.leftTree;
+
+    selection.select(side, node, tree.node(node).span.begin);
+}
+
+void NodeView::goToPreviousChange(const DiffSnapshot& snapshot, Selection& selection) {
+    if (!snapshot.layout || !snapshot.treeDiff || snapshot.treeDiff->changes.empty()) {
+        return;
+    }
+    currentChange_ = std::max<std::int64_t>(currentChange_ - 1, 0);
+
+    const Change& change = snapshot.treeDiff->changes[static_cast<std::size_t>(currentChange_)];
+    const bool onRight = change.right != kInvalidNode;
+    const Side side = onRight ? Side::Right : Side::Left;
+    const NodeId node = onRight ? change.right : change.left;
+    const Tree& tree = onRight ? *snapshot.rightTree : *snapshot.leftTree;
+
+    selection.select(side, node, tree.node(node).span.begin);
+}
+
+}  // namespace nmxd

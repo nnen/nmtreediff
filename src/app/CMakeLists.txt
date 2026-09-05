@@ -16,6 +16,8 @@ add_library(nmxd::cli ALIAS nmxd_cli)
 if(NMXD_BUILD_GUI)
     add_library(nmxd_ui STATIC
         ${CMAKE_SOURCE_DIR}/src/ui/app_window.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/node_view.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/screenshot.cpp
         ${CMAKE_SOURCE_DIR}/src/ui/text_view.cpp
     )
     target_include_directories(nmxd_ui PUBLIC ${CMAKE_SOURCE_DIR}/src)

@@ -3,6 +3,7 @@
 
 add_library(nmxd_core STATIC
     diff.cpp
+    layout_tree.cpp
     hash.cpp
     match.cpp
     jobs.cpp

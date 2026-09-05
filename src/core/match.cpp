@@ -154,6 +154,7 @@ public:
             return std::move(result_);
         }
 
+        anchorRoots();
         matchBySimilarity(token);
         return std::move(result_);
     }
@@ -324,6 +325,31 @@ private:
         }
     }
 
+    /// \brief Pairs the two roots when they are the same kind of element.
+    ///
+    /// \remarks Runs outside the size guard, because it is constant work and
+    ///          skipping it is catastrophic: a root's hash covers the whole
+    ///          document, so it never survives an edit, and an unpaired root
+    ///          makes the classifier report the entire file as deleted and
+    ///          rewritten. The two files are two versions of one document, so
+    ///          their roots are the same node whenever they are the same kind.
+    void anchorRoots() {
+        if (left_.empty() || right_.empty()) {
+            return;
+        }
+        const NodeId leftRoot = left_.root();
+        const NodeId rightRoot = right_.root();
+        if (result_.matching.leftMatched(leftRoot) || result_.matching.rightMatched(rightRoot)) {
+            return;
+        }
+        if (left_.node(leftRoot).kind != right_.node(rightRoot).kind) {
+            return;
+        }
+        if (result_.matching.pair(leftRoot, rightRoot)) {
+            ++result_.anchoredBySimilarity;
+        }
+    }
+
     /// \brief Third pass: pairs what remains, by similarity, top down.
     ///
     /// \param token Checked once per parent pair.
@@ -339,23 +365,11 @@ private:
             return;
         }
 
+        steps_ = 0;
+
         std::deque<std::pair<NodeId, NodeId>> work;
         if (left_.empty() || right_.empty()) {
             return;
-        }
-
-        // The two files are two versions of one document, so their roots are
-        // the same node whenever they are the same kind of element. Without
-        // this the whole document reads as a replacement the moment anything
-        // inside it changes, because the root's hash covers everything below
-        // it and so never survives an edit.
-        const NodeId leftRoot = left_.root();
-        const NodeId rightRoot = right_.root();
-        if (!result_.matching.leftMatched(leftRoot) && !result_.matching.rightMatched(rightRoot) &&
-            left_.node(leftRoot).kind == right_.node(rightRoot).kind) {
-            if (result_.matching.pair(leftRoot, rightRoot)) {
-                ++result_.anchoredBySimilarity;
-            }
         }
 
         // Start from the root pair when there is one; otherwise every matched
@@ -371,7 +385,6 @@ private:
             }
         }
 
-        std::uint64_t steps = 0;
         while (!work.empty()) {
             const auto [leftParent, rightParent] = work.front();
             work.pop_front();
@@ -397,8 +410,8 @@ private:
                 }
             }
 
-            steps += static_cast<std::uint64_t>(unmatchedLeft.size()) * unmatchedRight.size();
-            if (steps > options_.maxSimilaritySteps) {
+            steps_ += static_cast<std::uint64_t>(unmatchedLeft.size()) * unmatchedRight.size();
+            if (steps_ > options_.maxSimilaritySteps) {
                 result_.quality = MatchQuality::SimilarityTrimmed;
                 return;
             }
@@ -459,7 +472,7 @@ private:
     /// \remarks Nodes of different kinds score zero: comparing an element to one
     ///          of a different name is almost never right, and letting it
     ///          through produces confident nonsense.
-    double similarity(NodeId leftId, NodeId rightId) const {
+    double similarity(NodeId leftId, NodeId rightId) {
         const Node& l = left_.node(leftId);
         const Node& r = right_.node(rightId);
 
@@ -482,6 +495,12 @@ private:
 
         // How much of each subtree is already paired with the other's. This is
         // what carries a renamed container: its contents already match.
+        // Scanning a subtree is the expensive part of scoring a candidate, so
+        // it is charged to the same budget. Counting only candidate pairs would
+        // let a handful of comparisons near the root of a large tree cost
+        // millions of operations unbilled.
+        steps_ += l.descendantCount + r.descendantCount;
+
         std::size_t common = 0;
         std::size_t leftMatchedDescendants = 0;
         for (NodeId id = leftId + 1; id <= leftId + l.descendantCount; ++id) {
@@ -550,6 +569,7 @@ private:
     MatchOptions options_;
     std::vector<std::uint32_t> leftSibling_;
     std::vector<std::uint32_t> rightSibling_;
+    std::uint64_t steps_ = 0;
     MatchResult result_;
 };
 

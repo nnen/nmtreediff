@@ -4,12 +4,16 @@
 /// \brief The window and the frame loop.
 
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "app/cli.h"
 #include "core/provider.h"
 #include "core/session.h"
+#include "ui/node_view.h"
+#include "ui/selection.h"
 #include "ui/text_view.h"
 
 struct GLFWwindow;
@@ -63,14 +67,25 @@ private:
                          const DiffModel* diff, Side side);
     void layoutDockSpaceOnce();
 
+    /// \brief Reads the framebuffer back and saves it.
+    ///
+    /// \param width Framebuffer width in pixels.
+    /// \param height Framebuffer height in pixels.
+    void captureFrame(int width, int height);
+
     Options options_;
     Session session_;
     TextView textView_;
+    NodeView nodeView_;
+
+    /// \brief What both views agree is selected.
+    Selection selection_;
 
     GLFWwindow* window_ = nullptr;
     bool running_ = false;
     bool dockLayoutDone_ = false;
     bool requestClose_ = false;
+    bool initialViewFocused_ = false;
 
     std::chrono::steady_clock::time_point processStart_;
     double startupMillis_ = 0.0;  // process start to first frame presented

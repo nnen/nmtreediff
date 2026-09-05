@@ -571,6 +571,20 @@ TextDiff diffText(const SourceFile& left, const SourceFile& right, std::stop_tok
     }
     emitGap(static_cast<std::uint32_t>(a.size()), static_cast<std::uint32_t>(b.size()));
 
+    // Indexed once the rows are final, so either view can turn a position in
+    // one document into a row in the other.
+    diff.leftLineToRow.assign(left.lineCount(), 0);
+    diff.rightLineToRow.assign(right.lineCount(), 0);
+    for (std::size_t row = 0; row < diff.rows.size(); ++row) {
+        const DiffRow& entry = diff.rows[row];
+        if (entry.leftLine != kNoLine && entry.leftLine < diff.leftLineToRow.size()) {
+            diff.leftLineToRow[entry.leftLine] = static_cast<std::uint32_t>(row);
+        }
+        if (entry.rightLine != kNoLine && entry.rightLine < diff.rightLineToRow.size()) {
+            diff.rightLineToRow[entry.rightLine] = static_cast<std::uint32_t>(row);
+        }
+    }
+
     // Word detail last, so the expensive part is the part that can be skipped.
     if (diff.modifiedRows > limits.maxWordRows) {
         // A capped alignment is the more serious of the two, so it keeps the

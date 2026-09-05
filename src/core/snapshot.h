@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "core/diff.h"
+#include "core/layout_tree.h"
 #include "core/source.h"
 #include "core/textdiff.h"
 #include "core/tree.h"
@@ -74,6 +75,12 @@ struct DiffSnapshot {
 
     /// \brief The tree diff. Present from Stage::TreeReady onward.
     std::shared_ptr<const DiffModel> treeDiff;
+
+    /// \brief The positioned union of both trees, for the node view.
+    ///
+    /// \remarks Present from Stage::TreeReady onward. Laid out on a worker, so
+    ///          the frame loop only reads positions rather than computing them.
+    std::shared_ptr<const TreeLayout> layout;
 
     /// \brief What went wrong, set when stage is Stage::Failed.
     ///

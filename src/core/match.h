@@ -102,8 +102,12 @@ enum class MatchQuality : std::uint8_t {
 struct MatchOptions {
     /// \brief Above this many nodes on a side, the similarity pass is skipped.
     ///
-    /// \remarks Skipped outright rather than started and abandoned.
-    std::uint32_t maxNodesForSimilarity = 400000;
+    /// \remarks A backstop against a pathological input, not the usual limit:
+    ///          the step budget below bounds the work, and after the second pass
+    ///          there is normally very little left for this pass to do. Set low
+    ///          it does real harm, because a file large enough to trip it is
+    ///          exactly the file a reader most needs a real diff of.
+    std::uint32_t maxNodesForSimilarity = 5'000'000;
 
     /// \brief Ceiling on candidate comparisons in the similarity pass.
     ///

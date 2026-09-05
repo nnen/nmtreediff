@@ -281,3 +281,46 @@ TEST_CASE("a hundred thousand nodes match inside the milestone budget", "[match]
     CHECK(model.modified == 110);
     CHECK(millis < 2000.0);
 }
+
+TEST_CASE("a tripped size guard still gives a real diff", "[match]") {
+    // The guard used to skip root pairing along with the similarity pass, which
+    // turned a one-property edit in a large file into a total replacement: the
+    // worst possible answer for exactly the file a reader most needs help with.
+    const auto provider = nmxd::makeGenericXmlProvider();
+
+    const auto generate = [](const char* speed) {
+        std::string xml = "<tree>";
+        for (int i = 0; i < 200; ++i) {
+            xml += "<node id=\"n" + std::to_string(i) + "\">";
+            xml += "<property name=\"speed\" value=\"";
+            xml += (i == 100) ? speed : "1.0";
+            xml += "\"/></node>";
+        }
+        xml += "</tree>";
+        return xml;
+    };
+
+    const Tree left = parse(*provider, generate("1.0"));
+    const Tree right = parse(*provider, generate("9.9"));
+
+    MatchOptions options;
+    options.maxNodesForSimilarity = 1;  // far below the tree size, so it trips
+    const auto model = nmxd::diffTrees(left, right, *provider, {}, options);
+
+    CHECK(model.quality == nmxd::MatchQuality::SimilarityTrimmed);
+
+    // Everything unchanged still pairs through the second pass, and the roots
+    // pair outside the guard, so almost nothing is reported.
+    CHECK(model.added <= 2);
+    CHECK(model.deleted <= 2);
+    CHECK(model.unchanged > 390);
+}
+
+TEST_CASE("the roots pair even when nothing else does", "[match]") {
+    const auto provider = nmxd::makeGenericXmlProvider();
+    const Tree left = parse(*provider, "<r><a x=\"1\"/></r>");
+    const Tree right = parse(*provider, "<r><b y=\"2\"/></r>");
+
+    const auto result = nmxd::matchTrees(left, right, *provider);
+    CHECK(result.matching.toRight(left.root()) == right.root());
+}

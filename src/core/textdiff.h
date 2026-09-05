@@ -118,6 +118,16 @@ struct TextDiff {
     std::uint32_t modifiedRows = 0;  ///< Rows where a line was replaced.
     std::uint32_t equalRows = 0;     ///< Rows identical on both sides.
 
+    /// \brief Row holding each left line, indexed by zero-based line number.
+    ///
+    /// \remarks Turns a node's source position into a row to scroll to, which is
+    ///          what lets a selection in the node view find its place in the
+    ///          text.
+    std::vector<std::uint32_t> leftLineToRow;
+
+    /// \brief Row holding each right line, indexed by zero-based line number.
+    std::vector<std::uint32_t> rightLineToRow;
+
     /// \brief Row index where each run of consecutive changed rows begins.
     ///
     /// \remarks Drives next-change and previous-change navigation and the
