@@ -69,10 +69,20 @@ public:
     [[nodiscard]] virtual std::string_view name() const = 0;
     [[nodiscard]] virtual std::string_view displayName() const = 0;
 
-    // Ranked sniffing: file extension plus a cheap look at the head of the
-    // file. Zero means the provider does not recognise it at all. The registry
-    // picks the highest scorer.
+    // The file extensions this format claims by default, lower case and
+    // including the leading dot. Declared rather than buried in scoring logic,
+    // so the registry can list what handles what and a user can see why a file
+    // resolved the way it did.
+    [[nodiscard]] virtual std::span<const std::string_view> defaultExtensions() const = 0;
+
+    // Ranked sniffing for everything the extensions do not settle: a cheap look
+    // at the head of the file. Zero means the provider does not recognise it at
+    // all. The registry picks the highest scorer, and an explicit --format
+    // always beats both.
     [[nodiscard]] virtual int score(const SourceFile& source) const = 0;
+
+    // True when this provider claims the file by extension alone.
+    [[nodiscard]] bool claimsExtension(const SourceFile& source) const;
 
     // Called on a worker; must not touch shared mutable state. Long loops are
     // expected to check the token.

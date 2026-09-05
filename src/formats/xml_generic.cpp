@@ -63,18 +63,24 @@ std::string lowerExtension(const SourceFile& source) {
 // longest and the least identifying.
 constexpr std::array<std::string_view, 4> kLeadingProperties{"id", "name", "type", "key"};
 
+// Extensions this format claims outright. A studio asset with an unfamiliar
+// suffix still reaches the sniffing path below.
+constexpr std::array<std::string_view, 7> kExtensions{".xml",  ".xaml", ".svg",   ".xsd",
+                                                      ".plist", ".resx", ".config"};
+
 class GenericXmlProvider final : public IFormatProvider {
 public:
     std::string_view name() const override { return "xml"; }
     std::string_view displayName() const override { return "XML (generic)"; }
+
+    std::span<const std::string_view> defaultExtensions() const override { return kExtensions; }
 
     int score(const SourceFile& source) const override {
         const std::string extension = lowerExtension(source);
         if (extension == ".xml") {
             return 90;
         }
-        if (extension == ".xaml" || extension == ".svg" || extension == ".xsd" ||
-            extension == ".plist" || extension == ".resx" || extension == ".config") {
+        if (claimsExtension(source)) {
             return 80;
         }
 

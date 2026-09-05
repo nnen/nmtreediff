@@ -33,6 +33,9 @@ public:
 
     std::string_view name() const override { return "test-identified"; }
     std::string_view displayName() const override { return "XML with stable ids"; }
+    std::span<const std::string_view> defaultExtensions() const override {
+        return inner_->defaultExtensions();
+    }
     int score(const SourceFile& source) const override { return inner_->score(source); }
 
     nmxd::Result<Tree, nmxd::ParseError> parse(const SourceFile& source,

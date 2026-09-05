@@ -1,7 +1,9 @@
 #include "core/provider.h"
 
 #include <algorithm>
+#include <cctype>
 #include <numeric>
+#include <string>
 
 namespace nmxd {
 
@@ -17,6 +19,17 @@ const char* describe(ParseError error) noexcept {
             return "parsing was cancelled";
     }
     return "unknown parse error";
+}
+
+bool IFormatProvider::claimsExtension(const SourceFile& source) const {
+    std::string extension = source.path().extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (extension.empty()) {
+        return false;
+    }
+    const auto extensions = defaultExtensions();
+    return std::find(extensions.begin(), extensions.end(), extension) != extensions.end();
 }
 
 int rankFromList(std::span<const std::string_view> order, std::string_view name) {
