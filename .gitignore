@@ -75,3 +75,6 @@ Desktop.ini
 # Logs and scratch
 *.log
 *.tmp
+
+# Generated API reference
+docs/api/

@@ -44,4 +44,20 @@ if(NMXD_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
+# The documentation requirement is enforced rather than merely stated: the
+# Doxyfile treats an undocumented entity as an error, so this target fails when
+# something new arrives without documentation.
+find_package(Doxygen QUIET)
+if(DOXYGEN_FOUND)
+    add_custom_target(docs
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/docs/api
+        COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_SOURCE_DIR}/Doxyfile
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Generating the API reference with Doxygen"
+        VERBATIM
+    )
+else()
+    message(STATUS "Doxygen not found; the 'docs' target is unavailable")
+endif()
+
 message(STATUS "nmxmldiff ${PROJECT_VERSION}: gui=${NMXD_BUILD_GUI} tests=${NMXD_BUILD_TESTS}")

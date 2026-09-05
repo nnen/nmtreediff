@@ -1,3 +1,6 @@
+/// \file
+/// \brief Implementation of the headless report.
+
 #include "app/report.h"
 
 #include "core/provider.h"
@@ -10,6 +13,12 @@ namespace nmxd {
 
 namespace {
 
+/// \brief Escapes a string for inclusion in a JSON document.
+///
+/// \param text The string to escape.
+///
+/// \returns The escaped text, without surrounding quotes. Control characters
+///          become \\u00XX escapes.
 std::string jsonEscape(std::string_view text) {
     std::string out;
     out.reserve(text.size() + 8);

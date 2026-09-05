@@ -1,3 +1,6 @@
+/// \file
+/// \brief Implementation of the staged comparison pipeline.
+
 #include "core/session.h"
 
 #include "core/provider.h"

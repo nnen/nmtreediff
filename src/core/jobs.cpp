@@ -1,3 +1,6 @@
+/// \file
+/// \brief Implementation of the worker pool.
+
 #include "core/jobs.h"
 
 #include <algorithm>
@@ -6,6 +9,12 @@ namespace nmxd {
 
 namespace {
 
+/// \brief Chooses how many workers to start.
+///
+/// \param requested The caller's request, or zero to choose automatically.
+///
+/// \returns \p requested when non-zero, otherwise hardware concurrency minus
+///          one, clamped to JobSystem::kMaxThreads and never below one.
 unsigned pickThreadCount(unsigned requested) {
     if (requested > 0) {
         return requested;

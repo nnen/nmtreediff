@@ -1,3 +1,6 @@
+/// \file
+/// \brief Implementation of command line parsing.
+
 #include "app/cli.h"
 
 #include <CLI/CLI.hpp>
@@ -10,9 +13,18 @@ namespace nmxd {
 
 namespace {
 
+/// \brief The one-line description shown by `--help`.
 constexpr const char* kDescription =
     "Diff tree-shaped data in XML and JSON, as text and as a node graph.";
 
+/// \brief Declares every option on an app and parses one argument list.
+///
+/// \param app The CLI11 app to declare options on.
+/// \param reversedArgs The arguments in reverse order, which is how CLI11
+///        consumes them.
+///
+/// \returns The parsed options, or an exit code when parsing failed or when a
+///          help or version request was handled.
 ParseResult parseInto(CLI::App& app, std::vector<std::string> reversedArgs) {
     Options options;
     std::string viewName = "text";

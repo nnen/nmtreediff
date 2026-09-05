@@ -1,12 +1,7 @@
 #pragma once
 
-// The handoff between the worker pool and the frame loop.
-//
-// A worker builds a snapshot, then publishes it as a shared_ptr to const. The
-// frame loop takes one reference at the top of a frame and renders from that
-// for the whole frame. Nothing is mutated after publication, so there is no
-// tearing, no lock in the render path beyond the pointer swap, and a snapshot
-// stays alive as long as any frame still holds it.
+/// \file
+/// \brief The handoff between the worker pool and the frame loop.
 
 #include <cstdint>
 #include <memory>
@@ -23,75 +18,125 @@ namespace nmxd {
 
 class IFormatProvider;
 
-// How far the pipeline has got. The interface shows this, so it never presents
-// partial results as complete.
+/// \brief How far the pipeline has got.
+///
+/// \remarks Shown in the interface, so partial results are never presented as
+///          complete.
 enum class Stage {
-    Idle,
-    Loading,
-    SourcesReady,  // both sides read; raw text can be shown
-    TextReady,     // line diff computed; the text view is usable (M1)
-    TreesParsed,   // both sides parsed into trees (M2)
-    TreeReady,     // matched; the node view is usable (M3)
-    Failed,
+    Idle,          ///< Nothing has been opened.
+    Loading,       ///< Reading the two files.
+    SourcesReady,  ///< Both sides read; raw text can be shown.
+    TextReady,     ///< Line diff computed; the text view is usable.
+    TreesParsed,   ///< Both sides parsed into trees.
+    TreeReady,     ///< Trees matched; the node view is usable.
+    Failed,        ///< Something went wrong; see DiffSnapshot::message.
 };
 
+/// \brief Converts a stage into a phrase suitable for a status readout.
+///
+/// \param stage The stage to describe.
+///
+/// \returns A short lower-case phrase, never null.
 [[nodiscard]] const char* describe(Stage stage) noexcept;
 
-// Everything the views may read. Later milestones add the matching, the change
-// list, and the node layout; the publication mechanism does not change.
+/// \brief Everything the views may read about one comparison.
+///
+/// \remarks A snapshot is built on a worker and never changed after it is
+///          published, so the frame loop can read it without locking anything
+///          beyond acquiring the pointer.
+///
+///          Each stage adds to the snapshot rather than replacing what came
+///          before, which is why a document the parser rejects still has a
+///          working text view.
 struct DiffSnapshot {
+    /// \brief How far the pipeline got before producing this snapshot.
     Stage stage = Stage::Idle;
 
+    /// \brief The left file. Present from Stage::SourcesReady onward.
     std::shared_ptr<const SourceFile> left;
+    /// \brief The right file. Present from Stage::SourcesReady onward.
     std::shared_ptr<const SourceFile> right;
 
-    // Present from Stage::TextReady onward.
+    /// \brief The line diff. Present from Stage::TextReady onward.
     std::shared_ptr<const TextDiff> text;
 
-    // Present from Stage::TreesParsed onward. The provider that produced them
-    // is held alongside, because reading a tree means asking the provider for
-    // titles, colours and property order.
+    /// \brief The parsed left tree. Present from Stage::TreesParsed onward.
     std::shared_ptr<const Tree> leftTree;
+    /// \brief The parsed right tree. Present from Stage::TreesParsed onward.
     std::shared_ptr<const Tree> rightTree;
+
+    /// \brief The provider that parsed both trees.
+    ///
+    /// \remarks Held alongside them because reading a tree means asking the
+    ///          provider for titles, colours and property order. Owned by the
+    ///          session's registry, which outlives every snapshot.
     const IFormatProvider* provider = nullptr;
 
-    // Present from Stage::TreeReady onward: which nodes correspond, and what
-    // happened to each of them.
+    /// \brief The tree diff. Present from Stage::TreeReady onward.
     std::shared_ptr<const DiffModel> treeDiff;
 
-    // Set when stage is Failed. Shown verbatim, so it says what went wrong and
-    // which side it went wrong on.
+    /// \brief What went wrong, set when stage is Stage::Failed.
+    ///
+    /// \remarks Shown verbatim, so it says what failed and on which side.
     std::string message;
 
-    // Wall-clock milliseconds spent producing this snapshot, for the budget
-    // readout in the status bar.
+    /// \brief Wall-clock milliseconds spent producing this snapshot.
     double elapsedMillis = 0.0;
 
+    /// \brief Reports whether both files have been read.
+    ///
+    /// \returns `true` when both sides are present.
     [[nodiscard]] bool hasSources() const noexcept { return left && right; }
 };
 
-// A single publication point. One writer at a time, any number of readers.
+/// \brief A single publication point for one immutable value.
+///
+/// \tparam T The published type, treated as immutable once published.
+///
+/// \remarks A worker builds a value, then publishes it as a shared pointer to
+///          const. The frame loop takes one reference at the top of a frame and
+///          renders from that for the whole frame. Nothing is mutated after
+///          publication, so there is no tearing, no lock in the render path
+///          beyond the pointer swap, and a value stays alive as long as any
+///          frame still holds it.
+///
+///          Safe for one writer and any number of readers.
 template <class T>
 class SnapshotBox {
 public:
-    // Cheap enough to call once per frame; it copies a shared_ptr under a
-    // mutex rather than touching the payload.
+    /// \brief Takes a reference to the current value.
+    ///
+    /// \returns The published value, or an empty pointer when nothing has been
+    ///          published.
+    ///
+    /// \remarks Cheap enough to call once per frame: it copies a shared pointer
+    ///          under a mutex rather than touching the payload.
     [[nodiscard]] std::shared_ptr<const T> get() const {
         std::lock_guard lock(mutex_);
         return value_;
     }
 
+    /// \brief Returns how many times anything has been published.
+    ///
+    /// \returns A counter that only increases.
+    ///
+    /// \remarks Lets the frame loop tell a new value from the one it drew last
+    ///          frame without comparing contents.
     [[nodiscard]] std::uint64_t version() const {
         std::lock_guard lock(mutex_);
         return version_;
     }
 
+    /// \brief Publishes a new value.
+    ///
+    /// \param value The value to publish.
     void publish(std::shared_ptr<const T> value) {
         std::lock_guard lock(mutex_);
         value_ = std::move(value);
         ++version_;
     }
 
+    /// \brief Drops the current value.
     void clear() {
         std::lock_guard lock(mutex_);
         value_.reset();

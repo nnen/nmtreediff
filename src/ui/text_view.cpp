@@ -1,3 +1,6 @@
+/// \file
+/// \brief Implementation of the text view.
+
 #include "ui/text_view.h"
 
 #include <algorithm>
@@ -10,21 +13,41 @@ namespace nmxd {
 
 namespace {
 
-// Status colours. The fills sit behind text, so they are kept low in alpha;
-// the marks in the gutter and the overview carry the saturation.
+/// \brief Cell fill behind an added line.
+///
+/// \remarks The fills sit behind text, so they are kept low in alpha. The marks
+///          in the gutter and the overview carry the saturation instead.
 constexpr ImU32 kAddedFill = IM_COL32(46, 160, 100, 38);
+
+/// \brief Cell fill behind a deleted line.
 constexpr ImU32 kDeletedFill = IM_COL32(210, 90, 85, 38);
+
+/// \brief Cell fill behind a modified line.
 constexpr ImU32 kModifiedFill = IM_COL32(215, 165, 70, 30);
 
+/// \brief Highlight behind the words added within a modified line.
 constexpr ImU32 kAddedWord = IM_COL32(46, 160, 100, 96);
+
+/// \brief Highlight behind the words removed within a modified line.
 constexpr ImU32 kDeletedWord = IM_COL32(210, 90, 85, 96);
 
+/// \brief Gutter and overview mark for an added line.
 constexpr ImU32 kAddedMark = IM_COL32(70, 190, 125, 255);
+
+/// \brief Gutter and overview mark for a deleted line.
 constexpr ImU32 kDeletedMark = IM_COL32(226, 110, 105, 255);
+
+/// \brief Gutter and overview mark for a modified line.
 constexpr ImU32 kModifiedMark = IM_COL32(224, 176, 82, 255);
 
+/// \brief Width in pixels of the change overview strip.
 constexpr float kOverviewWidth = 14.0f;
 
+/// \brief Chooses the cell fill for a row status.
+///
+/// \param status The row's status.
+///
+/// \returns The fill colour, or zero for an unchanged row.
 ImU32 fillFor(RowStatus status) {
     switch (status) {
         case RowStatus::Added:
@@ -39,6 +62,11 @@ ImU32 fillFor(RowStatus status) {
     return 0;
 }
 
+/// \brief Chooses the gutter and overview mark for a row status.
+///
+/// \param status The row's status.
+///
+/// \returns The mark colour, or zero for an unchanged row.
 ImU32 markFor(RowStatus status) {
     switch (status) {
         case RowStatus::Added:
@@ -53,8 +81,14 @@ ImU32 markFor(RowStatus status) {
     return 0;
 }
 
-// Draws one line, tinting the runs the word diff marked as changed. Falls back
-// to plain text when there is no word detail, which is the common case.
+/// \brief Draws one line, tinting the runs the word diff marked as changed.
+///
+/// \param text The line to draw.
+/// \param segments Word detail for this line, or null when there is none.
+/// \param highlight The colour to draw behind changed runs.
+///
+/// \remarks Falls back to plain text when there is no word detail, which is the
+///          common case.
 void drawLine(std::string_view text, const std::vector<WordSegment>* segments, ImU32 highlight) {
     if (text.empty()) {
         ImGui::TextUnformatted("");

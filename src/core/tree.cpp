@@ -1,3 +1,6 @@
+/// \file
+/// \brief Implementation of the node arena.
+
 #include "core/tree.h"
 
 #include <algorithm>

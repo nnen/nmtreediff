@@ -1,3 +1,6 @@
+/// \file
+/// \brief Implementation of the generic XML provider.
+
 #include "formats/xml_generic.h"
 
 #include <algorithm>
@@ -15,12 +18,17 @@ namespace nmxd {
 
 namespace {
 
-// pugixml reports where a node starts but not where it ends, and a span needs
-// both. These two helpers walk the original bytes to find the end, respecting
-// quoting so that a '>' inside an attribute value is not mistaken for the end
-// of a tag.
-
-// Given the offset of a '<', returns the offset just past the matching '>'.
+/// \brief Finds where a tag ends.
+///
+/// \param text The whole document.
+/// \param from Offset of the tag's opening angle bracket.
+///
+/// \returns The offset just past the matching closing bracket, or the end of the
+///          document when there is none.
+///
+/// \remarks pugixml reports where a node starts but not where it ends, and a
+///          span needs both. Quoting is respected, so a `>` inside an attribute
+///          value is not mistaken for the end of the tag.
 std::uint32_t endOfTag(std::string_view text, std::uint32_t from) {
     bool inSingle = false;
     bool inDouble = false;
@@ -37,7 +45,13 @@ std::uint32_t endOfTag(std::string_view text, std::uint32_t from) {
     return static_cast<std::uint32_t>(text.size());
 }
 
-// Given an offset at or before a closing tag, returns the offset just past it.
+/// \brief Finds where the next closing tag ends.
+///
+/// \param text The whole document.
+/// \param from Offset at or before the closing tag.
+///
+/// \returns The offset just past the closing tag, or the end of the document
+///          when there is none.
 std::uint32_t endOfClosingTag(std::string_view text, std::uint32_t from) {
     for (std::uint32_t i = from; i + 1 < text.size(); ++i) {
         if (text[i] == '<' && text[i + 1] == '/') {
@@ -47,10 +61,22 @@ std::uint32_t endOfClosingTag(std::string_view text, std::uint32_t from) {
     return static_cast<std::uint32_t>(text.size());
 }
 
+/// \brief Reports whether text begins with a prefix.
+///
+/// \param text The text to test.
+/// \param prefix The prefix to look for.
+///
+/// \returns `true` when \p text starts with \p prefix.
 bool startsWith(std::string_view text, std::string_view prefix) {
     return text.size() >= prefix.size() && text.compare(0, prefix.size(), prefix) == 0;
 }
 
+/// \brief Returns a file's extension in lower case.
+///
+/// \param source The file to inspect.
+///
+/// \returns The extension including its leading dot, or an empty string when the
+///          file has none.
 std::string lowerExtension(const SourceFile& source) {
     std::string extension = source.path().extension().string();
     std::transform(extension.begin(), extension.end(), extension.begin(),
@@ -58,16 +84,21 @@ std::string lowerExtension(const SourceFile& source) {
     return extension;
 }
 
-// Attribute names worth seeing first. Anything unlisted keeps document order
-// behind them, and the text content sorts last because it is usually the
-// longest and the least identifying.
+/// \brief Attribute names worth seeing first on a node card.
+///
+/// \remarks Anything unlisted keeps document order behind them, and the text
+///          content sorts last because it is usually the longest and the least
+///          identifying.
 constexpr std::array<std::string_view, 4> kLeadingProperties{"id", "name", "type", "key"};
 
-// Extensions this format claims outright. A studio asset with an unfamiliar
-// suffix still reaches the sniffing path below.
+/// \brief Extensions this format claims outright.
+///
+/// \remarks A studio asset with an unfamiliar suffix still reaches the sniffing
+///          path, so this list does not have to be exhaustive.
 constexpr std::array<std::string_view, 7> kExtensions{".xml",  ".xaml", ".svg",   ".xsd",
                                                       ".plist", ".resx", ".config"};
 
+/// \brief Treats every XML element as a node and every attribute as a property.
 class GenericXmlProvider final : public IFormatProvider {
 public:
     std::string_view name() const override { return "xml"; }
@@ -195,6 +226,13 @@ public:
     }
 
 private:
+    /// \brief Builds one node and everything below it.
+    ///
+    /// \param tree The tree being built.
+    /// \param parent The parent node's id, or kInvalidNode for the root.
+    /// \param element The element to convert.
+    /// \param text The whole document, used to recover spans.
+    /// \param token Checked before each element.
     static void build(Tree& tree, NodeId parent, const pugi::xml_node& element,
                       std::string_view text, const std::stop_token& token) {
         if (token.stop_requested()) {
@@ -254,8 +292,18 @@ private:
         }
     }
 
-    // Walks one start tag and returns a span per attribute, in document order,
-    // each covering `name="value"` including the quotes.
+    /// \brief Recovers a span for every attribute in one start tag.
+    ///
+    /// \param text The whole document.
+    /// \param tagBegin Offset of the tag's opening angle bracket.
+    /// \param tagEnd Offset just past the tag's closing bracket.
+    ///
+    /// \returns One span per attribute, in document order, each covering the
+    ///          name, the equals sign and the quoted value.
+    ///
+    /// \remarks pugixml reports offsets for nodes but not for attributes, so the
+    ///          start tag is scanned once and the spans matched up with the
+    ///          parsed attributes, which arrive in the same order.
     static std::vector<SourceSpan> scanAttributeSpans(std::string_view text, std::uint32_t tagBegin,
                                                       std::uint32_t tagEnd) {
         std::vector<SourceSpan> spans;

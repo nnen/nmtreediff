@@ -1,3 +1,6 @@
+/// \file
+/// \brief Implementation of the window, the docking layout and the frame loop.
+
 #include "ui/app_window.h"
 
 #include <algorithm>
@@ -14,15 +17,34 @@ namespace nmxd {
 
 namespace {
 
+/// \brief Window title of the text view panel.
+///
+/// \remarks ImGui identifies a window by its title, so these double as the keys
+///          the docking layout and the saved layout file use.
 constexpr const char* kTextViewTitle = "Text view";
+
+/// \brief Window title of the node view panel.
 constexpr const char* kNodeViewTitle = "Node view";
+
+/// \brief Window title of the details panel.
 constexpr const char* kDetailsTitle = "Details";
+
+/// \brief Window title of the status panel.
 constexpr const char* kStatusTitle = "Status";
 
-// Frames before this are still settling: the window is being shown and the
-// compositor has not finished with it.
+/// \brief The first frame counted towards the steady-state frame budget.
+///
+/// \remarks Frames before this are still settling: the window is being shown and
+///          the compositor has not finished with it. That cost is fixed, lands a
+///          few frames in, and has nothing to do with what the program is
+///          computing, so folding it into the budget would hide every real stall
+///          smaller than it.
 constexpr unsigned kSettledFrame = 60;
 
+/// \brief Prints a GLFW error to the standard error stream.
+///
+/// \param code The GLFW error code.
+/// \param description GLFW's description, which may be null.
 void reportGlfwError(int code, const char* description) {
     std::fprintf(stderr, "glfw error %d: %s\n", code, description ? description : "");
 }

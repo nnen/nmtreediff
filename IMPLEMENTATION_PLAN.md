@@ -67,6 +67,7 @@ this plan. It moves four things from nice-to-have into scope.
 | Licence | MIT | Permissive enough to clear a studio legal review without a conversation, which is a precondition for the adoption this tool is aiming at. It also lets a studio vendor the core library into an internal tool. |
 | Distribution | Portable archive, no installer | Adoption inside a studio depends on someone being able to unzip it and edit a Perforce setting. |
 | Tests | Catch2 v3 | Golden-file friendly. |
+| Documentation | Doxygen, MSDN reference style | Required. Every file, type and function carries a brief, its parameters, its return value and the remarks that explain why. The Doxyfile treats an undocumented entity as an error, so the `docs` target fails rather than letting the standard decay. |
 
 4. Pipeline and module layout
 -----------------------------

@@ -1,3 +1,6 @@
+/// \file
+/// \brief Implementation of change classification and the change list.
+
 #include "core/diff.h"
 
 #include <algorithm>
@@ -10,6 +13,11 @@ namespace nmxd {
 
 namespace {
 
+/// \brief Records each node's position among its siblings.
+///
+/// \param tree The tree to index.
+///
+/// \returns A position per node, indexed by NodeId. The root's entry is zero.
 std::vector<std::uint32_t> siblingIndices(const Tree& tree) {
     std::vector<std::uint32_t> indices(tree.size(), 0);
     for (const Node& node : tree.nodes()) {
@@ -20,8 +28,19 @@ std::vector<std::uint32_t> siblingIndices(const Tree& tree) {
     return indices;
 }
 
-// Property names whose presence or value differs. Names are compared as a set,
-// so a reordered attribute list yields nothing.
+/// \brief Lists the property names that differ between two matched nodes.
+///
+/// \param provider The provider whose ranking orders the result.
+/// \param leftTree The left tree.
+/// \param leftId The left node.
+/// \param rightTree The right tree.
+/// \param rightId The right node.
+///
+/// \returns The differing names, ordered the way the provider would display
+///          them so the list reads like the node card.
+///
+/// \remarks Names are compared as a set, so a reordered attribute list yields
+///          nothing.
 std::vector<std::string> changedPropertyNames(const IFormatProvider& provider, const Tree& leftTree,
                                               NodeId leftId, const Tree& rightTree,
                                               NodeId rightId) {
@@ -60,8 +79,15 @@ std::vector<std::string> changedPropertyNames(const IFormatProvider& provider, c
     return changed;
 }
 
+/// \brief Turns a matching into per-node statuses and an ordered change list.
 class Classifier {
 public:
+    /// \brief Prepares a classifier for one matched pair of trees.
+    ///
+    /// \param left The left tree.
+    /// \param right The right tree.
+    /// \param provider The format provider.
+    /// \param match The matching to classify, consumed by this call.
     Classifier(const Tree& left, const Tree& right, const IFormatProvider& provider,
                MatchResult match)
         : left_(left),
@@ -76,6 +102,9 @@ public:
         model_.rightStatus.assign(right.size(), NodeStatus::Unchanged);
     }
 
+    /// \brief Classifies the matching.
+    ///
+    /// \returns The finished model, with statuses, counts and the change list.
     DiffModel run() {
         markReorderedChildren();
         if (left_.empty() && right_.empty()) {
@@ -105,6 +134,9 @@ public:
     }
 
 private:
+    /// \brief Counts unchanged nodes and hands the model over.
+    ///
+    /// \returns The finished model.
     DiffModel finish() {
         for (std::size_t i = 0; i < model_.leftStatus.size(); ++i) {
             if (model_.leftStatus[i] == NodeStatus::Unchanged) {
@@ -114,6 +146,9 @@ private:
         return std::move(model_);
     }
 
+    /// \brief Records one change and updates the per-node statuses.
+    ///
+    /// \param change The change to record. An unchanged status is ignored.
     void emit(Change change) {
         switch (change.status) {
             case NodeStatus::Added:
@@ -140,6 +175,9 @@ private:
         model_.changes.push_back(std::move(change));
     }
 
+    /// \brief Reports a whole right-hand subtree as added.
+    ///
+    /// \param rightId The root of the subtree.
     void addSubtree(NodeId rightId) {
         Change change;
         change.status = NodeStatus::Added;
@@ -150,6 +188,9 @@ private:
         }
     }
 
+    /// \brief Reports a whole left-hand subtree as deleted.
+    ///
+    /// \param leftId The root of the subtree.
     void deleteSubtree(NodeId leftId) {
         Change change;
         change.status = NodeStatus::Deleted;
@@ -160,8 +201,13 @@ private:
         }
     }
 
-    // Whether this pair changed parent, or was reordered among the siblings it
-    // still shares a parent with.
+    /// \brief Reports whether a matched pair changed position.
+    ///
+    /// \param leftId The left node.
+    /// \param rightId The right node it matched.
+    ///
+    /// \returns `true` when the node changed parent, or was reordered among the
+    ///          siblings it still shares a parent with.
     bool isMove(NodeId leftId, NodeId rightId) const {
         const NodeId leftParent = left_.node(leftId).parent;
         const NodeId rightParent = right_.node(rightId).parent;
@@ -174,13 +220,14 @@ private:
         return reordered_[leftId];
     }
 
-    // Marks reordering relative to the matching rather than to raw position.
-    //
-    // A node whose index shifted only because a sibling before it was deleted
-    // or inserted has not moved, and reporting it as moved buries the one node
-    // that really did. So among the children a parent pair still shares, the
-    // longest run that stayed in order is treated as having stayed put, and
-    // only what breaks that order is a move.
+    /// \brief Marks reordering relative to the matching, not to raw position.
+    ///
+    /// \remarks A node whose index shifted only because a sibling before it was
+    ///          deleted or inserted has not moved, and reporting it as moved
+    ///          buries the one node that really did. So among the children a
+    ///          parent pair still shares, the longest run that stayed in order
+    ///          is treated as having stayed put, and only what breaks that order
+    ///          is a move.
     void markReorderedChildren() {
         reordered_.assign(left_.size(), false);
 
@@ -217,8 +264,15 @@ private:
         }
     }
 
-    // Longest strictly increasing subsequence, by patience sorting. True for
-    // every element the run keeps.
+    /// \brief Finds the longest strictly increasing subsequence.
+    ///
+    /// \param values The sequence to examine.
+    ///
+    /// \returns One flag per element, `true` for every element the longest
+    ///          increasing run keeps.
+    ///
+    /// \remarks Patience sorting, so the cost is linearithmic rather than
+    ///          quadratic.
     static std::vector<bool> longestIncreasingRun(const std::vector<std::uint32_t>& values) {
         std::vector<std::size_t> tailIndex;    // index into values, per run length
         std::vector<std::size_t> predecessor(values.size(), values.size());
@@ -248,6 +302,13 @@ private:
         return keep;
     }
 
+    /// \brief Reports what changed about one matched pair, if anything.
+    ///
+    /// \param leftId The left node.
+    /// \param rightId The right node it matched.
+    ///
+    /// \remarks A node that both moved and changed is reported as modified with
+    ///          the move noted, rather than as only one of the two.
     void recordPair(NodeId leftId, NodeId rightId) {
         auto changed = changedPropertyNames(provider_, left_, leftId, right_, rightId);
         const bool moved = isMove(leftId, rightId);
@@ -266,9 +327,15 @@ private:
         emit(std::move(change));
     }
 
-    // Walks a matched pair, merging the two child lists so that additions and
-    // deletions are reported where they happened rather than in a block at the
-    // end.
+    /// \brief Walks a matched pair and everything below it.
+    ///
+    /// \param leftId The left node.
+    /// \param rightId The right node it matched.
+    ///
+    /// \remarks Merges the two child lists so that additions and deletions are
+    ///          reported where they happened rather than in a block at the end.
+    ///          A child matched to a node under some other parent moved in from
+    ///          elsewhere and is reported here, at its new home.
     void walkPair(NodeId leftId, NodeId rightId) {
         recordPair(leftId, rightId);
 

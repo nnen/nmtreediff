@@ -1,3 +1,6 @@
+/// \file
+/// \brief Implementation of file loading and the line index.
+
 #include "core/source.h"
 
 #include <algorithm>

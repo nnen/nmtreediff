@@ -1,3 +1,6 @@
+/// \file
+/// \brief Implementation of provider resolution.
+
 #include "core/registry.h"
 
 #include <algorithm>

@@ -1,8 +1,7 @@
 #pragma once
 
-// Command line surface. Perforce lets a user define the argument order for a
-// custom diff tool, so this needs no tolerance for unusual argument shapes:
-// plain named options and two positional paths are enough.
+/// \file
+/// \brief The command line surface.
 
 #include <filesystem>
 #include <optional>
@@ -11,55 +10,100 @@
 
 namespace nmxd {
 
+/// \brief Which view opens first.
 enum class InitialView {
-    Text,
-    Node,
+    Text,  ///< The text view.
+    Node,  ///< The node view.
 };
 
+/// \brief How a headless run reports its result.
 enum class ReportFormat {
-    Text,
-    Json,
+    Text,  ///< Lines meant for a person.
+    Json,  ///< A single object meant for a script.
 };
 
+/// \brief Everything the command line can set.
 struct Options {
-    // Both may be empty: launched with no arguments the window opens in an
-    // empty state rather than flashing a console and exiting.
+    /// \brief Path to the left, usually older, file.
+    ///
+    /// \remarks May be empty: launched with no arguments the window opens in an
+    ///          empty state rather than flashing a console and exiting.
     std::filesystem::path leftPath;
+
+    /// \brief Path to the right, usually newer, file. May be empty.
     std::filesystem::path rightPath;
 
-    std::string leftLabel;   // empty means use the path
+    /// \brief Title to show for the left side, defaulting to the path.
+    std::string leftLabel;
+    /// \brief Title to show for the right side, defaulting to the path.
     std::string rightLabel;
 
-    std::string format;      // empty means sniff the provider
+    /// \brief The format provider to force, or empty to sniff one.
+    std::string format;
+    /// \brief Which view opens first.
     InitialView view = InitialView::Text;
+    /// \brief A configuration file to load.
     std::filesystem::path configPath;
 
+    /// \brief Whether to run without opening a window.
     bool headless = false;
+    /// \brief How a headless run reports its result.
     ReportFormat report = ReportFormat::Text;
+    /// \brief Whether to exit 0 for identical inputs and 1 for different ones.
     bool useExitCode = false;
 
-    // Run this many frames and exit, printing the startup and frame timings.
-    // Zero runs until the window is closed. This is how the budget test
-    // measures startup without a person watching the window.
+    /// \brief Render this many frames, print the timings and exit.
+    ///
+    /// \remarks Zero runs until the window is closed. This is how the budget
+    ///          test measures startup and frame time without a person watching
+    ///          the window.
     unsigned maxFrames = 0;
 
+    /// \brief Reports whether a file pair was given.
+    ///
+    /// \returns `true` when both paths are set.
     [[nodiscard]] bool hasInputs() const noexcept {
         return !leftPath.empty() && !rightPath.empty();
     }
 };
 
-// The outcome of parsing: either options to run with, or a process exit code
-// because help or a version string was printed, or the arguments were wrong.
+/// \brief The outcome of parsing a command line.
 struct ParseResult {
+    /// \brief The parsed options, or nothing when the process should just exit.
     std::optional<Options> options;
+
+    /// \brief The exit code to return when \ref options is empty.
+    ///
+    /// \remarks Zero after `--help` or `--version` printed their output, and
+    ///          non-zero when the arguments were wrong.
     int exitCode = 0;
 
+    /// \brief Reports whether the program should carry on.
+    ///
+    /// \returns `true` when options were produced.
     [[nodiscard]] bool shouldRun() const noexcept { return options.has_value(); }
 };
 
+/// \brief Parses a process command line.
+///
+/// \param argc Argument count, including the program name.
+/// \param argv Argument vector, including the program name.
+///
+/// \returns The options to run with, or an exit code.
+///
+/// \remarks Perforce lets a user define the argument order for a custom diff
+///          tool, so plain named options and two positional paths are enough and
+///          no tolerance for unusual argument shapes is needed.
 [[nodiscard]] ParseResult parseCommandLine(int argc, char** argv);
 
-// Exposed for tests, which build an argument vector rather than a process.
+/// \brief Parses an argument list without a program name.
+///
+/// \param arguments The arguments, in the order they were given.
+///
+/// \returns The options to run with, or an exit code.
+///
+/// \remarks Exposed for tests, which build an argument vector rather than a
+///          process.
 [[nodiscard]] ParseResult parseArguments(const std::vector<std::string>& arguments);
 
 }  // namespace nmxd

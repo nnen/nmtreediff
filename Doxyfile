@@ -1,0 +1,56 @@
+# Doxygen configuration for NM Tree Diff.
+#
+# Run `doxygen` from the repository root, or build the `docs` CMake target.
+# Undocumented entities are warnings rather than silence, because a requirement
+# that nothing enforces is a requirement that decays.
+
+PROJECT_NAME           = "NM Tree Diff"
+PROJECT_NUMBER         = 0.1.0
+PROJECT_BRIEF          = "Diff tree-shaped data in XML and JSON"
+
+OUTPUT_DIRECTORY       = docs/api
+CREATE_SUBDIRS         = NO
+FULL_PATH_NAMES        = YES
+STRIP_FROM_PATH        = src
+
+INPUT                  = src
+RECURSIVE              = YES
+FILE_PATTERNS          = *.h *.cpp
+EXCLUDE_SYMLINKS       = YES
+
+# Implementation detail is documented too, so internal helpers in anonymous
+# namespaces are part of the reference rather than invisible.
+EXTRACT_ALL            = NO
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+EXTRACT_ANON_NSPACES   = YES
+EXTRACT_LOCAL_CLASSES  = YES
+
+# The point of the warnings: they name what is still undocumented.
+QUIET                  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = YES
+WARN_AS_ERROR          = FAIL_ON_WARNINGS
+
+JAVADOC_AUTOBRIEF      = NO
+QT_AUTOBRIEF           = NO
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
+BUILTIN_STL_SUPPORT    = YES
+
+SORT_MEMBER_DOCS       = NO
+SORT_BRIEF_DOCS        = NO
+
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+GENERATE_TREEVIEW      = YES
+GENERATE_LATEX         = NO
+GENERATE_XML           = NO
+
+HAVE_DOT               = NO
+
+# Keeps the reference about our own code rather than the toolchain's.
+MACRO_EXPANSION        = NO
+SKIP_FUNCTION_MACROS   = YES

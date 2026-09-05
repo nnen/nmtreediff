@@ -1,3 +1,6 @@
+/// \file
+/// \brief Implementation of the three matching passes.
+
 #include "core/match.h"
 
 #include <algorithm>
@@ -12,14 +15,27 @@ namespace nmxd {
 
 namespace {
 
-// A node's descendants occupy a contiguous run of indices, because trees are
-// built depth-first in document order. That turns "is this node inside that
-// subtree" into a range check, which the similarity score leans on heavily.
+/// \brief Reports whether one node sits inside another's subtree.
+///
+/// \param tree The tree both nodes belong to.
+/// \param root The subtree to test against.
+/// \param candidate The node to look for.
+///
+/// \returns `true` when \p candidate is a strict descendant of \p root.
+///
+/// \remarks A node's descendants occupy a contiguous run of indices, because
+///          trees are built depth-first in document order. That turns this into
+///          a range check, which the similarity score leans on heavily.
 bool inSubtree(const Tree& tree, NodeId root, NodeId candidate) {
     const Node& node = tree.node(root);
     return candidate > root && candidate <= root + node.descendantCount;
 }
 
+/// \brief Records each node's position among its siblings.
+///
+/// \param tree The tree to index.
+///
+/// \returns A position per node, indexed by NodeId. The root's entry is zero.
 std::vector<std::uint32_t> siblingIndices(const Tree& tree) {
     std::vector<std::uint32_t> indices(tree.size(), 0);
     for (const Node& node : tree.nodes()) {
@@ -30,8 +46,12 @@ std::vector<std::uint32_t> siblingIndices(const Tree& tree) {
     return indices;
 }
 
-// Sorted hashes of each property as a name=value pair, so two nodes can be
-// compared as sets without allocating strings.
+/// \brief Summarises a node's properties as a sorted list of hashes.
+///
+/// \param node The node to summarise.
+///
+/// \returns One hash per property, covering its name and value, sorted so two
+///          nodes can be compared as sets without allocating strings.
 std::vector<std::uint64_t> propertyFingerprints(const Node& node) {
     std::vector<std::uint64_t> out;
     out.reserve(node.properties.size());
@@ -45,6 +65,12 @@ std::vector<std::uint64_t> propertyFingerprints(const Node& node) {
     return out;
 }
 
+/// \brief Counts values present in both sorted lists.
+///
+/// \param a The first sorted list.
+/// \param b The second sorted list.
+///
+/// \returns How many values the two lists share.
 std::size_t commonCount(const std::vector<std::uint64_t>& a, const std::vector<std::uint64_t>& b) {
     std::size_t common = 0;
     std::size_t i = 0;
@@ -63,13 +89,27 @@ std::size_t commonCount(const std::vector<std::uint64_t>& a, const std::vector<s
     return common;
 }
 
-// How the three signals are weighed against each other. Kind equality is a
-// prerequisite rather than a term, so these divide up what is left: what the
-// node says about itself, what its contents say, and where it sits.
+/// \brief Weight given to what a node says about itself.
+///
+/// \remarks Kind equality is a prerequisite rather than a term, so the three
+///          weights divide up what is left: what the node says about itself,
+///          what its contents say, and where it sits.
 constexpr double kPropertyWeight = 0.30;
+
+/// \brief Weight given to how much of a node's subtree already matches.
 constexpr double kDescendantWeight = 0.45;
+
+/// \brief Weight given to a node's position among its siblings.
 constexpr double kPositionWeight = 0.25;
 
+/// \brief The Dice coefficient of two sets.
+///
+/// \param common How many members the sets share.
+/// \param sizeA Size of the first set.
+/// \param sizeB Size of the second set.
+///
+/// \returns A value from 0 to 1. Two empty sets score 1, because two nodes with
+///          nothing to compare are not dissimilar.
 double dice(std::size_t common, std::size_t sizeA, std::size_t sizeB) {
     const std::size_t total = sizeA + sizeB;
     if (total == 0) {
@@ -78,8 +118,15 @@ double dice(std::size_t common, std::size_t sizeA, std::size_t sizeB) {
     return (2.0 * static_cast<double>(common)) / static_cast<double>(total);
 }
 
+/// \brief Runs the matching passes over one pair of trees.
 class Matcher {
 public:
+    /// \brief Prepares a matcher for one pair of trees.
+    ///
+    /// \param left The left tree.
+    /// \param right The right tree.
+    /// \param provider The format provider.
+    /// \param options The guards bounding how much work to do.
     Matcher(const Tree& left, const Tree& right, const IFormatProvider& provider,
             const MatchOptions& options)
         : left_(left),
@@ -91,6 +138,11 @@ public:
         result_.matching.resize(left.size(), right.size());
     }
 
+    /// \brief Runs every pass and returns the result.
+    ///
+    /// \param token Checked between and within passes.
+    ///
+    /// \returns The matching, its quality, and what each pass contributed.
     MatchResult run(const std::stop_token& token) {
         anchorByIdentity(token);
         if (stopped(token)) {
@@ -107,6 +159,11 @@ public:
     }
 
 private:
+    /// \brief Records cancellation and reports whether to stop.
+    ///
+    /// \param token The token to test.
+    ///
+    /// \returns `true` when a stop has been requested.
     bool stopped(const std::stop_token& token) {
         if (token.stop_requested()) {
             result_.cancelled = true;
@@ -115,10 +172,14 @@ private:
         return false;
     }
 
-    // Pass 1. A strong identity key that appears exactly once on each side is
-    // an anchor: those two nodes are the same node however far apart they have
-    // moved. A key appearing more than once on a side identifies nothing, so it
-    // is dropped rather than guessed at.
+    /// \brief First pass: pairs nodes by strong identity key.
+    ///
+    /// \param token Checked while collecting keys.
+    ///
+    /// \remarks A strong key appearing exactly once on each side is an anchor:
+    ///          those two nodes are the same node however far apart they have
+    ///          moved. A key appearing more than once on a side identifies
+    ///          nothing, so it is dropped rather than guessed at.
     void anchorByIdentity(const std::stop_token& token) {
         std::unordered_map<std::string, NodeId> leftKeys;
         std::unordered_map<std::string, NodeId> rightKeys;
@@ -156,9 +217,15 @@ private:
         }
     }
 
-    // Pass 2. Identical subtrees, largest first. This is the pass that makes
-    // the common case, a small edit in a big file, fast: everything unchanged
-    // pairs up in one sweep and never reaches the expensive pass.
+    /// \brief Second pass: pairs identical subtrees, largest first.
+    ///
+    /// \param token Checked while sweeping the tree.
+    ///
+    /// \remarks This is the pass that makes the common case, a small edit in a
+    ///          big file, fast: everything unchanged pairs up in one sweep and
+    ///          never reaches the expensive pass. Largest first, so a big
+    ///          unchanged block claims its counterpart before one of its own
+    ///          leaves does.
     void anchorByIdenticalSubtrees(const std::stop_token& token) {
         std::unordered_map<std::uint64_t, std::vector<NodeId>> rightByHash;
         for (const Node& node : right_.nodes()) {
@@ -209,8 +276,15 @@ private:
         }
     }
 
-    // Two nodes with the same content hash have the same subtree, so their
-    // descendants pair up without any further comparison.
+    /// \brief Pairs the descendants of two nodes known to be identical.
+    ///
+    /// \param leftId The left node.
+    /// \param rightId The right node, whose content hash equals the left one's.
+    ///
+    /// \remarks Two nodes with the same content hash have the same subtree, so
+    ///          their descendants pair up without any further comparison.
+    ///          Ordered children pair by position; unordered children pair by
+    ///          hash, because their position carries nothing.
     void pairIdenticalSubtree(NodeId leftId, NodeId rightId) {
         const Node& leftNode = left_.node(leftId);
         const Node& rightNode = right_.node(rightId);
@@ -250,9 +324,14 @@ private:
         }
     }
 
-    // Pass 3. Whatever is left, matched top down inside already-matched
-    // parents. Restricting candidates to one parent pair at a time is what
-    // keeps this from comparing every node against every other node.
+    /// \brief Third pass: pairs what remains, by similarity, top down.
+    ///
+    /// \param token Checked once per parent pair.
+    ///
+    /// \remarks Restricting candidates to one parent pair at a time is what
+    ///          keeps this from comparing every node against every other node.
+    ///          Sets MatchQuality::SimilarityTrimmed and returns when either
+    ///          guard runs out.
     void matchBySimilarity(const std::stop_token& token) {
         if (left_.size() > options_.maxNodesForSimilarity ||
             right_.size() > options_.maxNodesForSimilarity) {
@@ -369,6 +448,17 @@ private:
         }
     }
 
+    /// \brief Scores how likely two nodes are to be the same node.
+    ///
+    /// \param leftId The left candidate.
+    /// \param rightId The right candidate.
+    ///
+    /// \returns A value from 0 to 1, where 0 means the two cannot be the same
+    ///          node.
+    ///
+    /// \remarks Nodes of different kinds score zero: comparing an element to one
+    ///          of a different name is almost never right, and letting it
+    ///          through produces confident nonsense.
     double similarity(NodeId leftId, NodeId rightId) const {
         const Node& l = left_.node(leftId);
         const Node& r = right_.node(rightId);
@@ -430,8 +520,13 @@ private:
                kPositionWeight * positionScore;
     }
 
-    // 1 when the two nodes sit at the same relative position under their
-    // parents, falling to 0 at opposite ends.
+    /// \brief Scores how close two nodes sit to the same relative position.
+    ///
+    /// \param leftId The left candidate.
+    /// \param rightId The right candidate.
+    ///
+    /// \returns 1 when both sit at the same relative position under their
+    ///          parents, falling to 0 at opposite ends.
     double positionSimilarity(NodeId leftId, NodeId rightId) const {
         const NodeId leftParent = left_.node(leftId).parent;
         const NodeId rightParent = right_.node(rightId).parent;

@@ -1,10 +1,7 @@
 #pragma once
 
-// The one interface a format has to implement.
-//
-// It is deliberately free of templates and of any GUI type, so that the Lua
-// bridge planned for later is a plain subclass rather than a redesign. Nothing
-// above this interface knows that XML has attributes or that JSON has arrays.
+/// \file
+/// \brief The one interface a format has to implement.
 
 #include <cstdint>
 #include <memory>
@@ -20,83 +17,168 @@
 
 namespace nmxd {
 
+/// \brief An opaque colour, with eight bits per channel.
 struct Color {
-    std::uint8_t r = 0;
-    std::uint8_t g = 0;
-    std::uint8_t b = 0;
-    std::uint8_t a = 255;
+    std::uint8_t r = 0;    ///< Red channel.
+    std::uint8_t g = 0;    ///< Green channel.
+    std::uint8_t b = 0;    ///< Blue channel.
+    std::uint8_t a = 255;  ///< Alpha channel, opaque by default.
 
+    /// \brief Compares two colours for equality.
     friend bool operator==(const Color&, const Color&) = default;
 };
 
-// What the node view puts on a card. Diff status is applied on top of this, so
-// a provider palette never hides whether a node changed.
+/// \brief How a node is presented in the node view.
+///
+/// \remarks Diff status is tinted on top of this, so a provider's palette never
+///          hides whether a node changed.
 struct NodeStyle {
+    /// \brief The main line on the node card.
     std::string title;
+    /// \brief An optional second line, usually a distinguishing property.
     std::string subtitle;
+    /// \brief The provider's own colour, before diff status is applied.
     Color accent;
+    /// \brief An optional glyph key.
     std::string icon;
 };
 
-// How the matcher decides two nodes are the same node.
-//
-// A strong key is matched across arbitrary distance, before any structural
-// heuristic runs: that is what makes a behavior-tree node with a stable
-// identifier follow its move. A weak key is only a hint.
+/// \brief How the matcher decides two nodes are the same node.
 struct IdentityKey {
+    /// \brief Whether this key may be matched across arbitrary distance.
+    ///
+    /// \remarks A strong key is honoured before any structural heuristic runs,
+    ///          which is what makes a behavior-tree node with a stable
+    ///          identifier follow its move. A weak key is only a hint and the
+    ///          matcher may ignore it.
     bool strong = false;
+
+    /// \brief The key itself. An empty value never anchors anything.
     std::string value;
 };
 
+/// \brief Why a document could not be parsed.
 enum class ParseError {
-    NotWellFormed,
-    UnsupportedEncoding,
-    Empty,
-    Cancelled,
+    NotWellFormed,        ///< The document does not parse.
+    UnsupportedEncoding,  ///< The encoding is one this provider cannot read.
+    Empty,                ///< The document holds no content.
+    Cancelled,            ///< Parsing stopped because the token was signalled.
 };
 
+/// \brief Converts a parse error into a phrase suitable for a message.
+///
+/// \param error The error to describe.
+///
+/// \returns A short sentence fragment, never null.
 [[nodiscard]] const char* describe(ParseError error) noexcept;
 
+/// \brief Why a tree could not be written back out.
 enum class SerializeError {
-    NotSupported,
+    NotSupported,  ///< This provider cannot serialise yet.
 };
 
+/// \brief Turns a source file into a tree, and tells the views how to present
+///        it.
+///
+/// \remarks Deliberately free of templates and of any GUI type, so that the Lua
+///          bridge planned for later is a plain subclass rather than a
+///          redesign. Nothing above this interface knows that XML has
+///          attributes or that JSON has arrays.
+///
+///          Implementations must be stateless and safe to call from several
+///          threads at once, because parsing runs on a worker pool.
 class IFormatProvider {
 public:
+    /// \brief Destroys the provider.
     virtual ~IFormatProvider() = default;
 
-    // Stable identifier, the one the --format option takes.
+    /// \brief Returns the stable identifier for this format.
+    ///
+    /// \returns The name the `--format` option accepts.
     [[nodiscard]] virtual std::string_view name() const = 0;
+
+    /// \brief Returns the name shown to a person.
+    ///
+    /// \returns A human-readable format name.
     [[nodiscard]] virtual std::string_view displayName() const = 0;
 
-    // The file extensions this format claims by default, lower case and
-    // including the leading dot. Declared rather than buried in scoring logic,
-    // so the registry can list what handles what and a user can see why a file
-    // resolved the way it did.
+    /// \brief Returns the file extensions this format claims by default.
+    ///
+    /// \returns Extensions in lower case, each including its leading dot.
+    ///
+    /// \remarks Declared rather than buried in scoring logic, so the registry
+    ///          can list what handles what and a user can see why a file
+    ///          resolved the way it did. An explicit `--format` always wins over
+    ///          an extension.
     [[nodiscard]] virtual std::span<const std::string_view> defaultExtensions() const = 0;
 
-    // Ranked sniffing for everything the extensions do not settle: a cheap look
-    // at the head of the file. Zero means the provider does not recognise it at
-    // all. The registry picks the highest scorer, and an explicit --format
-    // always beats both.
+    /// \brief Scores how well this provider recognises a file.
+    ///
+    /// \param source The file being resolved.
+    ///
+    /// \returns A score, where zero means the provider does not recognise the
+    ///          file at all and higher is a better match.
+    ///
+    /// \remarks Handles whatever the extensions do not settle, usually by a
+    ///          cheap look at the head of the file. The registry picks the
+    ///          highest scorer.
     [[nodiscard]] virtual int score(const SourceFile& source) const = 0;
 
-    // True when this provider claims the file by extension alone.
+    /// \brief Reports whether this provider claims a file by extension alone.
+    ///
+    /// \param source The file being resolved.
+    ///
+    /// \returns `true` when the file's extension appears in
+    ///          defaultExtensions().
     [[nodiscard]] bool claimsExtension(const SourceFile& source) const;
 
-    // Called on a worker; must not touch shared mutable state. Long loops are
-    // expected to check the token.
+    /// \brief Parses a source file into a tree.
+    ///
+    /// \param source The file to parse.
+    /// \param token Checked periodically; parsing gives up when a stop is
+    ///        requested.
+    ///
+    /// \returns The parsed tree, finalised and hashed, or a ParseError.
+    ///
+    /// \remarks Called on a worker thread and must not touch shared mutable
+    ///          state. This is where a provider collapses format detail: a
+    ///          behavior-tree format builds a tree holding only its node
+    ///          elements and folds the rest into properties, and nothing above
+    ///          learns that this happened.
     [[nodiscard]] virtual Result<Tree, ParseError> parse(const SourceFile& source,
                                                          std::stop_token token) const = 0;
 
+    /// \brief Returns the identity key for one node.
+    ///
+    /// \param tree The tree the node belongs to.
+    /// \param id The node to key.
+    ///
+    /// \returns The key, which may be strong or only a hint.
     [[nodiscard]] virtual IdentityKey identity(const Tree& tree, NodeId id) const = 0;
 
+    /// \brief Returns how one node should be presented.
+    ///
+    /// \param tree The tree the node belongs to.
+    /// \param id The node to style.
+    ///
+    /// \returns The title, subtitle, colour and icon for the node.
+    ///
+    /// \remarks Must be deterministic: the two sides of a diff style their
+    ///          nodes independently and have to agree.
     [[nodiscard]] virtual NodeStyle style(const Tree& tree, NodeId id) const = 0;
 
-    // Display order for a node's properties: lower ranks sort first, and equal
-    // ranks keep document order. Ordering is presentation only. Matching
-    // compares properties as an unordered set, so reordering an attribute list
-    // never registers as a change.
+    /// \brief Returns the display rank of one property.
+    ///
+    /// \param tree The tree the node belongs to.
+    /// \param id The node the property belongs to.
+    /// \param propertyName The property to rank.
+    ///
+    /// \returns A rank, where lower sorts first. Equal ranks keep document
+    ///          order.
+    ///
+    /// \remarks Ordering is presentation only. Matching compares properties as
+    ///          an unordered set, so reordering an attribute list never
+    ///          registers as a change. The default ranks everything equally.
     [[nodiscard]] virtual int propertyRank(const Tree& tree, NodeId id,
                                            std::string_view propertyName) const {
         (void)tree;
@@ -105,30 +187,59 @@ public:
         return 0;
     }
 
-    // Ordered children mean sibling position is meaningful, so a reordering is
-    // a move. Unordered means position carries nothing and reordering is not a
-    // change at all. XML elements are ordered; JSON object members are not.
+    /// \brief Reports whether a node's children have a meaningful order.
+    ///
+    /// \param tree The tree the node belongs to.
+    /// \param id The parent node.
+    ///
+    /// \returns `true` when sibling position carries meaning.
+    ///
+    /// \remarks Ordered children mean a reordering is a move. Unordered means
+    ///          position carries nothing and a reordering is not a change at
+    ///          all. XML elements are ordered; JSON object members are not. The
+    ///          default is ordered.
     [[nodiscard]] virtual bool childrenOrdered(const Tree& tree, NodeId id) const {
         (void)tree;
         (void)id;
         return true;
     }
 
-    // Reserved for the merge milestone. Declared now so that providers are
-    // written with round-tripping in mind rather than discovering later that
-    // they threw away what a merge needs.
+    /// \brief Writes a tree back out in this format.
+    ///
+    /// \param tree The tree to serialise.
+    ///
+    /// \returns The serialised document, or SerializeError::NotSupported.
+    ///
+    /// \remarks Reserved for the merge milestone and unimplemented today.
+    ///          Declared now so that providers are written with round-tripping
+    ///          in mind rather than discovering later that they threw away what
+    ///          a merge needs.
     [[nodiscard]] virtual Result<std::string, SerializeError> serialize(const Tree& tree) const {
         (void)tree;
         return fail(SerializeError::NotSupported);
     }
 };
 
-// Helper for the common case: a fixed leading order, everything else trailing
-// in document order. Names not in the list rank after every name that is.
+/// \brief Ranks a name against a fixed leading order.
+///
+/// \param order The names that sort first, in the order they should appear.
+/// \param name The name to rank.
+///
+/// \returns The position of \p name in \p order, or one past the end when it
+///          does not appear.
+///
+/// \remarks Covers the common case for propertyRank(): a fixed leading order
+///          with everything else trailing in document order.
 [[nodiscard]] int rankFromList(std::span<const std::string_view> order, std::string_view name);
 
-// Returns the node's properties as indices, sorted for display by the
-// provider's ranking. Stable, so equal ranks keep document order.
+/// \brief Sorts a node's properties for display.
+///
+/// \param provider The provider whose ranking to apply.
+/// \param tree The tree the node belongs to.
+/// \param id The node whose properties to order.
+///
+/// \returns Indices into the node's property list, in display order. The sort
+///          is stable, so equal ranks keep document order.
 [[nodiscard]] std::vector<std::uint32_t> propertyDisplayOrder(const IFormatProvider& provider,
                                                               const Tree& tree, NodeId id);
 

@@ -1,3 +1,6 @@
+/// \file
+/// \brief Shared helpers for format providers.
+
 #include "core/provider.h"
 
 #include <algorithm>

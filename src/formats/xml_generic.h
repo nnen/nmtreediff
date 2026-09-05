@@ -1,10 +1,7 @@
 #pragma once
 
-// The default XML provider: every element is a node, every attribute is a
-// property, and a leaf element's text becomes the #text property.
-//
-// It knows nothing about any schema. A format with its own idea of what counts
-// as a node subclasses the interface instead of configuring this one.
+/// \file
+/// \brief The default XML format provider.
 
 #include <memory>
 
@@ -12,6 +9,20 @@
 
 namespace nmxd {
 
+/// \brief Creates the generic XML provider.
+///
+/// \returns A provider that treats every element as a node and every attribute
+///          as a property.
+///
+/// \remarks A leaf element's text becomes the property named kTextProperty.
+///          Mixed content does not, because folding text into a node that also
+///          has element children would invent a difference none of the target
+///          formats mean.
+///
+///          The provider knows nothing about any schema, and returns only weak
+///          identity keys: an `id` attribute in arbitrary XML might be a stable
+///          key or might be a colour swatch name. A format that knows its own
+///          schema subclasses the interface and returns strong keys instead.
 [[nodiscard]] std::unique_ptr<IFormatProvider> makeGenericXmlProvider();
 
 }  // namespace nmxd

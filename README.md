@@ -68,6 +68,12 @@ Run the tests:
 ctest --test-dir build -C RelWithDebInfo --output-on-failure
 ```
 
+Build the API reference, which needs Doxygen on the path:
+
+```
+cmake --build build --target docs
+```
+
 Compare two files:
 
 ```
@@ -83,6 +89,7 @@ Repository contents
 | File | What it is |
 | --- | --- |
 | [REQUIREMENTS.md](REQUIREMENTS.md) | What the tool has to do. The source of truth. |
+| [Doxyfile](Doxyfile) | Configuration for the API reference. Undocumented code is an error, so the `docs` target fails rather than quietly producing a thinner reference. |
 | [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Architecture, data model, provider interface, matching algorithm, milestones, and open questions. |
 
 Roadmap

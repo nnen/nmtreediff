@@ -1,3 +1,6 @@
+/// \file
+/// \brief Implementation of the line diff and the intra-line word diff.
+
 #include "core/textdiff.h"
 
 #include <algorithm>
@@ -11,13 +14,26 @@ namespace {
 
 // ---------------------------------------------------------------- ids ------
 
-// Lines are compared as integers rather than strings. Hashing once up front
-// turns every later comparison in the alignment into one integer compare,
-// which is what keeps a large file affordable.
+/// \brief Maps distinct strings to small integers.
+///
+/// \remarks Lines are compared as integers rather than strings. Hashing once up
+///          front turns every later comparison in the alignment into a single
+///          integer compare, which is what keeps a large file affordable.
+///
+///          Keys are views, so the strings they point at must outlive the
+///          interner.
 class Interner {
 public:
+    /// \brief Creates an interner sized for an expected number of strings.
+    ///
+    /// \param expected How many distinct strings to make room for.
     explicit Interner(std::size_t expected) { ids_.reserve(expected * 2); }
 
+    /// \brief Returns the id for a string, assigning one if it is new.
+    ///
+    /// \param text The string to intern.
+    ///
+    /// \returns A id that is equal for equal strings and distinct otherwise.
     std::uint32_t idOf(std::string_view text) {
         const auto [it, inserted] = ids_.emplace(text, static_cast<std::uint32_t>(ids_.size()));
         (void)inserted;
@@ -36,26 +52,37 @@ private:
 
 // --------------------------------------------------------------- myers -----
 
-// An aligned run of equal elements.
+/// \brief An aligned run of equal elements in both sequences.
 struct Snake {
-    std::uint32_t aStart = 0;
-    std::uint32_t bStart = 0;
-    std::uint32_t length = 0;
+    std::uint32_t aStart = 0;   ///< Index of the first element in the left sequence.
+    std::uint32_t bStart = 0;   ///< Index of the first element in the right sequence.
+    std::uint32_t length = 0;   ///< How many elements the run covers.
 };
 
+/// \brief The snake found at the middle of a shortest edit path.
 struct Middle {
-    int xStart = 0;
-    int yStart = 0;
-    int xEnd = 0;
-    int yEnd = 0;
-    int distance = 0;
+    int xStart = 0;    ///< Left index where the snake begins.
+    int yStart = 0;    ///< Right index where the snake begins.
+    int xEnd = 0;      ///< Left index one past where the snake ends.
+    int yEnd = 0;      ///< Right index one past where the snake ends.
+    int distance = 0;  ///< Edit distance of the path this snake lies on.
 };
 
-// Myers' linear-space refinement: find one snake that lies on some shortest
-// edit path, then recurse either side of it. Space stays O(N + M) whatever the
-// edit distance turns out to be.
+/// \brief Aligns two integer sequences using Myers' algorithm.
+///
+/// \remarks Uses the linear-space refinement: find one snake that lies on some
+///          shortest edit path, then recurse either side of it. Space stays
+///          proportional to the input length whatever the edit distance turns
+///          out to be.
 class Aligner {
 public:
+    /// \brief Prepares an aligner over two sequences.
+    ///
+    /// \param a The left sequence.
+    /// \param b The right sequence.
+    /// \param total The combined length, used to size the scratch buffers.
+    /// \param maxDistance Ceiling on the edit distance to search for.
+    /// \param stepBudget Ceiling on the work to spend, counted in steps.
     Aligner(const std::uint32_t* a, const std::uint32_t* b, std::size_t total, int maxDistance,
             std::uint64_t stepBudget)
         : a_(a), b_(b), maxDistance_(maxDistance), stepBudget_(stepBudget) {
@@ -63,8 +90,22 @@ public:
         backward_.assign(2 * total + 3, 0);
     }
 
+    /// \brief Reports whether a guard stopped the alignment short.
+    ///
+    /// \returns `true` when some region was left unaligned.
     [[nodiscard]] bool capped() const noexcept { return capped_; }
 
+    /// \brief Aligns one region and appends the equal runs it finds.
+    ///
+    /// \param a0 First index of the region in the left sequence.
+    /// \param a1 One past the last index in the left sequence.
+    /// \param b0 First index of the region in the right sequence.
+    /// \param b1 One past the last index in the right sequence.
+    /// \param out Receives the equal runs, in order.
+    ///
+    /// \remarks A region that is pure insertion or pure deletion contributes no
+    ///          runs. Past the guards, the region is left unaligned and
+    ///          capped() becomes `true`.
     void align(int a0, int a1, int b0, int b1, std::vector<Snake>& out) {
         const int n = a1 - a0;
         const int m = b1 - b0;
@@ -95,8 +136,16 @@ public:
     }
 
 private:
-    // At most one edit in the region: the longest common prefix, the odd
-    // element, then whatever remains lines up.
+    /// \brief Handles a region holding at most one edit.
+    ///
+    /// \param a0 First index of the region in the left sequence.
+    /// \param a1 One past the last index in the left sequence.
+    /// \param b0 First index of the region in the right sequence.
+    /// \param b1 One past the last index in the right sequence.
+    /// \param out Receives the equal runs, in order.
+    ///
+    /// \remarks The longest common prefix, then the odd element, then whatever
+    ///          remains lines up.
     void emitTrivial(int a0, int a1, int b0, int b1, std::vector<Snake>& out) {
         const int n = a1 - a0;
         const int m = b1 - b0;
@@ -119,6 +168,16 @@ private:
         }
     }
 
+    /// \brief Finds a snake on a shortest edit path through one region.
+    ///
+    /// \param a0 First index of the region in the left sequence.
+    /// \param n Length of the region in the left sequence.
+    /// \param b0 First index of the region in the right sequence.
+    /// \param m Length of the region in the right sequence.
+    /// \param out Receives the snake and the path's edit distance.
+    ///
+    /// \returns `true` when a snake was found, `false` when a guard ran out
+    ///          first.
     bool findMiddle(int a0, int n, int b0, int m, Middle& out) {
         const int delta = n - m;
         const bool oddDelta = (delta & 1) != 0;
@@ -196,8 +255,19 @@ private:
     std::vector<int> backward_;
 };
 
-// Aligns two id sequences into snakes, trimming the common ends first because
-// that is nearly free and usually removes most of the work.
+/// \brief Aligns two id sequences into equal runs.
+///
+/// \param a The left sequence.
+/// \param b The right sequence.
+/// \param maxDistance Ceiling on the edit distance to search for.
+/// \param stepBudget Ceiling on the work to spend, counted in steps.
+/// \param capped Set to `true` when a guard left some region unaligned;
+///        otherwise left as it was.
+///
+/// \returns The equal runs, in order.
+///
+/// \remarks Trims the common prefix and suffix first, because that is nearly
+///          free and usually removes most of the work.
 std::vector<Snake> alignSequences(const std::vector<std::uint32_t>& a,
                                   const std::vector<std::uint32_t>& b, int maxDistance,
                                   std::uint64_t stepBudget, bool& capped) {
@@ -235,13 +305,27 @@ std::vector<Snake> alignSequences(const std::vector<std::uint32_t>& a,
 
 // ---------------------------------------------------------------- words ----
 
+/// \brief Reports whether a character belongs to a word token.
+///
+/// \param c The character to classify.
+///
+/// \returns `true` for letters, digits, underscore, hyphen and dot, which are
+///          the characters that hold together identifiers and numbers in markup
+///          and JSON.
 bool isWordChar(unsigned char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' ||
            c == '-' || c == '.';
 }
 
-// How alike two lines are, judged on their shared ends. Cheap, and enough to
-// decide whether splitting them into words would tell the reader anything.
+/// \brief Estimates how alike two lines are from their shared ends.
+///
+/// \param a The left line.
+/// \param b The right line.
+///
+/// \returns A value from 0 to 1, where 1 means the lines are identical.
+///
+/// \remarks Cheap, and enough to decide whether splitting the pair into words
+///          would tell the reader anything.
 double endSimilarity(std::string_view a, std::string_view b) {
     if (a.empty() || b.empty()) {
         return 0.0;
@@ -258,6 +342,15 @@ double endSimilarity(std::string_view a, std::string_view b) {
     return static_cast<double>(prefix + suffix) / static_cast<double>(std::max(a.size(), b.size()));
 }
 
+/// \brief Appends a segment, merging it with the previous one where possible.
+///
+/// \param out The segment list to append to.
+/// \param begin Byte offset where the segment starts.
+/// \param end Byte offset one past where it ends.
+/// \param changed Whether this run differs from the other side.
+///
+/// \remarks Merging touching runs of the same kind keeps the highlight from
+///          being chopped into one box per token. Empty segments are dropped.
 void appendSegment(std::vector<WordSegment>& out, std::uint32_t begin, std::uint32_t end,
                    bool changed) {
     if (end <= begin) {
@@ -272,6 +365,12 @@ void appendSegment(std::vector<WordSegment>& out, std::uint32_t begin, std::uint
     out.push_back(WordSegment{begin, end, changed});
 }
 
+/// \brief Splits two lines into tokens and marks the runs that differ.
+///
+/// \param left The left line.
+/// \param right The right line.
+///
+/// \returns Segments covering each line completely and in order.
 WordRun diffWords(std::string_view left, std::string_view right) {
     const auto leftTokens = tokenizeLine(left);
     const auto rightTokens = tokenizeLine(right);

@@ -1,3 +1,6 @@
+/// \file
+/// \brief Implementation of subtree content hashing.
+
 #include "core/hash.h"
 
 #include <algorithm>
@@ -7,12 +10,22 @@ namespace nmxd {
 
 namespace {
 
-// FNV-1a, chosen because it is fixed, tiny, and has no platform-dependent
-// behaviour. This is not a security hash; it only has to be stable and to
-// spread ordinary document fragments.
+/// \brief The FNV-1a offset basis.
+///
+/// \remarks FNV-1a is chosen because it is fixed, tiny, and has no
+///          platform-dependent behaviour. This is not a security hash; it only
+///          has to be stable and to spread ordinary document fragments.
 constexpr std::uint64_t kOffsetBasis = 1469598103934665603ull;
+
+/// \brief The FNV-1a multiplier.
 constexpr std::uint64_t kPrime = 1099511628211ull;
 
+/// \brief Folds a 64-bit value into a running hash, one byte at a time.
+///
+/// \param h The running hash.
+/// \param value The value to fold in.
+///
+/// \returns The updated hash.
 constexpr std::uint64_t mix(std::uint64_t h, std::uint64_t value) noexcept {
     for (int byte = 0; byte < 8; ++byte) {
         h ^= (value >> (byte * 8)) & 0xFFull;
