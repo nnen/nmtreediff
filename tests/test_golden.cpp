@@ -23,7 +23,10 @@
 //
 // A case is a directory holding a left file, a right file and the expected
 // change list. The extension decides the format, so a case in a new format is
-// two files and an expectation with nothing else to edit.
+// two files and an expectation with nothing else to edit. A case that needs a
+// particular provider rather than whichever one wins the sniffing adds a
+// format.txt naming it, which is also how the corpus covers two readings of
+// the same document.
 //
 // Set NMXD_UPDATE_GOLDEN=1 to rewrite the expectations, then read the diff
 // before committing it.
@@ -38,6 +41,7 @@ struct GoldenCase {
     fs::path left;
     fs::path right;
     std::string extension;
+    std::string format;  ///< From format.txt, or empty to sniff.
 };
 
 fs::path goldenRoot() { return fs::path(NMXD_TESTDATA_DIR) / "golden"; }
@@ -79,8 +83,17 @@ std::vector<GoldenCase> goldenCases() {
             }
             const fs::path right = entry.path() / ("right" + file.path().extension().string());
             if (fs::exists(right)) {
+                std::string format;
+                if (fs::exists(entry.path() / "format.txt")) {
+                    format = readFile(entry.path() / "format.txt");
+                    while (!format.empty() && (format.back() == '\n' ||
+                                               format.back() == '\r' ||
+                                               format.back() == ' ')) {
+                        format.pop_back();
+                    }
+                }
                 cases.push_back(GoldenCase{entry.path(), file.path(), right,
-                                           file.path().extension().string()});
+                                           file.path().extension().string(), format});
             }
             break;
         }
@@ -107,6 +120,14 @@ TEST_CASE("the golden corpus is present", "[golden]") {
     }
     CHECK(extensions.count(".xml") == 1);
     CHECK(extensions.count(".json") == 1);
+    CHECK(extensions.count(".bt") == 1);
+
+    // At least one case pins its provider rather than sniffing, which is the
+    // only thing that covers reading one document two ways.
+    const bool anyPinned = std::any_of(cases.begin(), cases.end(), [](const GoldenCase& item) {
+        return !item.format.empty();
+    });
+    CHECK(anyPinned);
 }
 
 TEST_CASE("golden cases match their expectations", "[golden]") {
@@ -121,7 +142,7 @@ TEST_CASE("golden cases match their expectations", "[golden]") {
         REQUIRE(leftSource.ok());
         REQUIRE(rightSource.ok());
 
-        const auto* provider = registry.resolve(leftSource.value());
+        const auto* provider = registry.resolve(leftSource.value(), item.format);
         REQUIRE(provider != nullptr);
 
         auto leftTree = provider->parse(leftSource.value(), {});
@@ -158,7 +179,7 @@ TEST_CASE("diffing a document against itself finds nothing", "[golden]") {
         const auto source = nmxd::SourceFile::load(item.left, "left");
         REQUIRE(source.ok());
 
-        const auto* provider = registry.resolve(source.value());
+        const auto* provider = registry.resolve(source.value(), item.format);
         REQUIRE(provider != nullptr);
         auto tree = provider->parse(source.value(), {});
         REQUIRE(tree.ok());

@@ -4,12 +4,35 @@
 #include "core/registry.h"
 
 #include <algorithm>
+#include <cctype>
+#include <string>
 #include <utility>
 
+#include "formats/bt_xml.h"
 #include "formats/json_generic.h"
 #include "formats/xml_generic.h"
 
 namespace nmxd {
+
+namespace {
+
+/// \brief Lower-cases a string.
+///
+/// \param text The text to convert.
+///
+/// \returns A lower-case copy.
+///
+/// \remarks Extensions are compared in lower case, so a file called LEVEL.BT
+///          resolves the same way as level.bt. Windows is case-insensitive about
+///          them and a studio's exporter is not always consistent.
+std::string lower(std::string_view text) {
+    std::string out(text);
+    std::transform(out.begin(), out.end(), out.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return out;
+}
+
+}  // namespace
 
 void ProviderRegistry::add(std::unique_ptr<IFormatProvider> provider) {
     if (provider == nullptr) {
@@ -29,6 +52,58 @@ const IFormatProvider* ProviderRegistry::byName(std::string_view name) const {
 
 void ProviderRegistry::setFallback(std::string_view name) { fallback_ = std::string(name); }
 
+bool ProviderRegistry::mapExtension(std::string_view extension, std::string_view providerName) {
+    if (byName(providerName) == nullptr) {
+        return false;
+    }
+
+    const std::string key = lower(extension);
+    // Last mapping wins, so a configuration that names an extension twice
+    // behaves the way a reader of the file would expect rather than keeping
+    // whichever line happened to come first.
+    for (auto& entry : overrides_) {
+        if (entry.first == key) {
+            entry.second = std::string(providerName);
+            return true;
+        }
+    }
+    overrides_.emplace_back(key, std::string(providerName));
+    return true;
+}
+
+std::vector<std::string> ProviderRegistry::apply(const ProviderConfig& config) {
+    std::vector<std::string> unknown;
+
+    for (const auto& [extension, providerName] : config.extensions) {
+        if (!mapExtension(extension, providerName)) {
+            unknown.push_back(providerName);
+        }
+    }
+
+    if (!config.fallback.empty()) {
+        if (byName(config.fallback) == nullptr) {
+            unknown.push_back(config.fallback);
+        } else {
+            setFallback(config.fallback);
+        }
+    }
+
+    return unknown;
+}
+
+const IFormatProvider* ProviderRegistry::overrideFor(std::string_view extension) const {
+    if (extension.empty()) {
+        return nullptr;
+    }
+    const std::string key = lower(extension);
+    for (const auto& entry : overrides_) {
+        if (entry.first == key) {
+            return byName(entry.second);
+        }
+    }
+    return nullptr;
+}
+
 const IFormatProvider* ProviderRegistry::resolve(const SourceFile& source,
                                                  std::string_view explicitName,
                                                  bool* unknownName) const {
@@ -47,6 +122,12 @@ const IFormatProvider* ProviderRegistry::resolve(const SourceFile& source,
             *unknownName = true;
         }
         return nullptr;
+    }
+
+    // A configured extension is a studio's standing decision and beats a guess
+    // about the file's contents.
+    if (const IFormatProvider* configured = overrideFor(source.path().extension().string())) {
+        return configured;
     }
 
     const IFormatProvider* best = nullptr;
@@ -79,6 +160,7 @@ ProviderRegistry makeDefaultRegistry() {
     ProviderRegistry registry;
     registry.add(makeGenericXmlProvider());
     registry.add(makeGenericJsonProvider());
+    registry.add(makeBehaviorTreeProvider());
     registry.setFallback("xml");
     return registry;
 }

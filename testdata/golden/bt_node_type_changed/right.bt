@@ -1,0 +1,7 @@
+<behaviortree version="2">
+  <node id="a1b2" type="Selector" name="Approach">
+    <node id="c3d4" type="MoveTo" name="Go to waypoint">
+      <property name="speed" value="1.0"/>
+    </node>
+  </node>
+</behaviortree>

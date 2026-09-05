@@ -108,6 +108,10 @@ int AppWindow::run() {
         return 2;
     }
 
+    // The command line has already checked that every name in here is one the
+    // registry knows, so nothing can go wrong at this point.
+    (void)session_.configureProviders(options_.providerConfig);
+
     // Queued before the first frame so the read happens on a worker while the
     // window is already up and drawing.
     if (options_.hasInputs()) {

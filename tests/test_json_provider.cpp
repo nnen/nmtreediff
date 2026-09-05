@@ -27,7 +27,7 @@ namespace {
 // built in memory. The name matters only for the extension, which is what
 // sniffing looks at first.
 SourceFile makeSource(std::string text, std::string name = "case.json") {
-    return SourceFile::fromMemory(std::move(text), std::move(name));
+    return SourceFile::fromMemory(std::move(text), name, name);
 }
 
 Tree parseOrFail(const nmxd::IFormatProvider& provider, const SourceFile& source) {
@@ -86,7 +86,10 @@ TEST_CASE("the registry tells the two built-in formats apart", "[json][registry]
 
     // By extension, which is the path a person actually takes.
     const auto json = SourceFile::load(fs::path(NMXD_TESTDATA_DIR) / "sample" / "level_before.json");
-    const auto xml = SourceFile::load(fs::path(NMXD_TESTDATA_DIR) / "sample" / "tree_before.xml");
+    // An ordinary XML file, not the behaviour tree in testdata/sample, which
+    // the behavior-tree provider claims on sight.
+    const auto xml =
+        SourceFile::load(fs::path(NMXD_TESTDATA_DIR) / "golden" / "node_inserted" / "left.xml");
     REQUIRE(json.ok());
     REQUIRE(xml.ok());
 

@@ -1,0 +1,20 @@
+<behaviortree version="3">
+  <node id="root01" type="Selector" name="Root">
+    <node id="combat" type="Sequence" name="Combat">
+      <property name="priority" value="10"/>
+      <node id="fire99" type="Fire" name="Open fire">
+        <property name="burst" value="3"/>
+      </node>
+    </node>
+    <node id="idle42" type="Sequence" name="Idle">
+      <property name="priority" value="1"/>
+      <node id="look01" type="LookAround" name="Look around">
+        <property name="seconds" value="4"/>
+      </node>
+      <node id="aim007" type="AimAt" name="Aim at target">
+        <property name="target" value="nearest_enemy"/>
+        <property name="tolerance" value="2.5"/>
+      </node>
+    </node>
+  </node>
+</behaviortree>

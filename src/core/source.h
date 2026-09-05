@@ -97,11 +97,18 @@ public:
     ///
     /// \param bytes The content.
     /// \param label Title to show for this side.
+    /// \param path The name to resolve a format against, or empty for none.
     ///
     /// \returns The constructed file, with its line index already built.
     ///
-    /// \remarks For tests, and for content that never came from disk.
-    [[nodiscard]] static SourceFile fromMemory(std::string bytes, std::string label);
+    /// \remarks For tests, and for content that never came from disk. The path is
+    ///          separate from the label because the two answer different
+    ///          questions: the label is what a person sees above the pane, which
+    ///          a version control system usually overrides with a revision, and
+    ///          the path is what an extension is read from. Passing content with
+    ///          no path is normal and means the format has to be sniffed.
+    [[nodiscard]] static SourceFile fromMemory(std::string bytes, std::string label,
+                                               std::filesystem::path path = {});
 
     /// \brief Returns the file content.
     ///

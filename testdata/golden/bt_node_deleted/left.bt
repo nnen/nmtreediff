@@ -1,0 +1,10 @@
+<behaviortree version="2">
+  <node id="a1b2" type="Sequence" name="Patrol">
+    <node id="c3d4" type="MoveTo" name="Go to waypoint">
+      <property name="speed" value="1.0"/>
+    </node>
+    <node id="e5f6" type="Wait" name="Look around">
+      <property name="seconds" value="2.5"/>
+    </node>
+  </node>
+</behaviortree>

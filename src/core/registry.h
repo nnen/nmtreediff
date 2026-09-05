@@ -4,10 +4,12 @@
 /// \brief Deciding which format provider handles a given file.
 
 #include <memory>
+#include <utility>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include "core/config.h"
 #include "core/provider.h"
 
 namespace nmxd {
@@ -54,6 +56,40 @@ public:
                                                  std::string_view explicitName = {},
                                                  bool* unknownName = nullptr) const;
 
+    /// \brief Points an extension at a provider.
+    ///
+    /// \param extension The extension, including its leading dot.
+    /// \param providerName The provider that should handle it.
+    ///
+    /// \returns `true` when the provider is registered, `false` when the
+    ///          mapping was ignored because nothing goes by that name.
+    ///
+    /// \remarks An override beats sniffing but loses to an explicit `--format`,
+    ///          which puts the three ways of choosing a provider in the order of
+    ///          how deliberate they are: this one is a studio's standing
+    ///          decision, sniffing is a guess, and the command line is a person
+    ///          correcting one of them right now.
+    bool mapExtension(std::string_view extension, std::string_view providerName);
+
+    /// \brief Applies a configuration file's contents to this registry.
+    ///
+    /// \param config The configuration to apply.
+    ///
+    /// \returns The provider names the configuration mentioned that this
+    ///          registry does not know, in the order they appeared.
+    ///
+    /// \remarks An unrecognised name is returned rather than ignored, because a
+    ///          typo in a studio-wide configuration would otherwise send every
+    ///          artist's diff quietly through the wrong provider.
+    [[nodiscard]] std::vector<std::string> apply(const ProviderConfig& config);
+
+    /// \brief Returns the provider an extension has been pointed at.
+    ///
+    /// \param extension The extension, including its leading dot.
+    ///
+    /// \returns The provider, or `nullptr` when the extension has no override.
+    [[nodiscard]] const IFormatProvider* overrideFor(std::string_view extension) const;
+
     /// \brief Lists the names of every registered provider.
     ///
     /// \returns The names, in registration order.
@@ -76,13 +112,15 @@ public:
 
 private:
     std::vector<std::unique_ptr<IFormatProvider>> providers_;
+    std::vector<std::pair<std::string, std::string>> overrides_;
     std::string fallback_;
 };
 
 /// \brief Builds a registry holding the built-in formats.
 ///
-/// \returns A registry with the generic XML provider registered and set as the
-///          fallback.
+/// \returns A registry holding the generic XML provider, the generic JSON
+///          provider and the sample behavior-tree provider, with generic XML as
+///          the fallback.
 ///
 /// \remarks Registration is an explicit list rather than a static initialiser
 ///          per format. In a static library the linker drops a translation unit

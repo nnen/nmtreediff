@@ -13,53 +13,11 @@
 #include <pugixml.hpp>
 
 #include "core/hash.h"
+#include "formats/xml_spans.h"
 
 namespace nmxd {
 
 namespace {
-
-/// \brief Finds where a tag ends.
-///
-/// \param text The whole document.
-/// \param from Offset of the tag's opening angle bracket.
-///
-/// \returns The offset just past the matching closing bracket, or the end of the
-///          document when there is none.
-///
-/// \remarks pugixml reports where a node starts but not where it ends, and a
-///          span needs both. Quoting is respected, so a `>` inside an attribute
-///          value is not mistaken for the end of the tag.
-std::uint32_t endOfTag(std::string_view text, std::uint32_t from) {
-    bool inSingle = false;
-    bool inDouble = false;
-    for (std::uint32_t i = from; i < text.size(); ++i) {
-        const char c = text[i];
-        if (c == '\'' && !inDouble) {
-            inSingle = !inSingle;
-        } else if (c == '"' && !inSingle) {
-            inDouble = !inDouble;
-        } else if (c == '>' && !inSingle && !inDouble) {
-            return i + 1;
-        }
-    }
-    return static_cast<std::uint32_t>(text.size());
-}
-
-/// \brief Finds where the next closing tag ends.
-///
-/// \param text The whole document.
-/// \param from Offset at or before the closing tag.
-///
-/// \returns The offset just past the closing tag, or the end of the document
-///          when there is none.
-std::uint32_t endOfClosingTag(std::string_view text, std::uint32_t from) {
-    for (std::uint32_t i = from; i + 1 < text.size(); ++i) {
-        if (text[i] == '<' && text[i + 1] == '/') {
-            return endOfTag(text, i);
-        }
-    }
-    return static_cast<std::uint32_t>(text.size());
-}
 
 /// \brief Reports whether text begins with a prefix.
 ///
@@ -282,7 +240,7 @@ private:
         // Now that every child is placed, the element ends either at its own
         // self-closing tag or just past its closing tag.
         Node& node = tree.node(id);
-        const bool selfClosing = startTagEnd >= 2 && text[startTagEnd - 2] == '/';
+        const bool selfClosing = isSelfClosing(text, startTagEnd);
         if (selfClosing) {
             node.span.end = startTagEnd;
         } else {
@@ -290,70 +248,6 @@ private:
                 node.children.empty() ? startTagEnd : tree.node(node.children.back()).span.end;
             node.span.end = endOfClosingTag(text, searchFrom);
         }
-    }
-
-    /// \brief Recovers a span for every attribute in one start tag.
-    ///
-    /// \param text The whole document.
-    /// \param tagBegin Offset of the tag's opening angle bracket.
-    /// \param tagEnd Offset just past the tag's closing bracket.
-    ///
-    /// \returns One span per attribute, in document order, each covering the
-    ///          name, the equals sign and the quoted value.
-    ///
-    /// \remarks pugixml reports offsets for nodes but not for attributes, so the
-    ///          start tag is scanned once and the spans matched up with the
-    ///          parsed attributes, which arrive in the same order.
-    static std::vector<SourceSpan> scanAttributeSpans(std::string_view text, std::uint32_t tagBegin,
-                                                      std::uint32_t tagEnd) {
-        std::vector<SourceSpan> spans;
-        const auto isSpace = [](char c) {
-            return c == ' ' || c == '\t' || c == '\r' || c == '\n';
-        };
-
-        std::uint32_t i = tagBegin + 1;  // past '<'
-        while (i < tagEnd && !isSpace(text[i]) && text[i] != '>' && text[i] != '/') {
-            ++i;  // past the element name
-        }
-
-        while (i < tagEnd) {
-            while (i < tagEnd && isSpace(text[i])) {
-                ++i;
-            }
-            if (i >= tagEnd || text[i] == '>' || text[i] == '/') {
-                break;
-            }
-
-            const std::uint32_t nameBegin = i;
-            while (i < tagEnd && !isSpace(text[i]) && text[i] != '=' && text[i] != '>' &&
-                   text[i] != '/') {
-                ++i;
-            }
-            std::uint32_t end = i;
-
-            while (i < tagEnd && isSpace(text[i])) {
-                ++i;
-            }
-            if (i < tagEnd && text[i] == '=') {
-                ++i;
-                while (i < tagEnd && isSpace(text[i])) {
-                    ++i;
-                }
-                if (i < tagEnd && (text[i] == '"' || text[i] == '\'')) {
-                    const char quote = text[i];
-                    ++i;
-                    while (i < tagEnd && text[i] != quote) {
-                        ++i;
-                    }
-                    if (i < tagEnd) {
-                        ++i;  // past the closing quote
-                    }
-                    end = i;
-                }
-            }
-            spans.push_back(SourceSpan{nameBegin, end});
-        }
-        return spans;
     }
 };
 

@@ -2,6 +2,7 @@
 # testable in continuous integration and reusable by a future merge tool.
 
 add_library(nmxd_core STATIC
+    config.cpp
     diff.cpp
     layout_tree.cpp
     hash.cpp
@@ -10,8 +11,10 @@ add_library(nmxd_core STATIC
     provider.cpp
     registry.cpp
     tree.cpp
+    ${CMAKE_SOURCE_DIR}/src/formats/bt_xml.cpp
     ${CMAKE_SOURCE_DIR}/src/formats/json_generic.cpp
     ${CMAKE_SOURCE_DIR}/src/formats/xml_generic.cpp
+    ${CMAKE_SOURCE_DIR}/src/formats/xml_spans.cpp
     session.cpp
     source.cpp
     textdiff.cpp

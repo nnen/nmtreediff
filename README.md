@@ -5,16 +5,17 @@ A lightweight GUI tool for diffing tree-shaped data. It shows the same diff two
 ways, as text and as a node graph, and it runs from the command line so it can
 serve as the diff tool for Perforce or another version control system.
 
-**Status: usable. Milestones M0 to M5 have landed.** Both views work and share
+**Status: usable. Milestones M0 to M6 have landed.** Both views work and share
 a selection. The text view aligns the two files and picks out the changed words
 within a rewritten line. The node view draws both trees as one graph coloured
 by what happened to each node, with unchanged subtrees collapsed and a ghost
 edge showing where a moved node came from. Clicking in either view selects in
 the other. XML and JSON are both built in and are told apart by extension or,
-failing that, by a look at the first bytes. The headless report lists the
-changes for scripting.
+failing that, by a look at the first bytes. A format of your own is a C++ class
+and one line in a list, documented in [docs/PROVIDERS.md](docs/PROVIDERS.md).
+The headless report lists the changes for scripting.
 
-Missing so far: custom format providers, and everything under Roadmap below.
+Missing so far: everything under Roadmap below.
 
 Why
 ---
@@ -39,7 +40,9 @@ What it does
   coloured.
 - **Matches by identity, not just position.** When a format has stable
   identifiers, such as a GUID on a behavior tree node, two nodes with the same
-  identifier are the same node however far apart they have moved.
+  identifier are the same node however far apart they have moved. The sample
+  behavior-tree provider does exactly that, and a node it has anchored survives
+  even a change of type, which no structural heuristic could recover from.
 - **Stays responsive.** Parsing, matching, and layout run off the frame loop,
   publish results in stages, and can be cancelled. A large file does not freeze
   the window.
@@ -93,7 +96,24 @@ is unfamiliar, so a JSON pair needs nothing extra:
 build/bin/RelWithDebInfo/nmxmldiff testdata/sample/level_before.json testdata/sample/level_after.json
 ```
 
-Pass `--format xml` or `--format json` to override that.
+Pass `--format` to override that, and `--list-formats` to see what this build
+reads:
+
+```
+build/bin/RelWithDebInfo/nmxmldiff --list-formats
+```
+
+The behaviour tree in `testdata/sample` shows what a format that knows its own
+schema buys. Read by its own provider it is four nodes titled by behaviour;
+read as generic XML with `--format xml` it is eight, half of them called
+`property`.
+
+If your studio's asset files use their own suffixes, point them at a provider
+in a configuration file rather than rebuilding:
+
+```
+build/bin/RelWithDebInfo/nmxmldiff --config testdata/sample/providers.conf --list-formats
+```
 
 Open straight into the node view:
 
@@ -109,16 +129,19 @@ Repository contents
 | [REQUIREMENTS.md](REQUIREMENTS.md) | What the tool has to do. The source of truth. |
 | [Doxyfile](Doxyfile) | Configuration for the API reference. Undocumented code is an error, so the `docs` target fails rather than quietly producing a thinner reference. |
 | [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Architecture, data model, provider interface, matching algorithm, milestones, and open questions. |
+| [docs/PROVIDERS.md](docs/PROVIDERS.md) | How to teach the tool a format of your own. Carries the provider interface version, which is 1. |
+| [testdata/sample/providers.conf](testdata/sample/providers.conf) | A sample configuration pointing file extensions at providers. |
 
 Roadmap
 -------
 
-Milestones M0 through M5 were the critical path and are done: a skeleton with
-a job system, a text diff, the data model with a generic XML provider, the diff
-engine, the node view, and a generic JSON provider. Custom format providers
-follow at M6 and a shippable release at M7. A Lua bridge for writing format
-providers without a compiler, and three-way merge, are deliberately out of
-initial scope but the architecture keeps both open.
+Milestones M0 through M6 are done: a skeleton with a job system, a text diff,
+the data model with a generic XML provider, the diff engine, the node view, a
+generic JSON provider, and custom formats with a worked example. A shippable
+release follows at M7: a portable archive, dependency attribution, and one-page
+setup documents for Perforce and Git verified against real clients. A Lua bridge
+for writing format providers without a compiler, and three-way merge, are
+deliberately out of initial scope but the architecture keeps both open.
 
 Licence
 -------

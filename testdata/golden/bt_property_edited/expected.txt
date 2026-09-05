@@ -1,0 +1,1 @@
+~ /behaviortree/Sequence[0]/MoveTo[0] [waypoint]

@@ -6,7 +6,9 @@
 #include <atomic>
 #include <filesystem>
 #include <string>
+#include <vector>
 
+#include "core/config.h"
 #include "core/jobs.h"
 #include "core/registry.h"
 #include "core/snapshot.h"
@@ -89,6 +91,21 @@ public:
     ///
     /// \returns The registry, valid for the lifetime of the session.
     [[nodiscard]] const ProviderRegistry& registry() const noexcept { return registry_; }
+
+    /// \brief Applies a provider configuration to this session's registry.
+    ///
+    /// \param config The configuration to apply.
+    ///
+    /// \returns The provider names the configuration mentioned that the
+    ///          registry does not know.
+    ///
+    /// \remarks Call before open(). Changing which provider handles a file part
+    ///          way through a comparison would leave the published snapshot
+    ///          describing a tree that no longer matches the one the views are
+    ///          drawing.
+    std::vector<std::string> configureProviders(const ProviderConfig& config) {
+        return registry_.apply(config);
+    }
 
     /// \brief Blocks until the pipeline settles.
     ///

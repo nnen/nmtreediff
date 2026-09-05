@@ -65,10 +65,12 @@ Result<SourceFile, LoadError> SourceFile::load(const std::filesystem::path& path
     return file;
 }
 
-SourceFile SourceFile::fromMemory(std::string bytes, std::string label) {
+SourceFile SourceFile::fromMemory(std::string bytes, std::string label,
+                                  std::filesystem::path path) {
     SourceFile file;
     file.bytes_ = std::move(bytes);
     file.label_ = std::move(label);
+    file.path_ = std::move(path);
     file.buildLineIndex();
     return file;
 }

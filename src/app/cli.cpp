@@ -39,7 +39,10 @@ ParseResult parseInto(CLI::App& app, std::vector<std::string> reversedArgs) {
     app.add_option("--right-label", options.rightLabel, "Title to show for the right side");
     app.add_option("--view", viewName, "Initial view")
         ->check(CLI::IsMember({"text", "node"}));
-    app.add_option("--config", options.configPath, "Configuration file to load");
+    app.add_option("--config", options.configPath,
+                   "Provider configuration file mapping extensions to formats");
+    app.add_flag("--list-formats", options.listFormats,
+                 "Print the formats this build knows, with their extensions, and exit");
 
     app.add_flag("--headless", options.headless, "Run without opening a window");
     app.add_option("--report", reportName, "Headless output format")
@@ -57,6 +60,12 @@ ParseResult parseInto(CLI::App& app, std::vector<std::string> reversedArgs) {
         app.parse(std::move(reversedArgs));
     } catch (const CLI::ParseError& error) {
         return ParseResult{std::nullopt, app.exit(error)};
+    }
+
+    // Listing formats answers a question about the build rather than about a
+    // pair of files, so it is the one mode that needs no inputs at all.
+    if (options.listFormats) {
+        return ParseResult{std::move(options), 0};
     }
 
     const bool onlyOneGiven = options.leftPath.empty() != options.rightPath.empty();

@@ -111,10 +111,12 @@ nmxmldiff/
       match.h/.cpp         identity, bottom-up, top-down passes
       diff.h/.cpp          Matching to DiffModel
       textdiff.h/.cpp      Myers line diff, intra-line word diff
+      config.h/.cpp        the studio's extension-to-provider file (M6)
     formats/
       xml_generic.h/.cpp   default XML provider (M2)
       json_generic.h/.cpp  default JSON provider (M5)
       bt_xml.h/.cpp        sample behavior-tree provider (M6)
+      xml_spans.h/.cpp     span recovery shared by the XML providers (M6)
     ui/
       app_window.h/.cpp    docking layout, menu, keyboard map
       text_view.h/.cpp
@@ -235,25 +237,50 @@ deterministic across runs.
 merge will need in order to write a merged tree back out, and declaring it
 early forces every provider to be written with round-tripping in mind.
 
-The registry resolves a provider by an explicit format option first, then by
-the highest sniffing score, then falls back to the generic XML provider.
+The registry resolves a provider by an explicit format option first, then by a
+configured extension, then by the highest sniffing score, then falls back to the
+generic XML provider. Those four are in order of how deliberate they are: the
+command line is a person correcting a guess right now, a configured extension is
+a studio's standing decision, and sniffing is the guess.
 Registration is an explicit list rather than a static initialiser per format.
 In a static library the linker drops a translation unit nothing references,
 taking its self-registration with it, and a format that silently vanishes from
 a release build is far worse than one list that has to be edited. Since this interface is the
 studio-facing surface, it carries a version number from the first release and
-changes to it are additive.
+changes to it are additive. That number is `kProviderInterfaceVersion`, it is
+printed by `--list-formats`, and it heads docs/PROVIDERS.md, which is the
+document someone outside the project writes a provider from.
 
-### The two built-in providers
+### The configuration file
+
+A studio names its asset files whatever it likes, and pointing an extension at a
+provider should not need a rebuild. The file is one `key = value` per line, `#`
+starts a comment, a key beginning with a dot is an extension, and the only other
+key is `fallback`. That is the whole format: a configuration grows teeth the
+moment it can express more than the one thing that cannot be said any other way.
+
+Every problem in it is reported with its line number, and so is a provider name
+the build does not know. A file with any problem stops the run rather than being
+partly applied, because a diff read by the wrong provider looks like a working
+diff, and that is the failure that goes unnoticed longest.
+
+It is passed with `--config` and never searched for. A diff tool is launched by
+another program from a directory nobody chose, and configuration that depends on
+where you were standing is not configuration.
+
+### The built-in providers
 
 XML ships first and JSON second. Both are generic providers with no knowledge
 of any particular schema, and between them they are what proves the interface
-is not XML-shaped.
+is not XML-shaped. A third, the sample behavior-tree provider, arrives at M6 to
+prove the opposite half: that a provider which does know its schema can collapse
+detail the generic ones have to keep.
 
 | | What is a node | What is a property | Child order | Default identity |
 | --- | --- | --- | --- | --- |
 | Generic XML | Every element | Every attribute, plus `#text` for a leaf element's text | Ordered | Element name and sibling index; weak |
 | Generic JSON | Every object, every array, and every array element | Scalar members of an object, plus `#value` for a scalar array element and `#type` on every container | Arrays ordered, object members unordered | Member key inside its parent object; weak. Array elements have none. |
+| Behavior tree | Only `<node>` elements, plus the document element | Every attribute, plus each `<property name= value=>` child folded in | Ordered, because sibling order is execution order | The `id` attribute; **strong** |
 
 **JSON is where the ordering hook earns its place.** Reordering the members of
 an object changes nothing about the document, while reordering an array does.
@@ -281,6 +308,23 @@ re-rendering of it.
 **Every scalar is read even though only its text is kept.** On Demand parsing
 is lazy: a value nobody asks for is skipped structurally and never checked, so
 a file containing `1.2.3` would otherwise diff as though it were sound.
+
+**The sample provider is where the interface pays for itself.** Read as generic
+XML, the behaviour tree from the requirements is five nodes, three of them
+called `property`, and a changed movement speed is reported as an edit to an
+anonymous element. Read by its own provider it is three nodes titled Sequence
+and MoveTo, and the same change is reported as a property of the behaviour it
+belongs to. Both readings are in the golden corpus so the difference is
+reviewable rather than asserted.
+
+The strong identity key is the other half. A `<node>` carries a GUID its editor
+generated, so two nodes with the same one are the same node however far apart
+they have moved. Generic XML looks at the same attribute and returns a weak key,
+because in arbitrary XML an `id` might be a stable identifier or might be a
+colour swatch name. The difference shows up as a single reported move where the
+generic reading would report a deletion next to an addition, and as a surviving
+match when a node's `type` changes, which no structural heuristic could
+recover because a kind mismatch stops all of them.
 
 **One note on comment-bearing JSON.** simdjson accepts strict JSON only, so
 files with comments or trailing commas, which do turn up in game
@@ -448,7 +492,8 @@ nmxmldiff [options] <left> <right>
   --format <name>             override provider sniffing
   --left-label, --right-label titles a VCS wants shown
   --view text|node            initial view
-  --config <file>
+  --config <file>             extension-to-provider mappings
+  --list-formats              what this build reads, and what it resolves
   --headless                  no window
   --report text|json
   --exit-code                 0 identical, 1 different
@@ -475,7 +520,7 @@ submissions, and it is also how the end-to-end tests run.
 | M3 &check; | Diff engine | The four passes, DiffModel, size guard with visible degraded mode, cancellation, golden-file tests, performance tests | Golden tests pass and the hundred-thousand-node case meets its budget |
 | M4 &check; | Node view | Canvas, tidy-tree layout on a worker, node cards, status colouring, collapsing, view switching, shared selection | Both views show the same snapshot and cross-select |
 | M5 &check; | JSON | Generic JSON provider on simdjson, spans from source locations, ordered arrays and unordered object members, sniffing between the two built-ins | Done, and no interface change was needed: the provider is a new file, one line in the registry and one in the build. A 100k-node JSON pair parses in 113 ms a pair and matches in 80 ms, against 84 ms for the XML case of the same size |
-| M6 | Custom formats | Sample behavior-tree provider, format override, provider config, versioned provider documentation | The behavior-tree case matches by identifier across a move, and someone outside the project can write a provider from the docs |
+| M6 &check; | Custom formats | Sample behavior-tree provider, format override, provider config, versioned provider documentation | Done. A `<node>` follows its GUID from one branch of the tree to another and is reported as one move, and survives a change of `type` that no structural heuristic could. docs/PROVIDERS.md carries interface version 1 |
 | M7 | Ship | Headless report, exit codes, portable archive, MIT licence and attribution for bundled dependencies, one-page Perforce and Git setup docs verified against real clients, settings persistence | A technical artist can unzip it and configure it without help |
 | M8 | Later | Lua provider bridge, three-way merge, further game asset formats | Out of initial scope |
 
@@ -490,14 +535,26 @@ node's own content, both worked as declared. The one thing the exercise did
 change is the golden harness, which had `left.xml` written into it and now
 takes the format from whatever extension a case directory holds.
 
+M6 published that interface. Writing a third provider against it needed no
+change to it either, and it surfaced one thing worth extracting: recovering a
+span from XML bytes, which pugixml does not do, is now `formats/xml_spans` and
+is shared rather than copied. The one interface change M6 did make is elsewhere:
+`SourceFile::fromMemory` gained an optional path, because the format a file
+resolves to is read from its extension and content in memory previously had
+nowhere to carry one. That made the configured-extension path testable without
+touching the disk.
+
 12. Testing
 -----------
 
 - **Golden-file diff tests.** Each case is a directory holding a left file, a
   right file, and an expected serialised change list. The extension decides the
   format, so a case in a new format is two files and an expectation with nothing
-  else to edit, and the corpus asserts that both built-in formats are present
-  rather than trusting that they are. This is the main defence against matching
+  else to edit, and the corpus asserts that every built-in format is present
+  rather than trusting that it is. A case that needs a particular provider adds
+  a `format.txt` naming it, which is what lets the corpus hold one document read
+  two ways and makes the difference between a generic and a schema-aware
+  provider reviewable. This is the main defence against matching
   regressions, and it makes a change in matching quality reviewable as a diff of
   expected output.
 - **Unit tests** for hash stability, span correctness, property ranking,
@@ -536,10 +593,18 @@ library is what makes that acceptable.
   cursor after the container is consumed, which is a constant-time read rather
   than a rescan of the bytes. A change of parser later is still not a swap but a
   rewrite of the provider.
-- **Open: which real asset format to validate against.** Generic XML and JSON
-  cover the shape of the problem, but not a real studio pipeline. Picking one
-  concrete format early gives the performance work a realistic corpus instead
-  of synthetic trees, and decides who can try the tool on day one.
+- **Open: which real asset format to validate against.** The sample
+  behavior-tree provider is the format from the requirements, not one a studio
+  actually exports, so it proves the interface without proving the tool against
+  a real pipeline. Picking one concrete format gives the performance work a
+  realistic corpus instead of synthetic trees, and decides who can try the tool
+  on day one.
+- **Open: how much a sample provider should drop.** The behavior-tree provider
+  walks through an element it does not recognise and keeps nothing of it, which
+  is fine for a worked example and wrong for a studio provider: a diff tool that
+  silently drops content is the one thing a reviewer cannot forgive. Whether the
+  interface should make that harder to do by accident is worth deciding before
+  anyone writes a provider against it in earnest.
 - **Open: release channel.** The licence is settled; how builds reach studios
   is not. A tagged archive on a public repository is the cheap answer, and it
   is worth deciding before the first person asks where to get it.

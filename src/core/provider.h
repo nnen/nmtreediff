@@ -17,6 +17,18 @@
 
 namespace nmxd {
 
+/// \brief The version of the format provider interface this build publishes.
+///
+/// \remarks This is the studio-facing surface. A provider written against
+///          version 1 keeps working in every later version 1 build, because
+///          changes to the interface are additive: a new method arrives with a
+///          default implementation, and nothing already declared changes shape
+///          or meaning. The number goes up only when that promise is broken,
+///          which is a decision rather than an accident.
+///
+///          Documented in docs/PROVIDERS.md, which carries the same number.
+inline constexpr int kProviderInterfaceVersion = 1;
+
 /// \brief An opaque colour, with eight bits per channel.
 struct Color {
     std::uint8_t r = 0;    ///< Red channel.

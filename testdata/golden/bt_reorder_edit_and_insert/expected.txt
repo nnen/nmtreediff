@@ -1,0 +1,4 @@
+~ /behaviortree/Sequence[0] [interruptible]
+~ /behaviortree/Sequence[0]/Wait[0] [seconds]
+~> /behaviortree/Sequence[0]/MoveTo[0] [speed]
++ /behaviortree/Sequence[0]/PlaySound[0]

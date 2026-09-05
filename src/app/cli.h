@@ -4,6 +4,8 @@
 /// \brief The command line surface.
 
 #include <filesystem>
+
+#include "core/config.h"
 #include <optional>
 #include <string>
 #include <vector>
@@ -44,6 +46,19 @@ struct Options {
     InitialView view = InitialView::Text;
     /// \brief A configuration file to load.
     std::filesystem::path configPath;
+
+    /// \brief What that configuration file said, once it has been read.
+    ///
+    /// \remarks Filled in after parsing, because reading a file is not the
+    ///          command line's job. Empty when no configuration was asked for.
+    ProviderConfig providerConfig;
+
+    /// \brief Print the formats this build knows and exit.
+    ///
+    /// \remarks The answer to "what does --format accept" and to "why did my
+    ///          file resolve to that", which are the two questions a studio asks
+    ///          while setting the tool up.
+    bool listFormats = false;
 
     /// \brief Whether to run without opening a window.
     bool headless = false;
