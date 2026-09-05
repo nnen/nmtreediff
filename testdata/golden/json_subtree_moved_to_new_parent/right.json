@@ -1,0 +1,6 @@
+{
+  "patrol": {},
+  "reserve": {
+    "guard": { "id": "g1", "weapon": "spear", "route": "north" }
+  }
+}

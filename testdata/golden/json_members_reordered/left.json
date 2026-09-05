@@ -1,0 +1,6 @@
+{
+  "name": "hut",
+  "hp": 40,
+  "physics": { "mass": 12, "friction": 0.4 },
+  "render": { "mesh": "hut.obj", "cast_shadows": true }
+}

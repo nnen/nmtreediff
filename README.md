@@ -5,15 +5,16 @@ A lightweight GUI tool for diffing tree-shaped data. It shows the same diff two
 ways, as text and as a node graph, and it runs from the command line so it can
 serve as the diff tool for Perforce or another version control system.
 
-**Status: usable. Milestones M0 to M4 have landed.** Both views work and share
+**Status: usable. Milestones M0 to M5 have landed.** Both views work and share
 a selection. The text view aligns the two files and picks out the changed words
 within a rewritten line. The node view draws both trees as one graph coloured
 by what happened to each node, with unchanged subtrees collapsed and a ghost
 edge showing where a moved node came from. Clicking in either view selects in
-the other. The headless report lists the changes for scripting.
+the other. XML and JSON are both built in and are told apart by extension or,
+failing that, by a look at the first bytes. The headless report lists the
+changes for scripting.
 
-Missing so far: JSON, custom format providers, and everything under Roadmap
-below.
+Missing so far: custom format providers, and everything under Roadmap below.
 
 Why
 ---
@@ -43,8 +44,8 @@ What it does
   publish results in stages, and can be cancelled. A large file does not freeze
   the window.
 
-Planned stack
--------------
+Stack
+-----
 
 C++20 with Dear ImGui on GLFW and OpenGL 3.3, built with CMake. Dependencies
 are fetched and pinned by exact git ref, so you need only CMake, a generator
@@ -85,6 +86,15 @@ build/bin/RelWithDebInfo/nmxmldiff testdata/sample/tree_before.xml testdata/samp
 Add `--headless --report json --exit-code` to run without a window, which is
 also how a script or a continuous integration check would use it.
 
+The format comes from the extension, or from the first bytes when the extension
+is unfamiliar, so a JSON pair needs nothing extra:
+
+```
+build/bin/RelWithDebInfo/nmxmldiff testdata/sample/level_before.json testdata/sample/level_after.json
+```
+
+Pass `--format xml` or `--format json` to override that.
+
 Open straight into the node view:
 
 ```
@@ -103,12 +113,12 @@ Repository contents
 Roadmap
 -------
 
-Milestones M0 through M4 were the critical path and are done: a skeleton with
+Milestones M0 through M5 were the critical path and are done: a skeleton with
 a job system, a text diff, the data model with a generic XML provider, the diff
-engine, and the node view. JSON follows at M5, custom format providers at M6,
-and a shippable release at M7. A Lua bridge for writing format providers without a compiler,
-and three-way merge, are deliberately out of initial scope but the architecture
-keeps both open.
+engine, the node view, and a generic JSON provider. Custom format providers
+follow at M6 and a shippable release at M7. A Lua bridge for writing format
+providers without a compiler, and three-way merge, are deliberately out of
+initial scope but the architecture keeps both open.
 
 Licence
 -------

@@ -1,0 +1,4 @@
+{
+  "settings": { "gravity": -9.81, "fog": true, "skybox": "overcast" },
+  "spawns": [ { "id": "player", "x": 0 } ]
+}

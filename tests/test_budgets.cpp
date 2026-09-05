@@ -3,8 +3,10 @@
 #include <chrono>
 #include <string>
 
+#include "core/diff.h"
 #include "core/source.h"
 #include "core/textdiff.h"
+#include "formats/json_generic.h"
 
 using namespace std::chrono;
 using nmxd::SourceFile;
@@ -87,4 +89,94 @@ TEST_CASE("a pair that shares nothing still finishes", "[budget][.slow]") {
     INFO("diff took " << millis << " ms with quality " << nmxd::describe(diff.quality));
     CHECK_FALSE(diff.identical());
     CHECK(millis < 4000.0);
+}
+
+namespace {
+
+// A generated JSON asset, shaped the way exported game data usually is: one
+// long array of records rather than a deep tree. Each entity becomes five
+// nodes, so the node count is what the budget is really about, not the byte
+// count.
+std::string generateJson(std::size_t entities, std::size_t modifyEvery) {
+    std::string out;
+    out.reserve(entities * 160);
+    out += "{\n  \"version\": 1,\n  \"entities\": [\n";
+    for (std::size_t i = 0; i < entities; ++i) {
+        const bool tweak = modifyEvery > 0 && (i % modifyEvery) == 0;
+        if (i > 0) {
+            out += ",\n";
+        }
+        out += "    { \"id\": \"e";
+        out += std::to_string(i);
+        out += "\", \"kind\": \"prop\", \"x\": ";
+        out += std::to_string(i);
+        out += ", \"y\": ";
+        out += tweak ? "-1" : "0";
+        out += ", \"tags\": [\"a\", \"b\"], \"transform\": { \"scale\": 1.0, \"rot\": 0 } }";
+    }
+    out += "\n  ]\n}\n";
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("a 100k node JSON pair parses and matches inside the budget", "[budget][.slow]") {
+    // The same shape of measurement as the XML case, so that the two built-in
+    // formats can be compared rather than each being judged against itself.
+    constexpr std::size_t kEntities = 20000;
+    constexpr std::size_t kModifyEvery = 500;
+
+    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto left = SourceFile::fromMemory(generateJson(kEntities, 0), "left");
+    const auto right = SourceFile::fromMemory(generateJson(kEntities, kModifyEvery), "right");
+
+    const auto parseStarted = steady_clock::now();
+    auto leftTree = provider->parse(left, neverStopped());
+    auto rightTree = provider->parse(right, neverStopped());
+    const double parseMillis =
+        duration<double, std::milli>(steady_clock::now() - parseStarted).count();
+
+    REQUIRE(leftTree.ok());
+    REQUIRE(rightTree.ok());
+    CHECK(leftTree.value().size() > 100000);
+
+    const auto matchStarted = steady_clock::now();
+    const auto model = nmxd::diffTrees(leftTree.value(), rightTree.value(), *provider);
+    const double matchMillis =
+        duration<double, std::milli>(steady_clock::now() - matchStarted).count();
+
+    INFO("bytes " << left.size() << " a side, nodes " << leftTree.value().size()
+                  << ", parse " << parseMillis << " ms for both sides, match " << matchMillis
+                  << " ms");
+
+    // Only the tweaked entities changed, and each shows up as one modified
+    // node. Anything else means the match went wrong rather than slowly, which
+    // a timing check alone would not catch.
+    CHECK(model.quality == nmxd::MatchQuality::Full);
+    CHECK(model.modified == kEntities / kModifyEvery);
+    CHECK(model.added == 0);
+    CHECK(model.deleted == 0);
+
+    CHECK(parseMillis < 2000.0);
+    CHECK(matchMillis < 2000.0);
+}
+
+TEST_CASE("parsing a large JSON document can be cancelled", "[budget][.slow]") {
+    // Cancellation is the normal path when someone switches format or reloads,
+    // so the provider has to notice a stop token part way through a document
+    // rather than only between documents.
+    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto source = SourceFile::fromMemory(generateJson(40000, 0), "left");
+
+    std::stop_source stop;
+    stop.request_stop();
+
+    const auto started = steady_clock::now();
+    auto parsed = provider->parse(source, stop.get_token());
+    const double millis = duration<double, std::milli>(steady_clock::now() - started).count();
+
+    INFO("cancelled after " << millis << " ms");
+    REQUIRE_FALSE(parsed.ok());
+    CHECK(parsed.error() == nmxd::ParseError::Cancelled);
+    CHECK(millis < 50.0);
 }

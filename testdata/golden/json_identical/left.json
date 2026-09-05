@@ -1,0 +1,7 @@
+{
+  "name": "hut",
+  "rooms": [
+    { "id": "a", "size": 4 },
+    { "id": "b", "size": 6 }
+  ]
+}

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "formats/json_generic.h"
 #include "formats/xml_generic.h"
 
 namespace nmxd {
@@ -77,6 +78,7 @@ std::vector<std::string_view> ProviderRegistry::names() const {
 ProviderRegistry makeDefaultRegistry() {
     ProviderRegistry registry;
     registry.add(makeGenericXmlProvider());
+    registry.add(makeGenericJsonProvider());
     registry.setFallback("xml");
     return registry;
 }

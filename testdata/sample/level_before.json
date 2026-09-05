@@ -1,0 +1,18 @@
+{
+  "version": 3,
+  "name": "Coastal Ruins",
+  "settings": {
+    "gravity": -9.81,
+    "fog": true,
+    "skybox": "overcast"
+  },
+  "spawns": [
+    { "id": "player_start", "x": 0, "y": 0 },
+    { "id": "guard_a", "x": 12, "y": 4 },
+    { "id": "guard_b", "x": 18, "y": 4 }
+  ],
+  "props": [
+    { "kind": "crate", "count": 4 },
+    { "kind": "barrel", "count": 2 }
+  ]
+}

@@ -62,7 +62,7 @@ this plan. It moves four things from nice-to-have into scope.
 | Backend | GLFW + OpenGL 3.3 | One code path on Windows, Linux, and macOS. A DirectX 11 backend can sit behind the same interface if Windows startup time demands it. |
 | Build | CMake 3.25+ with pinned FetchContent | Dependencies are pinned by exact git ref rather than taken from a package manager, so a contributor needs only CMake, Ninja and a compiler. Revisit vcpkg if binary caching in CI becomes worth the extra prerequisite. |
 | XML parser | pugixml | Small, fast, and preserves document order. Its offsets are only half the story: it reports where a node starts but not where it ends, and reports nothing for attributes, so spans are recovered by scanning the original bytes with quote awareness. Worth knowing before assuming a parser swap is cheap. |
-| JSON parser | simdjson, on-demand API | The deciding factor is byte offsets, not speed: node spans are what link the two views, and simdjson exposes a source location for every value. nlohmann/json does not, which rules it out despite being the obvious default. See the note on comment-bearing JSON in section 6. |
+| JSON parser | simdjson, on-demand API | The deciding factor is byte offsets, not speed: node spans are what link the two views, and simdjson exposes a source location for every value. nlohmann/json does not, which rules it out despite being the obvious default. That turned out to be the right reason to pick it, because the speed is not what arrives. The On Demand API is header-inline against whichever kernel the build can always run, and on the Microsoft toolchain without an instruction-set baseline that is the scalar fallback. Compiling the provider with `/arch:AVX2` moved a 100k-node parse from 113 ms to 111 ms, so the SIMD kernel is not worth raising the hardware requirement for: building the tree costs far more than scanning the bytes. See the note on comment-bearing JSON in section 6. |
 | Argument parsing | CLI11 | Plain named options are enough, because Perforce lets the user define the argument order for a custom diff tool. No tolerance hacks needed. |
 | Licence | MIT | Permissive enough to clear a studio legal review without a conversation, which is a precondition for the adoption this tool is aiming at. It also lets a studio vendor the core library into an internal tool. |
 | Distribution | Portable archive, no installer | Adoption inside a studio depends on someone being able to unzip it and edit a Perforce setting. |
@@ -253,13 +253,34 @@ is not XML-shaped.
 | | What is a node | What is a property | Child order | Default identity |
 | --- | --- | --- | --- | --- |
 | Generic XML | Every element | Every attribute, plus `#text` for a leaf element's text | Ordered | Element name and sibling index; weak |
-| Generic JSON | Every object, every array, and every array element | Scalar members of an object, plus `#value` for a scalar array element | Arrays ordered, object members unordered | Member key inside its parent object; weak. Array elements have none. |
+| Generic JSON | Every object, every array, and every array element | Scalar members of an object, plus `#value` for a scalar array element and `#type` on every container | Arrays ordered, object members unordered | Member key inside its parent object; weak. Array elements have none. |
 
 **JSON is where the ordering hook earns its place.** Reordering the members of
 an object changes nothing about the document, while reordering an array does.
 The generic provider reports the first as unordered and the second as ordered,
 and the matcher reports moves only where a move is real. An XML-only design
 would never have surfaced that distinction.
+
+**A node's kind is its member key.** The root is `$`, a member holding a
+container takes the key it appears under, and an array element is `item`,
+which is deliberately the same for every element of every array: an element has
+no name of its own, and putting its index in the kind would make moving it look
+like turning it into a different sort of node. That leaves nowhere for the JSON
+type to live, which is why every container carries `#type`. Without it an empty
+object replaced by an empty array under the same key would hash the same and be
+reported as unchanged. The gain is that a reported path reads as
+`$/spawns[0]/item[2]` rather than as a column of the word "object".
+
+**Scalars are kept exactly as written**, quotes, escapes, numeric formatting and
+all. A provider that normalised them would be deciding on the reader's behalf
+that a change is not worth seeing, and the two changes it would hide, a number
+becoming a string and `1.0` becoming `1`, are both real in a game asset
+pipeline. It also means a value is a slice of the source rather than a
+re-rendering of it.
+
+**Every scalar is read even though only its text is kept.** On Demand parsing
+is lazy: a value nobody asks for is skipped structurally and never checked, so
+a file containing `1.2.3` would otherwise diff as though it were sound.
 
 **One note on comment-bearing JSON.** simdjson accepts strict JSON only, so
 files with comments or trailing commas, which do turn up in game
@@ -358,7 +379,8 @@ jobs rather than fine-grained parallelism.
 | Frame time, steady state | under 16 ms | 1.1-1.7 ms (M3) | `--max-frames` timing run |
 | Text view usable, 20 MB pair | under 800 ms | 145 ms (M1) | M1 budget test |
 | Full match, 100k nodes | under 2 s | 84 ms (M3) | M3 budget test |
-| Cancellation acknowledged | under 50 ms | not yet | M3 cancellation test |
+| Cancellation acknowledged | under 50 ms | 3.2 ms (M5) | M5 cancellation test |
+| Parse and match, 100k nodes, JSON | under 2 s | 113 ms and 80 ms (M5) | M5 budget test |
 
 Frame time is measured in steady state, after the window has settled. Showing
 a window costs a compositor round trip of roughly two vsync intervals, landing
@@ -452,23 +474,32 @@ submissions, and it is also how the end-to-end tests run.
 | M2 &check; | Model and generic XML | Tree arena, spans, provider interface, property ranking, registry, generic XML provider, subtree hashing | A parsed tree round-trips its spans and hashes deterministically |
 | M3 &check; | Diff engine | The four passes, DiffModel, size guard with visible degraded mode, cancellation, golden-file tests, performance tests | Golden tests pass and the hundred-thousand-node case meets its budget |
 | M4 &check; | Node view | Canvas, tidy-tree layout on a worker, node cards, status colouring, collapsing, view switching, shared selection | Both views show the same snapshot and cross-select |
-| M5 | JSON | Generic JSON provider on simdjson, spans from source locations, ordered arrays and unordered object members, sniffing between the two built-ins | A JSON pair diffs correctly and no interface change was needed to get there |
+| M5 &check; | JSON | Generic JSON provider on simdjson, spans from source locations, ordered arrays and unordered object members, sniffing between the two built-ins | Done, and no interface change was needed: the provider is a new file, one line in the registry and one in the build. A 100k-node JSON pair parses in 113 ms a pair and matches in 80 ms, against 84 ms for the XML case of the same size |
 | M6 | Custom formats | Sample behavior-tree provider, format override, provider config, versioned provider documentation | The behavior-tree case matches by identifier across a move, and someone outside the project can write a provider from the docs |
 | M7 | Ship | Headless report, exit codes, portable archive, MIT licence and attribution for bundled dependencies, one-page Perforce and Git setup docs verified against real clients, settings persistence | A technical artist can unzip it and configure it without help |
 | M8 | Later | Lua provider bridge, three-way merge, further game asset formats | Out of initial scope |
 
-M0 through M4 are the critical path. JSON sits at M5, deliberately ahead of the
-milestone that publishes the provider interface as a documented surface: it is
-the cheapest way to find out whether that interface accidentally assumes XML,
-and finding out afterwards would mean breaking a published contract.
+M0 through M4 were the critical path. JSON sat at M5, deliberately ahead of the
+milestone that publishes the provider interface as a documented surface: it was
+the cheapest way to find out whether that interface accidentally assumed XML,
+and finding out afterwards would have meant breaking a published contract. The
+answer is that it did not. Adding a second format took a new file, one line in
+the registry and one in the build, and the two hooks generic XML never
+exercised, per-node child ordering and a synthetic property standing in for a
+node's own content, both worked as declared. The one thing the exercise did
+change is the golden harness, which had `left.xml` written into it and now
+takes the format from whatever extension a case directory holds.
 
 12. Testing
 -----------
 
 - **Golden-file diff tests.** Each case is a directory holding a left file, a
-  right file, an optional format name, and an expected serialised change list,
-  with parallel cases in both built-in formats. This is the main defence against matching regressions, and it makes a change
-  in matching quality reviewable as a diff of expected output.
+  right file, and an expected serialised change list. The extension decides the
+  format, so a case in a new format is two files and an expectation with nothing
+  else to edit, and the corpus asserts that both built-in formats are present
+  rather than trusting that they are. This is the main defence against matching
+  regressions, and it makes a change in matching quality reviewable as a diff of
+  expected output.
 - **Unit tests** for hash stability, span correctness, property ranking,
   registry resolution, and the Myers implementation against known cases.
 - **Concurrency tests** that cancel a job mid-pass and assert the pipeline
@@ -499,10 +530,12 @@ library is what makes that acceptable.
   unimplemented. If preserving original formatting in merged output matters,
   the tree must retain more source detail than it does now. Decide before M8,
   not during it.
-- **Risk: JSON spans depend on the parser.** Node spans are what link the two
-  views, and most JSON libraries do not expose byte offsets per value. The
-  choice of simdjson turns on that one capability, so a change of parser later
-  is not a swap but a rewrite of the provider.
+- **Settled: JSON spans.** Node spans are what link the two views, and most
+  JSON libraries expose no byte offsets at all. simdjson was chosen for that one
+  capability and it delivered: a container's extent comes from the parser's
+  cursor after the container is consumed, which is a constant-time read rather
+  than a rescan of the bytes. A change of parser later is still not a swap but a
+  rewrite of the provider.
 - **Open: which real asset format to validate against.** Generic XML and JSON
   cover the shape of the problem, but not a real studio pipeline. Picking one
   concrete format early gives the performance work a realistic corpus instead

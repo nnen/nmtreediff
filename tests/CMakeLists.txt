@@ -6,6 +6,7 @@ add_executable(nmxd_tests
     test_golden.cpp
     test_hash.cpp
     test_match.cpp
+    test_json_provider.cpp
     test_jobs.cpp
     test_layout.cpp
     test_result.cpp

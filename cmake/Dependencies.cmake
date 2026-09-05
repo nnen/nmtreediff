@@ -28,6 +28,29 @@ FetchContent_Declare(
 set(PUGIXML_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(pugixml)
 
+# ------------------------------------------------------------- simdjson -----
+# Chosen for its source locations rather than its throughput: a node span is
+# what links the node view to the text view, and the On Demand API is the only
+# widely used JSON parser that reports where in the bytes each value sat.
+FetchContent_Declare(
+    simdjson
+    GIT_REPOSITORY https://github.com/simdjson/simdjson.git
+    GIT_TAG        0c0ce1bd48baa0677dc7c0945ea7cd1e8b52b297  # v3.13.0
+    GIT_SHALLOW    TRUE
+)
+set(SIMDJSON_DEVELOPER_MODE OFF CACHE BOOL "" FORCE)
+set(SIMDJSON_ENABLE_THREADS OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(simdjson)
+
+# simdjson exports its include directory as an ordinary one, so its headers are
+# compiled under this project warning settings and trip them. Re-exporting the
+# same directory as a system include silences that without relaxing anything
+# that applies to code written here.
+get_target_property(_simdjson_includes simdjson INTERFACE_INCLUDE_DIRECTORIES)
+set_target_properties(simdjson PROPERTIES
+    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_simdjson_includes}")
+
 # ----------------------------------------------------------------- GUI ------
 if(NMXD_BUILD_GUI)
     find_package(OpenGL REQUIRED)

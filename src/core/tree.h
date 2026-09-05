@@ -29,6 +29,14 @@ inline constexpr NodeId kInvalidNode = 0xFFFFFFFFu;
 ///          need one concept rather than two.
 inline constexpr std::string_view kTextProperty = "#text";
 
+/// \brief The property name given to a node whose content is a single scalar.
+///
+/// \remarks The counterpart of kTextProperty for a format whose leaf carries a
+///          value rather than text, such as an element of a JSON array. Named
+///          here rather than in one provider so that two formats cannot pick
+///          clashing names for the same idea.
+inline constexpr std::string_view kValueProperty = "#value";
+
 /// \brief A named value attached to a node.
 struct Property {
     /// \brief The property name, unique within its node.

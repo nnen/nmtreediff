@@ -1,0 +1,7 @@
+{
+  "inventory": [
+    { "item": "rope" },
+    { "item": "lantern" },
+    { "item": "torch" }
+  ]
+}

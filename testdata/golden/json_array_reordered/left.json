@@ -1,0 +1,7 @@
+{
+  "waypoints": [
+    { "id": "start", "x": 0 },
+    { "id": "middle", "x": 10 },
+    { "id": "end", "x": 20 }
+  ]
+}
