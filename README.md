@@ -5,13 +5,15 @@ A lightweight GUI tool for diffing tree-shaped data. It shows the same diff two
 ways, as text and as a node graph, and it runs from the command line so it can
 serve as the diff tool for Perforce or another version control system.
 
-**Status: early. Milestones M0 to M2 have landed.** The text view works:
-it aligns the two files, marks added, deleted and modified lines, picks out
-the changed words within a rewritten line, and navigates between changes. Both
-sides are parsed into trees through the format provider interface, and the
-details panel shows the parsed outline. The trees are not matched against each
-other yet, so there is no node view. The sections below describe the tool that
-is being built, not one that is finished.
+**Status: usable. Milestones M0 to M4 have landed.** Both views work and share
+a selection. The text view aligns the two files and picks out the changed words
+within a rewritten line. The node view draws both trees as one graph coloured
+by what happened to each node, with unchanged subtrees collapsed and a ghost
+edge showing where a moved node came from. Clicking in either view selects in
+the other. The headless report lists the changes for scripting.
+
+Missing so far: JSON, custom format providers, and everything under Roadmap
+below.
 
 Why
 ---
@@ -83,6 +85,12 @@ build/bin/RelWithDebInfo/nmxmldiff testdata/sample/tree_before.xml testdata/samp
 Add `--headless --report json --exit-code` to run without a window, which is
 also how a script or a continuous integration check would use it.
 
+Open straight into the node view:
+
+```
+build/bin/RelWithDebInfo/nmxmldiff --view node testdata/sample/tree_before.xml testdata/sample/tree_after.xml
+```
+
 Repository contents
 -------------------
 
@@ -95,10 +103,10 @@ Repository contents
 Roadmap
 -------
 
-Milestones M0 through M4 are the critical path: a skeleton with a job system, a
-text diff, the data model with a generic XML provider, the diff engine, and the
-node view. JSON follows at M5, custom format providers at M6, and a shippable
-release at M7. A Lua bridge for writing format providers without a compiler,
+Milestones M0 through M4 were the critical path and are done: a skeleton with
+a job system, a text diff, the data model with a generic XML provider, the diff
+engine, and the node view. JSON follows at M5, custom format providers at M6,
+and a shippable release at M7. A Lua bridge for writing format providers without a compiler,
 and three-way merge, are deliberately out of initial scope but the architecture
 keeps both open.
 
