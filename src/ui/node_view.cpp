@@ -44,6 +44,12 @@ constexpr float kTextZoomThreshold = 0.55f;
 /// \brief Size of the minimap along its longest edge, in pixels.
 constexpr float kMinimapSize = 150.0f;
 
+/// \brief Smallest a minimap mark may be on either axis, in pixels.
+///
+/// \remarks Applied to both axes equally, so a change stays visible in a large
+///          tree without the mark being stretched out of shape.
+constexpr float kMinimapMark = 2.0f;
+
 /// \brief Chooses the ink colour for a change status.
 ///
 /// \param status The node's status.
@@ -356,8 +362,13 @@ void NodeView::drawMinimap(const TreeLayout& layout) {
         if (card.status == NodeStatus::Unchanged) {
             continue;
         }
+        // Both axes are scaled and both have the same floor. Scaling only the
+        // width, as this once did, stretched a card that is roughly twice as
+        // wide as it is tall into a mark ten times as wide as it was tall.
         const ImVec2 dot(at.x + card.x * scale, at.y + card.y * scale);
-        draw->AddRectFilled(dot, ImVec2(dot.x + std::max(2.0f, card.width * scale), dot.y + 2.5f),
+        draw->AddRectFilled(dot,
+                            ImVec2(dot.x + std::max(kMinimapMark, card.width * scale),
+                                   dot.y + std::max(kMinimapMark, card.height * scale)),
                             inkFor(card.status));
     }
 
