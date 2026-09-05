@@ -401,9 +401,11 @@ node whose span contains it.
 
 - **Drawn through the ImGui draw list,** not with widgets, so panning, zooming,
   and culling stay under our control.
-- **Tidy-tree layout,** Reingold-Tilford with Walker's linear-time refinement,
-  computed on a worker once per snapshot and cached. Top-down or left-to-right,
-  switchable, because deep behavior trees read better left to right.
+- **Top-down layout,** computed on a worker once per snapshot. Each subtree
+  gets a width, then fills the span its parent allotted it, which is linear and
+  never overlaps. A tighter packing that interleaves subtrees of different
+  depths would save horizontal space and is a refinement, not a correctness
+  fix.
 - **One unified tree by default,** holding the union of both sides and coloured
   by status, with a ghost edge from a moved node back to its former parent. Two
   synchronised side-by-side canvases are the alternative.
@@ -449,7 +451,7 @@ submissions, and it is also how the end-to-end tests run.
 | M1 &check; | Text diff | SourceFile, Myers line diff, word highlighting, synchronised scrolling, gutter and overview, staged publishing with progress | A 20 MB pair is readable inside the budget with the frame loop never stalling |
 | M2 &check; | Model and generic XML | Tree arena, spans, provider interface, property ranking, registry, generic XML provider, subtree hashing | A parsed tree round-trips its spans and hashes deterministically |
 | M3 &check; | Diff engine | The four passes, DiffModel, size guard with visible degraded mode, cancellation, golden-file tests, performance tests | Golden tests pass and the hundred-thousand-node case meets its budget |
-| M4 | Node view | Canvas, tidy-tree layout on a worker, node cards, status colouring, collapsing, view switching, shared selection | Both views show the same snapshot and cross-select |
+| M4 &check; | Node view | Canvas, tidy-tree layout on a worker, node cards, status colouring, collapsing, view switching, shared selection | Both views show the same snapshot and cross-select |
 | M5 | JSON | Generic JSON provider on simdjson, spans from source locations, ordered arrays and unordered object members, sniffing between the two built-ins | A JSON pair diffs correctly and no interface change was needed to get there |
 | M6 | Custom formats | Sample behavior-tree provider, format override, provider config, versioned provider documentation | The behavior-tree case matches by identifier across a move, and someone outside the project can write a provider from the docs |
 | M7 | Ship | Headless report, exit codes, portable archive, MIT licence and attribution for bundled dependencies, one-page Perforce and Git setup docs verified against real clients, settings persistence | A technical artist can unzip it and configure it without help |
