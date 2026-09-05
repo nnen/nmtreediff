@@ -1,0 +1,5 @@
+<tree>
+    <node id="a">
+        <property name="p" value="1"/>
+    </node>
+</tree>

@@ -1,0 +1,6 @@
+<tree>
+  <group name="one"/>
+  <group name="two">
+    <node id="x"><property name="k" value="v"/></node>
+  </group>
+</tree>

@@ -2,7 +2,9 @@
 # testable in continuous integration and reusable by a future merge tool.
 
 add_library(nmxd_core STATIC
+    diff.cpp
     hash.cpp
+    match.cpp
     jobs.cpp
     provider.cpp
     registry.cpp

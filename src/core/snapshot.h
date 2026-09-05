@@ -14,6 +14,7 @@
 #include <string>
 #include <utility>
 
+#include "core/diff.h"
 #include "core/source.h"
 #include "core/textdiff.h"
 #include "core/tree.h"
@@ -53,6 +54,10 @@ struct DiffSnapshot {
     std::shared_ptr<const Tree> leftTree;
     std::shared_ptr<const Tree> rightTree;
     const IFormatProvider* provider = nullptr;
+
+    // Present from Stage::TreeReady onward: which nodes correspond, and what
+    // happened to each of them.
+    std::shared_ptr<const DiffModel> treeDiff;
 
     // Set when stage is Failed. Shown verbatim, so it says what went wrong and
     // which side it went wrong on.

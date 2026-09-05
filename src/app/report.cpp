@@ -89,6 +89,17 @@ int writeReport(std::ostream& out, const DiffSnapshot& snapshot, const Options& 
             out << "  \"leftNodes\": " << snapshot.leftTree->size() << ",\n";
             out << "  \"rightNodes\": " << snapshot.rightTree->size() << ",\n";
         }
+        if (snapshot.treeDiff != nullptr) {
+            const DiffModel& tree = *snapshot.treeDiff;
+            out << "  \"tree\": {\n";
+            out << "    \"quality\": \"" << jsonEscape(describe(tree.quality)) << "\",\n";
+            out << "    \"added\": " << tree.added << ",\n";
+            out << "    \"deleted\": " << tree.deleted << ",\n";
+            out << "    \"modified\": " << tree.modified << ",\n";
+            out << "    \"moved\": " << tree.moved << ",\n";
+            out << "    \"unchanged\": " << tree.unchanged << "\n";
+            out << "  },\n";
+        }
         out << "  \"elapsedMillis\": " << snapshot.elapsedMillis << ",\n";
         out << "  \"left\": { \"label\": \"" << jsonEscape(snapshot.left->label())
             << "\", \"bytes\": " << snapshot.left->size()
@@ -112,6 +123,15 @@ int writeReport(std::ostream& out, const DiffSnapshot& snapshot, const Options& 
         if (snapshot.provider != nullptr && snapshot.leftTree && snapshot.rightTree) {
             out << "format " << snapshot.provider->name() << ": " << snapshot.leftTree->size()
                 << " and " << snapshot.rightTree->size() << " nodes\n";
+        }
+        if (snapshot.treeDiff != nullptr) {
+            const DiffModel& tree = *snapshot.treeDiff;
+            out << "nodes: +" << tree.added << " -" << tree.deleted << " ~" << tree.modified << " >"
+                << tree.moved << "\n";
+            if (tree.quality != MatchQuality::Full) {
+                out << "warning: " << describe(tree.quality) << "\n";
+            }
+            out << serializeChanges(*snapshot.leftTree, *snapshot.rightTree, tree);
         }
         if (text.quality != TextDiffQuality::Full) {
             out << "warning: " << describe(text.quality) << "\n";

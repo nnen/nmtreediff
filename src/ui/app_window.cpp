@@ -19,6 +19,10 @@ constexpr const char* kNodeViewTitle = "Node view";
 constexpr const char* kDetailsTitle = "Details";
 constexpr const char* kStatusTitle = "Status";
 
+// Frames before this are still settling: the window is being shown and the
+// compositor has not finished with it.
+constexpr unsigned kSettledFrame = 60;
+
 void reportGlfwError(int code, const char* description) {
     std::fprintf(stderr, "glfw error %d: %s\n", code, description ? description : "");
 }
@@ -127,9 +131,17 @@ int AppWindow::run() {
             startupMillis_ =
                 std::chrono::duration<double, std::milli>(frameEnd - processStart_).count();
         } else {
-            // The first frame includes one-time setup, so it is reported
-            // separately rather than counted against the frame budget.
-            worstFrameMillis_ = std::max(worstFrameMillis_, frameMillis);
+            if (frameMillis > worstFrameMillis_) {
+                worstFrameMillis_ = frameMillis;
+                worstFrameIndex_ = framesPresented_;
+            }
+            // Reported separately from the settling frames. Showing a window
+            // costs a compositor round trip that lands a few frames in and has
+            // nothing to do with what the program is computing; folding it into
+            // the frame budget would hide every stall smaller than it.
+            if (framesPresented_ >= kSettledFrame) {
+                worstSteadyFrameMillis_ = std::max(worstSteadyFrameMillis_, frameMillis);
+            }
         }
         ++framesPresented_;
     }
@@ -137,8 +149,11 @@ int AppWindow::run() {
     session_.cancel();
 
     if (options_.maxFrames > 0) {
-        std::printf("startup_ms=%.1f frames=%u worst_frame_ms=%.2f workers=%u\n", startupMillis_,
-                    framesPresented_, worstFrameMillis_, session_.threadCount());
+        std::printf(
+            "startup_ms=%.1f frames=%u steady_worst_ms=%.2f settling_worst_ms=%.2f at_frame=%u "
+            "workers=%u\n",
+            startupMillis_, framesPresented_, worstSteadyFrameMillis_, worstFrameMillis_,
+            worstFrameIndex_, session_.threadCount());
     }
     return 0;
 }
@@ -320,27 +335,49 @@ void AppWindow::drawDetails(const DiffSnapshot& snapshot) {
     ImGui::Separator();
     ImGui::Spacing();
 
-    // An outline of the parsed left tree. Nothing is coloured by change status
-    // yet; matching arrives at M3 and the node view at M4. What this does show
-    // is that the provider's titles, colours and property order are real.
+    // An outline of the parsed tree, coloured by change status. The node view
+    // that draws this as a graph arrives at M4. The right side is shown because
+    // that is the version being reviewed.
     if (ImGui::BeginChild("outline")) {
-        drawTreeOutline(*snapshot.leftTree, *snapshot.provider, snapshot.leftTree->root());
+        drawTreeOutline(*snapshot.rightTree, *snapshot.provider, snapshot.rightTree->root(),
+                        snapshot.treeDiff.get(), Side::Right);
     }
     ImGui::EndChild();
 
     ImGui::End();
 }
 
-void AppWindow::drawTreeOutline(const Tree& tree, const IFormatProvider& provider, NodeId id) {
+void AppWindow::drawTreeOutline(const Tree& tree, const IFormatProvider& provider, NodeId id,
+                                const DiffModel* diff, Side side) {
     if (id == kInvalidNode || id >= tree.size()) {
         return;
     }
     const Node& node = tree.node(id);
     const NodeStyle style = provider.style(tree, id);
+    const NodeStatus status = diff != nullptr ? diff->statusOf(side, id) : NodeStatus::Unchanged;
+
+    // Diff status is tinted over the provider's colour, so status survives any
+    // palette a format chooses for itself.
+    ImU32 colour = IM_COL32(style.accent.r, style.accent.g, style.accent.b, 255);
+    switch (status) {
+        case NodeStatus::Added:
+            colour = IM_COL32(96, 200, 140, 255);
+            break;
+        case NodeStatus::Deleted:
+            colour = IM_COL32(226, 110, 105, 255);
+            break;
+        case NodeStatus::Modified:
+            colour = IM_COL32(224, 176, 82, 255);
+            break;
+        case NodeStatus::Moved:
+            colour = IM_COL32(168, 143, 224, 255);
+            break;
+        case NodeStatus::Unchanged:
+            break;
+    }
 
     ImGui::PushID(static_cast<int>(id));
-    ImGui::PushStyleColor(ImGuiCol_Text,
-                          IM_COL32(style.accent.r, style.accent.g, style.accent.b, 255));
+    ImGui::PushStyleColor(ImGuiCol_Text, colour);
 
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen;
     if (node.isLeaf() && node.properties.empty()) {
@@ -365,7 +402,7 @@ void AppWindow::drawTreeOutline(const Tree& tree, const IFormatProvider& provide
             ImGui::TextUnformatted(property.value.c_str());
         }
         for (const NodeId child : node.children) {
-            drawTreeOutline(tree, provider, child);
+            drawTreeOutline(tree, provider, child, diff, side);
         }
         if ((flags & ImGuiTreeNodeFlags_NoTreePushOnOpen) == 0) {
             ImGui::TreePop();
@@ -433,6 +470,26 @@ void AppWindow::drawStatusBar(const DiffSnapshot& snapshot) {
         if (text.quality != TextDiffQuality::Full) {
             ImGui::TextColored(ImVec4(0.88f, 0.69f, 0.32f, 1.0f), "Reduced: %s",
                                describe(text.quality));
+        }
+    }
+
+    if (snapshot.treeDiff != nullptr) {
+        const DiffModel& tree = *snapshot.treeDiff;
+        ImGui::TextUnformatted("Nodes:");
+        ImGui::SameLine(0.0f, 10.0f);
+        ImGui::TextColored(ImVec4(0.27f, 0.75f, 0.49f, 1.0f), "+%u", tree.added);
+        ImGui::SameLine(0.0f, 10.0f);
+        ImGui::TextColored(ImVec4(0.89f, 0.43f, 0.41f, 1.0f), "-%u", tree.deleted);
+        ImGui::SameLine(0.0f, 10.0f);
+        ImGui::TextColored(ImVec4(0.88f, 0.69f, 0.32f, 1.0f), "~%u", tree.modified);
+        ImGui::SameLine(0.0f, 10.0f);
+        ImGui::TextColored(ImVec4(0.66f, 0.56f, 0.88f, 1.0f), ">%u", tree.moved);
+        ImGui::SameLine(0.0f, 16.0f);
+        ImGui::TextDisabled("%u unchanged", tree.unchanged);
+
+        if (tree.quality != MatchQuality::Full) {
+            ImGui::TextColored(ImVec4(0.88f, 0.69f, 0.32f, 1.0f), "Reduced: %s",
+                               describe(tree.quality));
         }
     }
 

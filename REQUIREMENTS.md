@@ -1,4 +1,5 @@
-NM Tree Diff Requirements ========================
+NM Tree Diff Requirements 
+=========================
 
 - NM Xml Diff is a light-weight GUI tool for diffing tree-shaped data in XML
   and possibly other formats (e.g. JSON).
@@ -7,6 +8,8 @@ NM Tree Diff Requirements ========================
   be done asynchronously with the GUI update loop. That said, ease of
   maintenance is also a factor.
 - It should be implemented in C++20 (using modules is allowed).
+- All code should be documented using Doxygen documentation comments using
+  MSDN API reference style.
 - It should be invocable from command line so that it can be used as diff tool
   by Perforce or other version control systems (the specific argument order
   doesn't matter, as long as the necessary information can be passed through
@@ -34,6 +37,8 @@ NM Tree Diff Requirements ========================
     a foramt provider interface. Alternative method using embedded scripting
     (Lua) will be implemented later. 
   - The custom formats should make it possible to define node property order.
+  - Defines which extension it applies to by default. However, which actual 
+    format provider is used should be overridable through the command line.
 - Three-way merge should not be initially implemented, but it should remain
   possible to imlement it later.
 - Although it has humble beginnings, this tool has the ambition to become the

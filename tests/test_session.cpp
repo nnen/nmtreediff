@@ -39,8 +39,8 @@ TEST_CASE("opening a pair publishes both sources", "[session]") {
 
     const auto snapshot = session.snapshot();
     REQUIRE(snapshot);
-    // The last stage the pipeline reaches today. Matching lands at M3.
-    REQUIRE(snapshot->stage == Stage::TreesParsed);
+    // The last stage the pipeline reaches: loaded, line-diffed, parsed, matched.
+    REQUIRE(snapshot->stage == Stage::TreeReady);
     REQUIRE(snapshot->hasSources());
     CHECK(snapshot->left->label() == "left");
     CHECK(snapshot->right->label() == "right");
@@ -116,7 +116,7 @@ TEST_CASE("both sides are parsed into trees", "[session]") {
 
     const auto snapshot = session.snapshot();
     REQUIRE(snapshot);
-    REQUIRE(snapshot->stage == Stage::TreesParsed);
+    REQUIRE(snapshot->stage == Stage::TreeReady);
     REQUIRE(snapshot->leftTree);
     REQUIRE(snapshot->rightTree);
     REQUIRE(snapshot->provider != nullptr);
@@ -125,10 +125,13 @@ TEST_CASE("both sides are parsed into trees", "[session]") {
     CHECK(snapshot->leftTree->size() == 2);
     CHECK(snapshot->rightTree->size() == 3);
 
-    // The text diff is still there: parsing adds to the snapshot rather than
-    // replacing what an earlier stage produced.
+    // Every earlier stage's work is still there: each stage adds to the
+    // snapshot rather than replacing what came before.
     REQUIRE(snapshot->text);
     CHECK_FALSE(snapshot->text->identical());
+    REQUIRE(snapshot->treeDiff);
+    CHECK(snapshot->treeDiff->added == 1);
+    CHECK(snapshot->treeDiff->deleted == 0);
 
     std::filesystem::remove(left);
     std::filesystem::remove(right);

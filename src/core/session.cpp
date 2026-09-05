@@ -159,6 +159,17 @@ void Session::runOpen(const SessionRequest& request, std::stop_token token, Gene
     result.leftTree = std::make_shared<const Tree>(std::move(leftTree).value());
     result.rightTree = std::make_shared<const Tree>(std::move(rightTree).value());
     result.elapsedMillis = elapsedMillis();
+    publish(result, generation);
+
+    auto treeDiff = std::make_shared<DiffModel>(
+        diffTrees(*result.leftTree, *result.rightTree, *provider, token));
+    if (token.stop_requested() || treeDiff->cancelled) {
+        return;
+    }
+
+    result.stage = Stage::TreeReady;
+    result.treeDiff = std::move(treeDiff);
+    result.elapsedMillis = elapsedMillis();
     publish(std::move(result), generation);
 }
 

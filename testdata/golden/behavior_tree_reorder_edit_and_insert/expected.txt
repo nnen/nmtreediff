@@ -1,0 +1,6 @@
+~ /behaviortree/node[0]/property[0] [value]
+~ /behaviortree/node[0]/node[0]/property[0] [value]
+> /behaviortree/node[0]/node[0] -> /behaviortree/node[0]/node[1]
+~ /behaviortree/node[0]/node[1]/property[1] [value]
++ /behaviortree/node[0]/node[2]
++ /behaviortree/node[0]/node[2]/property[0]

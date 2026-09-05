@@ -1,0 +1,453 @@
+#include "core/diff.h"
+
+#include <algorithm>
+#include <chrono>
+#include <sstream>
+#include <unordered_map>
+#include <utility>
+
+namespace nmxd {
+
+namespace {
+
+std::vector<std::uint32_t> siblingIndices(const Tree& tree) {
+    std::vector<std::uint32_t> indices(tree.size(), 0);
+    for (const Node& node : tree.nodes()) {
+        for (std::size_t i = 0; i < node.children.size(); ++i) {
+            indices[node.children[i]] = static_cast<std::uint32_t>(i);
+        }
+    }
+    return indices;
+}
+
+// Property names whose presence or value differs. Names are compared as a set,
+// so a reordered attribute list yields nothing.
+std::vector<std::string> changedPropertyNames(const IFormatProvider& provider, const Tree& leftTree,
+                                              NodeId leftId, const Tree& rightTree,
+                                              NodeId rightId) {
+    const Node& left = leftTree.node(leftId);
+    const Node& right = rightTree.node(rightId);
+
+    std::unordered_map<std::string, const std::string*> rightValues;
+    rightValues.reserve(right.properties.size());
+    for (const auto& property : right.properties) {
+        rightValues.emplace(property.name, &property.value);
+    }
+
+    std::vector<std::string> changed;
+    for (const auto& property : left.properties) {
+        const auto it = rightValues.find(property.name);
+        if (it == rightValues.end() || *it->second != property.value) {
+            changed.push_back(property.name);
+        }
+    }
+    for (const auto& property : right.properties) {
+        if (left.findProperty(property.name) == nullptr) {
+            changed.push_back(property.name);
+        }
+    }
+
+    std::sort(changed.begin(), changed.end());
+    changed.erase(std::unique(changed.begin(), changed.end()), changed.end());
+
+    // Reported in the order the provider would display them, so the list reads
+    // the same way the node card does.
+    std::stable_sort(changed.begin(), changed.end(),
+                     [&](const std::string& a, const std::string& b) {
+                         return provider.propertyRank(rightTree, rightId, a) <
+                                provider.propertyRank(rightTree, rightId, b);
+                     });
+    return changed;
+}
+
+class Classifier {
+public:
+    Classifier(const Tree& left, const Tree& right, const IFormatProvider& provider,
+               MatchResult match)
+        : left_(left),
+          right_(right),
+          provider_(provider),
+          leftSibling_(siblingIndices(left)),
+          rightSibling_(siblingIndices(right)) {
+        model_.matching = std::move(match.matching);
+        model_.quality = match.quality;
+        model_.cancelled = match.cancelled;
+        model_.leftStatus.assign(left.size(), NodeStatus::Unchanged);
+        model_.rightStatus.assign(right.size(), NodeStatus::Unchanged);
+    }
+
+    DiffModel run() {
+        markReorderedChildren();
+        if (left_.empty() && right_.empty()) {
+            return std::move(model_);
+        }
+        if (left_.empty()) {
+            addSubtree(right_.root());
+            return finish();
+        }
+        if (right_.empty()) {
+            deleteSubtree(left_.root());
+            return finish();
+        }
+
+        const NodeId rootMatch = model_.matching.toRight(left_.root());
+        if (rootMatch != right_.root()) {
+            // The two documents do not share a root, so nothing below can
+            // correspond either. Reporting that plainly beats pairing two
+            // unrelated roots and describing the result as edits.
+            deleteSubtree(left_.root());
+            addSubtree(right_.root());
+            return finish();
+        }
+
+        walkPair(left_.root(), right_.root());
+        return finish();
+    }
+
+private:
+    DiffModel finish() {
+        for (std::size_t i = 0; i < model_.leftStatus.size(); ++i) {
+            if (model_.leftStatus[i] == NodeStatus::Unchanged) {
+                ++model_.unchanged;
+            }
+        }
+        return std::move(model_);
+    }
+
+    void emit(Change change) {
+        switch (change.status) {
+            case NodeStatus::Added:
+                ++model_.added;
+                break;
+            case NodeStatus::Deleted:
+                ++model_.deleted;
+                break;
+            case NodeStatus::Modified:
+                ++model_.modified;
+                break;
+            case NodeStatus::Moved:
+                ++model_.moved;
+                break;
+            case NodeStatus::Unchanged:
+                return;
+        }
+        if (change.left != kInvalidNode) {
+            model_.leftStatus[change.left] = change.status;
+        }
+        if (change.right != kInvalidNode) {
+            model_.rightStatus[change.right] = change.status;
+        }
+        model_.changes.push_back(std::move(change));
+    }
+
+    void addSubtree(NodeId rightId) {
+        Change change;
+        change.status = NodeStatus::Added;
+        change.right = rightId;
+        emit(std::move(change));
+        for (const NodeId child : right_.node(rightId).children) {
+            addSubtree(child);
+        }
+    }
+
+    void deleteSubtree(NodeId leftId) {
+        Change change;
+        change.status = NodeStatus::Deleted;
+        change.left = leftId;
+        emit(std::move(change));
+        for (const NodeId child : left_.node(leftId).children) {
+            deleteSubtree(child);
+        }
+    }
+
+    // Whether this pair changed parent, or was reordered among the siblings it
+    // still shares a parent with.
+    bool isMove(NodeId leftId, NodeId rightId) const {
+        const NodeId leftParent = left_.node(leftId).parent;
+        const NodeId rightParent = right_.node(rightId).parent;
+        if (leftParent == kInvalidNode || rightParent == kInvalidNode) {
+            return leftParent != rightParent;
+        }
+        if (model_.matching.toRight(leftParent) != rightParent) {
+            return true;
+        }
+        return reordered_[leftId];
+    }
+
+    // Marks reordering relative to the matching rather than to raw position.
+    //
+    // A node whose index shifted only because a sibling before it was deleted
+    // or inserted has not moved, and reporting it as moved buries the one node
+    // that really did. So among the children a parent pair still shares, the
+    // longest run that stayed in order is treated as having stayed put, and
+    // only what breaks that order is a move.
+    void markReorderedChildren() {
+        reordered_.assign(left_.size(), false);
+
+        for (const Node& leftParent : left_.nodes()) {
+            const NodeId rightParentId = model_.matching.toRight(leftParent.id);
+            if (rightParentId == kInvalidNode) {
+                continue;
+            }
+            if (!provider_.childrenOrdered(right_, rightParentId)) {
+                continue;  // position carries nothing under this parent
+            }
+
+            std::vector<NodeId> retained;
+            std::vector<std::uint32_t> positions;
+            for (const NodeId leftChild : leftParent.children) {
+                const NodeId rightChild = model_.matching.toRight(leftChild);
+                if (rightChild == kInvalidNode ||
+                    right_.node(rightChild).parent != rightParentId) {
+                    continue;  // deleted, or moved to another parent entirely
+                }
+                retained.push_back(leftChild);
+                positions.push_back(rightSibling_[rightChild]);
+            }
+            if (retained.size() < 2) {
+                continue;
+            }
+
+            const auto keep = longestIncreasingRun(positions);
+            for (std::size_t i = 0; i < retained.size(); ++i) {
+                if (!keep[i]) {
+                    reordered_[retained[i]] = true;
+                }
+            }
+        }
+    }
+
+    // Longest strictly increasing subsequence, by patience sorting. True for
+    // every element the run keeps.
+    static std::vector<bool> longestIncreasingRun(const std::vector<std::uint32_t>& values) {
+        std::vector<std::size_t> tailIndex;    // index into values, per run length
+        std::vector<std::size_t> predecessor(values.size(), values.size());
+
+        for (std::size_t i = 0; i < values.size(); ++i) {
+            const auto it = std::lower_bound(
+                tailIndex.begin(), tailIndex.end(), values[i],
+                [&values](std::size_t index, std::uint32_t value) { return values[index] < value; });
+            const auto slot = static_cast<std::size_t>(it - tailIndex.begin());
+            if (slot > 0) {
+                predecessor[i] = tailIndex[slot - 1];
+            }
+            if (it == tailIndex.end()) {
+                tailIndex.push_back(i);
+            } else {
+                *it = i;
+            }
+        }
+
+        std::vector<bool> keep(values.size(), false);
+        if (tailIndex.empty()) {
+            return keep;
+        }
+        for (std::size_t i = tailIndex.back(); i != values.size(); i = predecessor[i]) {
+            keep[i] = true;
+        }
+        return keep;
+    }
+
+    void recordPair(NodeId leftId, NodeId rightId) {
+        auto changed = changedPropertyNames(provider_, left_, leftId, right_, rightId);
+        const bool moved = isMove(leftId, rightId);
+        if (changed.empty() && !moved) {
+            return;
+        }
+
+        Change change;
+        change.left = leftId;
+        change.right = rightId;
+        change.moved = moved;
+        change.changedProperties = std::move(changed);
+        // A node that both moved and changed is reported as modified, with the
+        // move noted, rather than as only one of the two.
+        change.status = change.changedProperties.empty() ? NodeStatus::Moved : NodeStatus::Modified;
+        emit(std::move(change));
+    }
+
+    // Walks a matched pair, merging the two child lists so that additions and
+    // deletions are reported where they happened rather than in a block at the
+    // end.
+    void walkPair(NodeId leftId, NodeId rightId) {
+        recordPair(leftId, rightId);
+
+        const auto& leftChildren = left_.node(leftId).children;
+        const auto& rightChildren = right_.node(rightId).children;
+
+        std::size_t leftCursor = 0;
+        for (const NodeId rightChild : rightChildren) {
+            const NodeId partner = model_.matching.toLeft(rightChild);
+
+            if (partner == kInvalidNode) {
+                addSubtree(rightChild);
+                continue;
+            }
+            if (left_.node(partner).parent != leftId) {
+                // Matched to a node under some other parent: it moved in from
+                // elsewhere, and is reported here, at its new home.
+                walkPair(partner, rightChild);
+                continue;
+            }
+
+            // Left children passed over on the way to this one were either
+            // deleted or moved away; a move is reported where it landed.
+            while (leftCursor < leftChildren.size() && leftChildren[leftCursor] != partner) {
+                const NodeId skipped = leftChildren[leftCursor];
+                if (!model_.matching.leftMatched(skipped)) {
+                    deleteSubtree(skipped);
+                }
+                ++leftCursor;
+            }
+            if (leftCursor < leftChildren.size()) {
+                ++leftCursor;
+            }
+            walkPair(partner, rightChild);
+        }
+
+        while (leftCursor < leftChildren.size()) {
+            const NodeId skipped = leftChildren[leftCursor];
+            if (!model_.matching.leftMatched(skipped)) {
+                deleteSubtree(skipped);
+            }
+            ++leftCursor;
+        }
+    }
+
+    const Tree& left_;
+    const Tree& right_;
+    const IFormatProvider& provider_;
+    std::vector<std::uint32_t> leftSibling_;
+    std::vector<std::uint32_t> rightSibling_;
+    std::vector<bool> reordered_;
+    DiffModel model_;
+};
+
+}  // namespace
+
+const char* describe(NodeStatus status) noexcept {
+    switch (status) {
+        case NodeStatus::Unchanged:
+            return "unchanged";
+        case NodeStatus::Added:
+            return "added";
+        case NodeStatus::Deleted:
+            return "deleted";
+        case NodeStatus::Modified:
+            return "modified";
+        case NodeStatus::Moved:
+            return "moved";
+    }
+    return "unknown";
+}
+
+NodeStatus DiffModel::statusOf(Side side, NodeId id) const {
+    const auto& statuses = side == Side::Left ? leftStatus : rightStatus;
+    return id < statuses.size() ? statuses[id] : NodeStatus::Unchanged;
+}
+
+DiffModel classify(const Tree& left, const Tree& right, const IFormatProvider& provider,
+                   MatchResult match) {
+    Classifier classifier(left, right, provider, std::move(match));
+    return classifier.run();
+}
+
+DiffModel diffTrees(const Tree& left, const Tree& right, const IFormatProvider& provider,
+                    std::stop_token token, MatchOptions options) {
+    const auto started = std::chrono::steady_clock::now();
+
+    MatchResult match = matchTrees(left, right, provider, token, options);
+    if (match.cancelled) {
+        DiffModel model;
+        model.cancelled = true;
+        model.quality = match.quality;
+        return model;
+    }
+
+    DiffModel model = classify(left, right, provider, std::move(match));
+    model.elapsedMillis =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started)
+            .count();
+    return model;
+}
+
+std::string nodePath(const Tree& tree, NodeId id) {
+    if (id == kInvalidNode || id >= tree.size()) {
+        return "?";
+    }
+
+    std::vector<std::string> parts;
+    for (NodeId current = id; current != kInvalidNode; current = tree.node(current).parent) {
+        const Node& node = tree.node(current);
+        if (node.parent == kInvalidNode) {
+            parts.push_back(node.kind);
+            break;
+        }
+        // Position among siblings of the same kind, so inserting a node of a
+        // different kind nearby does not renumber this one.
+        std::uint32_t index = 0;
+        for (const NodeId sibling : tree.node(node.parent).children) {
+            if (sibling == current) {
+                break;
+            }
+            if (tree.node(sibling).kind == node.kind) {
+                ++index;
+            }
+        }
+        parts.push_back(node.kind + "[" + std::to_string(index) + "]");
+    }
+
+    std::string path;
+    for (auto it = parts.rbegin(); it != parts.rend(); ++it) {
+        path += '/';
+        path += *it;
+    }
+    return path;
+}
+
+std::string serializeChanges(const Tree& left, const Tree& right, const DiffModel& model) {
+    std::ostringstream out;
+
+    if (model.quality != MatchQuality::Full) {
+        out << "! " << describe(model.quality) << "\n";
+    }
+
+    for (const Change& change : model.changes) {
+        switch (change.status) {
+            case NodeStatus::Added:
+                out << "+ " << nodePath(right, change.right);
+                break;
+            case NodeStatus::Deleted:
+                out << "- " << nodePath(left, change.left);
+                break;
+            case NodeStatus::Moved:
+                out << "> " << nodePath(left, change.left) << " -> "
+                    << nodePath(right, change.right);
+                break;
+            case NodeStatus::Modified:
+                out << (change.moved ? "~> " : "~ ") << nodePath(right, change.right);
+                break;
+            case NodeStatus::Unchanged:
+                continue;
+        }
+
+        if (!change.changedProperties.empty()) {
+            out << " [";
+            for (std::size_t i = 0; i < change.changedProperties.size(); ++i) {
+                if (i > 0) {
+                    out << ", ";
+                }
+                out << change.changedProperties[i];
+            }
+            out << "]";
+        }
+        out << "\n";
+    }
+
+    if (model.changes.empty()) {
+        out << "identical\n";
+    }
+    return out.str();
+}
+
+}  // namespace nmxd

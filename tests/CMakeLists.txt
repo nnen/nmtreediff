@@ -3,7 +3,9 @@ include(Catch)
 add_executable(nmxd_tests
     test_budgets.cpp
     test_cli.cpp
+    test_golden.cpp
     test_hash.cpp
+    test_match.cpp
     test_jobs.cpp
     test_result.cpp
     test_session.cpp
@@ -19,6 +21,10 @@ target_link_libraries(nmxd_tests
         nmxd::cli
         nmxd_warnings
         Catch2::Catch2WithMain
+)
+
+target_compile_definitions(nmxd_tests PRIVATE
+    NMXD_TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata"
 )
 
 catch_discover_tests(nmxd_tests)

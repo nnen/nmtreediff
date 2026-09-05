@@ -1,0 +1,14 @@
+<tree>
+  <node id="n0"><property name="speed" value="1.0"/></node>
+  <node id="n1"><property name="speed" value="1.0"/></node>
+  <node id="n2"><property name="speed" value="1.0"/></node>
+  <node id="n3"><property name="speed" value="1.0"/></node>
+  <node id="n4"><property name="speed" value="1.0"/></node>
+  <node id="n5"><property name="speed" value="1.0"/></node>
+  <node id="n6"><property name="speed" value="1.0"/></node>
+  <node id="n7"><property name="speed" value="9.9"/></node>
+  <node id="n8"><property name="speed" value="1.0"/></node>
+  <node id="n9"><property name="speed" value="1.0"/></node>
+  <node id="n10"><property name="speed" value="1.0"/></node>
+  <node id="n11"><property name="speed" value="1.0"/></node>
+</tree>

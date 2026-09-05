@@ -40,7 +40,8 @@ private:
     void drawNodeView(const DiffSnapshot& snapshot);
     void drawDetails(const DiffSnapshot& snapshot);
     void drawStatusBar(const DiffSnapshot& snapshot);
-    void drawTreeOutline(const Tree& tree, const IFormatProvider& provider, NodeId id);
+    void drawTreeOutline(const Tree& tree, const IFormatProvider& provider, NodeId id,
+                         const DiffModel* diff, Side side);
     void layoutDockSpaceOnce();
 
     Options options_;
@@ -55,6 +56,8 @@ private:
     std::chrono::steady_clock::time_point processStart_;
     double startupMillis_ = 0.0;   // process start to first frame presented
     double worstFrameMillis_ = 0.0;
+    unsigned worstFrameIndex_ = 0;
+    double worstSteadyFrameMillis_ = 0.0;
     unsigned framesPresented_ = 0;
 
     InitialView view_ = InitialView::Text;
