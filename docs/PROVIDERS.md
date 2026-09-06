@@ -15,10 +15,80 @@ heading goes up only when that promise is broken, which would be a decision
 rather than an accident. `nmxmldiff --list-formats` prints the version the
 build in front of you implements.
 
+Two ways to write one
+---------------------
+
+**In a script**, which needs no compiler and is where to start. A scripted
+format sits on top of a built-in one: XML or JSON does the parsing, and your
+script decides what the result means. That covers most studio formats, because
+most studio formats are XML or JSON with rules about what the elements mean.
+Read "A format in script" below.
+
+**In C++**, when you need something a script cannot say: a format that is
+neither XML nor JSON, spans computed in a way nothing else can, or a parse fast
+enough to matter on files where it does. Read the rest of this document.
+
+The two produce the same thing. `testdata/sample/behaviortree.lua` is the
+compiled behaviour-tree provider rewritten in script, and the tests assert the
+two produce identical trees and identical change lists, so the choice is about
+what you need to say rather than about what you give up.
+
+A format in script
+------------------
+
+Put this in `~/.nmtreediff.lua`, or in a file you pass with `--config`:
+
+```lua
+provider "bt" {
+  display_name = "Behavior tree",
+  base = "xml",
+  extensions = { ".bt", ".btree" },
+  graph_direction = "left_to_right",
+  property_order = { "id", "type", "name" },
+
+  is_node = function(element) return element.name == "node" end,
+  fold_into_parent = function(element) return element.name == "property" end,
+
+  kind     = function(element) return element.attr.type end,
+  identity = function(element) return element.attr.id, "strong" end,
+  title    = function(element) return element.attr.type, element.attr.name end,
+}
+```
+
+Each function is handed one element, with `name` holding what the file calls it
+and `attr` holding its attributes by name. Everything is optional: a provider
+with only a `base` reads exactly like the format it sits on.
+
+| Entry | What it decides |
+| --- | --- |
+| `base` | Which built-in format does the parsing. `xml` or `json`. |
+| `extensions` | Which suffixes this format claims. A claimed suffix beats the format underneath. |
+| `graph_direction` | `top_down` or `left_to_right`. |
+| `property_order` | Which properties sort first. Presentation only. |
+| `is_node` | Whether an element becomes a node. Default: every element does. |
+| `fold_into_parent` | Whether it becomes a property of the node above instead. An element that is neither is walked through, so a wrapper does not swallow what is inside it. |
+| `kind` | What sort of node this is. Default: the element's name. |
+| `identity` | What makes this the same node across versions. Return a second value of `"strong"` to say the key may be matched across any distance. |
+| `title` | The card's first line, and optionally a second. |
+
+**Each function is asked once per node, while the document is open.** The
+answers are kept with the tree, so nothing crosses into the interpreter while a
+frame is being drawn. Write them as though they cost something, because they do,
+but not per frame.
+
+**A script gets its own interpreter on each worker.** Two sides of a comparison
+parse at once and a Lua state is not thread safe, so the states share nothing.
+A script cannot carry anything between files, which also means a comparison
+never depends on what was opened before it.
+
+**A script that will not stop is stopped.** Switching format or reloading a file
+cancels whatever is running, and that applies to your code too.
+
 The short version
 -----------------
 
-1. Write a class deriving from `IFormatProvider` in `src/formats/`.
+1. Write a class deriving from `IFormatProvider` in `src/formats/`. (If a
+   script would do, see above: it is a great deal less work.)
 2. Implement six methods. Four more have defaults you can leave alone.
 3. Add one line to `makeDefaultRegistry()` in `src/core/registry.cpp` and one
    to `src/core/CMakeLists.txt`.
@@ -298,34 +368,43 @@ Three ways, in order of how deliberate they are:
 The configuration file
 ----------------------
 
-A studio names its asset files whatever it likes, and pointing an extension at
-a provider should not need a rebuild. The file is one `key = value` per line,
-`#` starts a comment, and blank lines are ignored:
+A studio names its asset files whatever it likes, and pointing an extension at a
+format should not need a rebuild. Configuration is a Lua script, which is also
+where a scripted format is declared:
 
+```lua
+formats {
+  [".bt"]        = "bt",
+  [".leveldata"] = "json",
+}
+
+fallback "xml"
+graph_direction "top_down"
+exit_key "escape"
 ```
-# Our exporter writes behaviour trees with this suffix.
-.bt      = bt
-.btree   = bt
 
-# And our level data is JSON under another name.
-.leveldata = json
+Three files are read, each overriding what came before, so the most specific
+statement wins:
 
-# What to use for a file nothing else claims.
-fallback = xml
-```
+1. `~/.nmtreediff.lua`
+2. `~/.nmtreediff/config.lua`
+3. whatever `--config` names
 
-A key beginning with a dot is an extension, matched without regard to case. The
-only other key is `fallback`. Anything else is reported with its line number,
-and so is a provider name the build does not know. Every problem in the file is
-listed at once rather than one per run, and a file with any problem stops the
-run rather than being partly applied: a diff read by the wrong provider looks
-like a working diff, which is the failure that goes unnoticed longest.
+Then `--format`, which is a person correcting a guess right now and beats every
+standing decision. A missing home file is not an error; a missing `--config` is.
 
-Pass it with `--config`, which for a version control system means adding it to
-the command string once. There is no automatic search of the working directory,
-because a diff tool is launched by another program from a directory nobody
-chose, and configuration that depends on where you were standing is not
-configuration.
+A script is a script, so a studio with twenty suffixes writes a loop rather than
+twenty lines. That is the reason configuration is not a table of pairs.
+
+**Configuration is deliberately not searched for beside the files being
+compared.** That would be the obvious design and it does not work. A version
+control system usually hands over temporary extracts rather than the files in
+your checkout, so a walk upwards from them finds a temporary directory instead
+of the repository, in exactly the case the search was written for. And a script
+arriving next to a file someone sent you is code you did not choose to run. If
+project configuration is ever attempted again, it should match on the label a
+client supplies, which survives a temporary file, rather than on where the bytes
+happen to sit.
 
 Testing it
 ----------

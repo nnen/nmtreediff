@@ -44,6 +44,13 @@ void ProviderRegistry::add(std::unique_ptr<IFormatProvider> provider) {
     providers_.push_back(std::move(provider));
 }
 
+void ProviderRegistry::addFirst(std::unique_ptr<IFormatProvider> provider) {
+    if (provider == nullptr) {
+        return;
+    }
+    providers_.insert(providers_.begin(), std::move(provider));
+}
+
 const IFormatProvider* ProviderRegistry::byName(std::string_view name) const {
     const auto it = std::find_if(providers_.begin(), providers_.end(),
                                  [name](const auto& p) { return p->name() == name; });

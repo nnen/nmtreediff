@@ -8,6 +8,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
+#include <string>
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -84,6 +86,36 @@ constexpr unsigned kSettledFrame = 60;
 ///          view's layout is measured in the same unit, so the same factor is
 ///          applied to its metrics and the cards grow with the text they hold.
 constexpr float kFontScale = 1.5f;
+
+/// \brief Turns a key's name into the key itself.
+///
+/// \param name The name a configuration or the command line gave.
+///
+/// \returns The key, or ImGuiKey_None when the name is `none` or is not one
+///          this build knows.
+///
+/// \remarks A small vocabulary on purpose: the single letters, the function
+///          keys, and Escape. Anything else is refused rather than guessed at,
+///          because a key that silently does nothing is worse than being told
+///          the name was wrong.
+[[nodiscard]] ImGuiKey keyFromName(const std::string& name) {
+    if (name.empty() || name == "none") {
+        return ImGuiKey_None;
+    }
+    if (name == "escape" || name == "esc") {
+        return ImGuiKey_Escape;
+    }
+    if (name.size() == 1 && name[0] >= 'a' && name[0] <= 'z') {
+        return static_cast<ImGuiKey>(ImGuiKey_A + (name[0] - 'a'));
+    }
+    if (name.size() >= 2 && name[0] == 'f') {
+        const int number = std::atoi(name.c_str() + 1);
+        if (number >= 1 && number <= 12) {
+            return static_cast<ImGuiKey>(ImGuiKey_F1 + number - 1);
+        }
+    }
+    return ImGuiKey_None;
+}
 
 /// \brief Builds the node view's layout sizes for the interface's text size.
 ///
@@ -188,6 +220,15 @@ int AppWindow::run() {
     // The command line has already checked that every name in here is one the
     // registry knows, so nothing can go wrong at this point.
     (void)session_.configureProviders(options_.providerConfig);
+
+    // Settled once. A configuration script asks, and the command line overrides
+    // what it asked for, which is the same order everything else resolves in.
+    if (options_.providerConfig.graphDirection != GraphDirection::Inherit) {
+        graphDirection_ = options_.providerConfig.graphDirection;
+    }
+    const std::string& exitKey =
+        options_.exitKey.empty() ? options_.providerConfig.exitKey : options_.exitKey;
+    exitKey_ = exitKey.empty() ? ImGuiKey_Escape : keyFromName(exitKey);
 
     // Queued before the first frame so the read happens on a worker while the
     // window is already up and drawing.
@@ -305,7 +346,8 @@ void AppWindow::buildFrame() {
     // someone for opening a menu by mistake.
     const bool popupOpen =
         ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
-    if (!popupOpen && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (exitKey_ != ImGuiKey_None && !popupOpen &&
+        ImGui::IsKeyPressed(static_cast<ImGuiKey>(exitKey_), false)) {
         requestClose_ = true;
     }
 

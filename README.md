@@ -29,6 +29,13 @@ What it does
   nodes. Beyond that, a format provider defines what counts as a node, which
   two nodes are the same node across versions, and how a node is titled and
   coloured.
+- **Takes a format you write yourself, with no compiler.** A Lua script sits on
+  top of XML or JSON and decides what the elements mean. The behaviour-tree
+  format ships both ways, compiled and scripted, and the tests hold the two to
+  the same answer.
+- **Is configured by a script.** Extension mappings, the graph direction and the
+  exit key come from a Lua file in your home directory or one you name on the
+  command line.
 - **Matches by identity, not just position.** When a format has stable
   identifiers, such as a GUID on a behavior tree node, two nodes with the same
   identifier are the same node however far apart they have moved. The sample
@@ -49,9 +56,6 @@ What it does not do yet
 
 - The text view is side by side only. There is no unified view and no
   option to ignore formatting differences.
-- Configuration is a small file of extension-to-format mappings. It is not a
-  scripting language, and format providers are C++ classes compiled into the
-  program.
 - There is no release to download and no installer. Build it from source.
 - Nothing has been verified against a real Perforce or Git client yet.
 
@@ -110,7 +114,8 @@ Repository contents
 | [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Architecture, data model, provider interface and matching algorithm, with the reasoning behind each choice. |
 | [docs/PROVIDERS.md](docs/PROVIDERS.md) | How to teach the tool a format of your own. Carries the provider interface version, which is 1. |
 | [Doxyfile](Doxyfile) | Configuration for the API reference. Undocumented code is an error, so the `docs` target fails rather than quietly producing a thinner reference. |
-| [testdata/sample/providers.conf](testdata/sample/providers.conf) | A sample configuration pointing file extensions at formats. |
+| [testdata/sample/providers.lua](testdata/sample/providers.lua) | A sample configuration script. |
+| [testdata/sample/behaviortree.lua](testdata/sample/behaviortree.lua) | The behaviour-tree format written in script rather than compiled in. |
 | [testdata/golden/](testdata/golden/) | The corpus of comparisons whose expected output the tests check against. |
 
 Licence

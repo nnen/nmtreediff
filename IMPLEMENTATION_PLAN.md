@@ -123,10 +123,10 @@ nmxmldiff/
       diff.h/.cpp          Matching to DiffModel
       textdiff.h/.cpp      Myers line diff, intra-line word diff
       layout_tree.h/.cpp   tidy-tree positioning, in either direction
-      config.h/.cpp        the resolved configuration (M6, M8)
-      lua_config.h/.cpp    reads one configuration script (M8)
-      lua_provider.h/.cpp  a format provider written in script (M8)
-      lua_state.h/.cpp     one interpreter per worker, and cancellation (M8)
+      config.h/.cpp        the resolved configuration, and where it lives
+      lua_config.h/.cpp    reads one configuration script
+      lua_provider.h/.cpp  a format provider written in script
+      lua_state.h/.cpp     one interpreter per worker, and cancellation
     formats/
       xml_generic.h/.cpp   default XML provider (M2)
       json_generic.h/.cpp  default JSON provider (M5)
@@ -570,7 +570,7 @@ jobs rather than fine-grained parallelism.
 
 | Measure | Target | Measured | Verified by |
 | --- | --- | --- | --- |
-| Window visible, cold start | under 200 ms | 207-211 ms (M0, over) | `--max-frames` timing run |
+| Window visible, cold start | under 200 ms | 264-289 ms (over) | `--max-frames` timing run |
 | Frame time, steady state | under 16 ms | 1.1-1.7 ms (M3) | `--max-frames` timing run |
 | Text view usable, 20 MB pair | under 800 ms | 145 ms (M1) | M1 budget test |
 | Full match, 100k nodes | under 2 s | 84 ms (M3) | M3 budget test |
@@ -688,7 +688,7 @@ submissions, and it is also how the end-to-end tests run.
 | M5 &check; | JSON | Generic JSON provider on simdjson, spans from source locations, ordered arrays and unordered object members, sniffing between the two built-ins | Done, and no interface change was needed: the provider is a new file, one line in the registry and one in the build. A 100k-node JSON pair parses in 113 ms a pair and matches in 80 ms, against 84 ms for the XML case of the same size |
 | M6 &check; | Custom formats | Sample behavior-tree provider, format override, provider config, versioned provider documentation | Done. A `<node>` follows its GUID from one branch of the tree to another and is reported as one move, and survives a change of `type` that no structural heuristic could. docs/PROVIDERS.md carries interface version 1 |
 | M7 &check; | Standing on its own | File picker and a welcome pane, graph direction in the layout with a per-format override and a View menu default, a pass over the existing code against CODE_GUIDELINES.md | Done. The window opens with no arguments and both files are chosen in it; the behaviour tree draws itself left to right without being asked, and the interface version stayed at 1 |
-| M8 | Formats without a compiler | Lua configuration from the home directory and the command line, retiring the M6 reader, the Lua provider bridge, the sample behaviour tree reimplemented in script, the graph direction and exit key settings | A format is added by writing a script and naming it in a config file, with no compiler involved, and the scripted behaviour tree reproduces the golden output of the C++ one exactly |
+| M8 &check; | Formats without a compiler | Lua configuration from the home directory and the command line, retiring the M6 reader, the Lua provider bridge, the sample behaviour tree reimplemented in script, the graph direction and exit key settings | Done. The scripted behaviour tree produces the same tree and the same change list as the compiled one, and `kProviderInterfaceVersion` stayed at 1 |
 | M9 | Ship | Headless report, exit codes, a portable archive built in continuous integration from a tag and attached to a GitHub release, MIT licence and attribution for bundled dependencies, one-page Perforce and Git setup docs verified against real clients, settings persistence | A technical artist can unzip it and configure it without help |
 | M10 | Later | Three-way merge, further game asset formats | Out of initial scope |
 
@@ -774,6 +774,37 @@ every entity, which the `docs` target enforces, so what is left to review is
 block-level comments, named constants, and functions long enough to want
 breaking up.
 
+M8 landed, and the thing it was written to test came out well. Constraint A
+said a scripted provider should be a plain subclass rather than a redesign, and
+it is: `kProviderInterfaceVersion` is still 1, no method changed shape, and the
+bridge is a class implementing the same interface as everything else.
+
+The design that made that work is the one sketched above: a script shapes a tree
+rather than parsing bytes. The base format reads the file and the script decides
+what the result means, which keeps every hot loop compiled and makes the scripted
+surface nine entries rather than ten methods. It also made the cost model easy to
+honour, because each of those entries is asked once per node while the document
+is open and the answers travel with the tree.
+
+That last part needed somewhere to put them. A provider must be stateless, so a
+cache inside the provider was out, and synthetic properties would have joined
+the hash and changed which nodes pair up. Trees gained a side table instead,
+indexed by node and empty unless a provider fills it, so the built-in formats
+pay nothing for it.
+
+Two things the corpus caught that review would not have. Comparing the scripted
+behaviour tree against the compiled one turned up a difference in the order of
+one change's property names, which was the scripted surface having no way to say
+property display order: R7.5 asks for that, and it was simply missing. And the
+cancellation hook, which the sandbox would have provided before the search was
+dropped, came back for its real reason: a script with a loop in it holds a
+worker, and constraint C makes no exception for code the user wrote.
+
+Lua is compiled as C++ so that a script error unwinds as an exception rather
+than through longjmp, which would step over the destructors of everything the
+bridge holds while a callback is running. That is worth knowing before anyone
+tries to swap in a system Lua, which would be built as C.
+
 12. Testing
 -----------
 
@@ -832,19 +863,24 @@ library is what makes that acceptable.
   cursor after the container is consumed, which is a constant-time read rather
   than a rescan of the bytes. A change of parser later is still not a swap but a
   rewrite of the provider.
-- **Risk: a scripted provider is called per node.** The bridge is only as good
-  as its cost model. Asking a script a question once per node in a hundred
-  thousand node document is a different proposition from asking it once per
-  file, and asking it once per card per frame would not work at all. The design
-  above answers this by computing kind, identity and ordering during the parse
-  and caching style per node, but it is an assumption until measured. The
-  scripted behaviour tree gives a direct comparison against the compiled one,
-  and if the gap is large the honest answer may be that scripted providers carry
-  a documented size limit rather than pretending to be free.
-- **Risk: startup is already over budget and M8 adds to it.** The window is
-  visible at 205 to 225 ms against a 200 ms target, unchanged by M7 because the
-  file dialog is only built when someone asks for it. M8 adds a Lua
-  interpreter. It belongs off the critical path: the window is shown first, and
+- **Open: what a scripted provider costs on a large file.** The cost model
+  landed as designed, with each script function asked once per node and the
+  answers kept with the tree, so nothing crosses into the interpreter while a
+  frame is drawn. What has not been measured is the parse itself: the samples it
+  has been run against are tens of nodes, not the hundred thousand the budgets
+  are written for. If the gap against a compiled provider turns out to be large,
+  the honest answer is a documented size limit rather than pretending scripted
+  formats are free.
+- **Risk: startup is over budget and the measurement is noisy.** The window is
+  visible somewhere between 205 and 290 ms against a 200 ms target, and where in
+  that range depends on what else the machine is doing: the same binary measured
+  210 ms earlier in a session and 270 ms later in it. Neither M7 nor M8 added to
+  it, which was checked rather than assumed by measuring the build from before
+  M8 and getting the same range. The file dialog is built only when someone asks
+  for one and an interpreter only when a script is found, so a run with no
+  configuration builds neither. What the number needs is a quiet machine and
+  repeated runs, not another guess: most of it is window and OpenGL context
+  creation, and until that is measured properly there is nothing to act on. It belongs off the critical path: the window is shown first, and
   the interpreter is created when a configuration file is found rather than at
   startup, which costs nothing in the common case of having none.
 - **Open: how a team shares configuration and providers.** Dropping the

@@ -104,6 +104,34 @@ struct Node {
     [[nodiscard]] bool isLeaf() const noexcept { return children.empty(); }
 };
 
+/// \brief What a provider worked out about a node while parsing it.
+///
+/// \remarks Never part of matching. The hasher walks a node's kind, its
+///          properties and its children, and this is none of those, so nothing
+///          here can change which nodes pair up.
+///
+///          It exists for a provider whose answers are expensive to produce.
+///          A scripted provider has to cross into an interpreter to decide what
+///          a node is called, and doing that per visible card per frame would
+///          not work at all, so it answers once while the document is open and
+///          leaves the answers here. A provider that computes cheaply never
+///          touches this and pays nothing for it.
+struct NodeAnnotation {
+    /// \brief The identity key's value, or empty for none.
+    std::string identity;
+    /// \brief Whether that key may be matched across arbitrary distance.
+    bool strongIdentity = false;
+    /// \brief The first line of the node's card, or empty to use the kind.
+    std::string title;
+    /// \brief The second line of the node's card, or empty for none.
+    std::string subtitle;
+    /// \brief The provider's own colour as 0xRRGGBB, or zero for none.
+    ///
+    /// \remarks Packed rather than a Color, because Color is declared with
+    ///          the provider interface and that interface is built on this file.
+    std::uint32_t accent = 0;
+};
+
 /// \brief A parsed document, held as a flat arena of nodes.
 ///
 /// \remarks Nodes are addressed by index rather than by pointer. That keeps a
@@ -191,8 +219,45 @@ public:
     /// \param count The number of nodes to make room for.
     void reserve(std::size_t count) { nodes_.reserve(count); }
 
+    /// \brief Returns what a provider recorded about one node.
+    ///
+    /// \param id The node to look up.
+    ///
+    /// \returns The annotation, or an empty one when this tree has none.
+    ///
+    /// \remarks A tree whose provider annotated nothing carries no
+    ///          annotations at all, so the common case costs no memory rather
+    ///          than an empty record per node.
+    [[nodiscard]] const NodeAnnotation& annotation(NodeId id) const {
+        static const NodeAnnotation kNone;
+        return id < annotations_.size() ? annotations_[id] : kNone;
+    }
+
+    /// \brief Records what a provider worked out about one node.
+    ///
+    /// \param id The node the annotation belongs to.
+    /// \param annotation What was worked out.
+    ///
+    /// \remarks Called while parsing, before the tree is handed to anything
+    ///          else. Grows the side table to fit, so nodes may be annotated in
+    ///          any order.
+    void annotate(NodeId id, NodeAnnotation annotation) {
+        if (id >= annotations_.size()) {
+            annotations_.resize(static_cast<std::size_t>(id) + 1);
+        }
+        annotations_[id] = std::move(annotation);
+    }
+
+    /// \brief Reports whether any node in this tree carries an annotation.
+    ///
+    /// \returns `true` when a provider recorded something.
+    [[nodiscard]] bool annotated() const noexcept { return !annotations_.empty(); }
+
 private:
     std::vector<Node> nodes_;
+
+    /// \brief Provider working, indexed by NodeId. Empty when unused.
+    std::vector<NodeAnnotation> annotations_;
     NodeId root_ = kInvalidNode;
     std::string formatName_;
 };

@@ -183,40 +183,93 @@ node moved to a new parent, and a node whose type changed. That last one still
 matches, because the format anchors on the identifier rather than on the shape
 of the tree.
 
-Pointing your own extensions at a format
-----------------------------------------
+Configuration
+-------------
 
-If your asset files use suffixes of their own, map them in a configuration file
-rather than rebuilding. One `key = value` per line, `#` starts a comment, a key
-beginning with a dot is an extension, and the only other key is `fallback`.
+Configuration is a Lua script. Three files are read, each overriding what came
+before:
 
+1. `~/.nmtreediff.lua`
+2. `~/.nmtreediff/config.lua`
+3. whatever you pass with `--config`
+
+A missing file in your home directory is fine. A missing `--config` is an error,
+because asking for a file and silently not getting it is the kind of failure
+noticed weeks later.
+
+```lua
+-- Point your own suffixes at a format the tool already knows.
+formats {
+  [".bt"]        = "bt",
+  [".leveldata"] = "json",
+}
+
+fallback "xml"
+graph_direction "left_to_right"
+exit_key "escape"
 ```
-# Our exporter writes behaviour trees with this suffix.
-.bt        = bt
-.btree     = bt
 
-# And our level data is JSON under a name of its own.
-.leveldata = json
+`--format` still beats all of it, because that is you correcting a guess now
+rather than a standing decision. A copy to start from is at
+`testdata/sample/providers.lua`.
 
-# What to use for a file nothing else claims.
-fallback   = xml
+Because it is a script rather than a list, a studio with many suffixes writes a
+loop:
+
+```lua
+local map = {}
+for _, suffix in ipairs{ ".mesh", ".anim", ".mat" } do
+  map[suffix] = "json"
+end
+formats(map)
 ```
 
-Pass it with `--config`:
-
-```bash
-nmxmldiff --config providers.conf level_before.leveldata level_after.leveldata
-```
-
-Extensions are matched without regard to case. Every problem in the file is
-reported with its line number, and a file with any problem stops the run rather
+Every mistake in a script is reported at once, with the file and, where Lua
+knows it, the line. A configuration with any mistake in it stops the run rather
 than being half applied, because a comparison read by the wrong format looks
-like a working comparison. A copy you can start from is at
-`testdata/sample/providers.conf`.
+like a working comparison.
 
-An explicit `--format` always beats the configuration file.
+Teaching it your own format
+---------------------------
+
+A format of your own needs no compiler. A script sits on top of XML or JSON:
+that format does the parsing, and your script decides what the result means.
+
+```lua
+provider "bt" {
+  display_name = "Behavior tree",
+  base = "xml",
+  extensions = { ".bt", ".btree" },
+
+  -- Only <node> elements are nodes.
+  is_node = function(element) return element.name == "node" end,
+  -- <property name= value=/> describes the node it sits in.
+  fold_into_parent = function(element) return element.name == "property" end,
+
+  -- What it does, not what the element is called.
+  kind = function(element) return element.attr.type end,
+  -- The editor's GUID, which makes this the same node however far it moved.
+  identity = function(element) return element.attr.id, "strong" end,
+}
+```
+
+`testdata/sample/behaviortree.lua` is a complete worked example, and
+[docs/PROVIDERS.md](docs/PROVIDERS.md) documents every entry.
+
+Changing the exit key
+---------------------
+
+Escape closes the window. If that fights your habits, change it:
+
+```lua
+exit_key "q"
+```
+
+Or turn it off with `exit_key "none"`. `--exit-key` overrides the script for one
+run. Single letters, the function keys and `escape` are the names it knows.
 
 Running without a window
+------------------------Running without a window
 ------------------------
 
 `--headless` runs the whole comparison and writes a report to standard output.

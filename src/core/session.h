@@ -11,6 +11,7 @@
 #include "core/config.h"
 #include "core/jobs.h"
 #include "core/layout_tree.h"
+#include "core/lua_provider.h"
 #include "core/registry.h"
 #include "core/snapshot.h"
 
@@ -121,7 +122,12 @@ public:
     ///          describing a tree that no longer matches the one the views are
     ///          drawing.
     std::vector<std::string> configureProviders(const ProviderConfig& config) {
-        return registry_.apply(config);
+        // Scripted formats are registered before the mappings are applied, so
+        // an extension may be pointed at a format the same file defined.
+        std::vector<std::string> unknown = addScriptedProviders(registry_, config);
+        const std::vector<std::string> rest = registry_.apply(config);
+        unknown.insert(unknown.end(), rest.begin(), rest.end());
+        return unknown;
     }
 
     /// \brief Blocks until the pipeline settles.

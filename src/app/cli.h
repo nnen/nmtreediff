@@ -81,6 +81,14 @@ struct Options {
     ///          the window.
     unsigned maxFrames = 0;
 
+    /// \brief The key that closes the window, or empty to use the
+    ///        configured one.
+    ///
+    /// \remarks Overrides whatever a configuration script asked for, the way
+    ///          `--format` overrides a resolved format. The word `none` means no
+    ///          key closes the window.
+    std::string exitKey;
+
     /// \brief Reports whether a file pair was given.
     ///
     /// \returns `true` when both paths are set.

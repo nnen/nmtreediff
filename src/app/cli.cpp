@@ -39,6 +39,8 @@ ParseResult parseInto(CLI::App& app, std::vector<std::string> reversedArgs) {
     app.add_option("--right-label", options.rightLabel, "Title to show for the right side");
     app.add_option("--view", viewName, "Initial view")
         ->check(CLI::IsMember({"text", "node"}));
+    app.add_option("--exit-key", options.exitKey,
+                   "Key that closes the window, or none; overrides the configuration");
     app.add_option("--config", options.configPath,
                    "Provider configuration file mapping extensions to formats");
     app.add_flag("--list-formats", options.listFormats,

@@ -30,6 +30,18 @@ public:
     ///          setFallback() says otherwise.
     void add(std::unique_ptr<IFormatProvider> provider);
 
+    /// \brief Registers a provider ahead of everything already registered.
+    ///
+    /// \param provider The provider to add.
+    ///
+    /// \remarks Resolution breaks a tie in favour of whichever provider was
+    ///          registered first, so this is how a format wins one. A scripted
+    ///          format built on generic XML claims the same score for an
+    ///          extension it named, and claiming it is the deliberate act: the
+    ///          person who wrote the script meant their format to read those
+    ///          files, not the one underneath it.
+    void addFirst(std::unique_ptr<IFormatProvider> provider);
+
     /// \brief Finds a provider by its stable name.
     ///
     /// \param name The name to look for.

@@ -172,6 +172,13 @@ private:
     /// \param direction The direction to adopt.
     void setGraphDirection(GraphDirection direction);
 
+    /// \brief The key that closes the window, or ImGuiKey_None.
+    ///
+    /// \remarks Stored rather than read from the options each frame, because
+    ///          it is settled once from the configuration and the command line
+    ///          and never changes after that.
+    int exitKey_ = 0;
+
     /// \brief The reader's standing choice of graph direction.
     ///
     /// \remarks Only a default. A format that names a direction of its own

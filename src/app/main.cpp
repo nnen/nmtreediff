@@ -11,6 +11,8 @@
 #include "app/cli.h"
 #include "app/report.h"
 #include "core/config.h"
+#include "core/lua_config.h"
+#include "core/lua_provider.h"
 #include "core/registry.h"
 #include "core/session.h"
 
@@ -20,50 +22,54 @@
 
 namespace {
 
-/// \brief Reads the provider configuration named on the command line.
+/// \brief Reads every configuration script that applies to this run.
 ///
 /// \param options The run's options, whose configuration is filled in.
 ///
-/// \returns Zero when there was nothing to read or the file was good, and 2
-///          when it could not be used.
+/// \returns Zero when there was nothing to read or every script was good,
+///          and 2 when one could not be used.
 ///
 /// \remarks Every problem is reported before giving up, so someone fixing a
 ///          configuration sees the whole list rather than one line per run. A
-///          bad configuration stops the run rather than being partly applied:
-///          a diff read by the wrong provider looks like a working diff, which
-///          is the failure that goes unnoticed longest.
+///          bad configuration stops the run rather than being partly applied: a
+///          diff read by the wrong provider looks like a working diff, which is
+///          the failure that goes unnoticed longest.
 int loadConfiguration(nmxd::Options& options) {
-    if (options.configPath.empty()) {
-        return 0;
-    }
-
     std::vector<nmxd::ConfigProblem> problems;
-    auto loaded = nmxd::loadProviderConfig(options.configPath, problems);
-    if (!loaded.ok()) {
-        std::cerr << "nmxmldiff: " << options.configPath.string() << ": "
-                  << nmxd::describe(loaded.error()) << '\n';
-        return 2;
-    }
+    nmxd::ProviderConfig config;
+    const auto loaded = nmxd::loadConfiguration(options.configPath, config, problems);
 
     for (const auto& problem : problems) {
-        std::cerr << "nmxmldiff: " << options.configPath.string() << ":" << problem.line
-                  << ": " << problem.message << '\n';
+        std::cerr << "nmxmldiff: " << problem.origin.string();
+        if (problem.line != 0) {
+            std::cerr << ":" << problem.line;
+        }
+        std::cerr << ": " << problem.message << '\n';
     }
 
-    // Checked here rather than where it is applied, so that the message names
-    // the file the mistake is in and the run stops before any work starts.
+    // A file that was not there at all has explained nothing above.
+    if (!loaded.ok() && problems.empty()) {
+        std::cerr << "nmxmldiff: " << options.configPath.string() << ": "
+                  << nmxd::describe(loaded.error()) << '\n';
+    }
+
+    // Names are checked even when the script already failed, so that one run
+    // shows every mistake rather than the first one hiding the rest. Checked
+    // here rather than where the configuration is applied, so the run stops
+    // before any work starts.
     nmxd::ProviderRegistry probe = nmxd::makeDefaultRegistry();
-    const std::vector<std::string> unknown = probe.apply(loaded.value());
+    std::vector<std::string> unknown = nmxd::addScriptedProviders(probe, config);
+    const std::vector<std::string> rest = probe.apply(config);
+    unknown.insert(unknown.end(), rest.begin(), rest.end());
     for (const auto& name : unknown) {
-        std::cerr << "nmxmldiff: " << options.configPath.string()
-                  << ": no format called " << name << "; try --list-formats" << '\n';
+        std::cerr << "nmxmldiff: no format called " << name << "; try --list-formats" << '\n';
     }
 
-    if (!problems.empty() || !unknown.empty()) {
+    if (!loaded.ok() || !problems.empty() || !unknown.empty()) {
         return 2;
     }
 
-    options.providerConfig = std::move(loaded).value();
+    options.providerConfig = std::move(config);
     return 0;
 }
 
@@ -77,7 +83,11 @@ int loadConfiguration(nmxd::Options& options) {
 ///          the extensions this machine actually resolves rather than the ones
 ///          the build shipped with.
 int listFormats(const nmxd::Options& options) {
+    // Scripted formats are added the same way the session adds them, because a
+    // format that works but does not appear here is the one a person gives up
+    // looking for.
     nmxd::ProviderRegistry registry = nmxd::makeDefaultRegistry();
+    (void)nmxd::addScriptedProviders(registry, options.providerConfig);
     (void)registry.apply(options.providerConfig);
 
     std::cout << "provider interface version " << nmxd::kProviderInterfaceVersion << '\n';

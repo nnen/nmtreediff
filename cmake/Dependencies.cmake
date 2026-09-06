@@ -96,6 +96,48 @@ if(NMXD_BUILD_GUI)
     add_library(imgui::imgui ALIAS imgui)
 endif()
 
+# ------------------------------------------------------------------ Lua -----
+# Configuration files are Lua scripts, and so are format providers. Upstream
+# Lua ships a makefile rather than a CMake build, so the sources are compiled
+# here the same way Dear ImGui's are. Three are left out: lua.c is the
+# interpreter's command-line front end, and this embeds a library instead;
+# ltests.c is the test harness; and onelua.c is an amalgamation of every other
+# file, which would define the whole library a second time.
+FetchContent_Declare(
+    lua
+    GIT_REPOSITORY https://github.com/lua/lua.git
+    GIT_TAG        1ab3208a1fceb12fca8f24ba57d6e13c5bff15e3  # v5.4.7
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(lua)
+
+file(GLOB _lua_sources ${lua_SOURCE_DIR}/*.c)
+list(FILTER _lua_sources EXCLUDE REGEX "/(lua|luac|onelua|ltests)\\.c$")
+add_library(lua STATIC ${_lua_sources})
+# Compiled as C++ so that a script error unwinds as an exception rather than
+# through longjmp, which would step over the destructors of everything the
+# bridge holds while a callback is running.
+set_source_files_properties(${_lua_sources} PROPERTIES LANGUAGE CXX)
+target_include_directories(lua SYSTEM PUBLIC ${lua_SOURCE_DIR})
+# Compiling Lua as C++ means its symbols are C++ symbols. sol2 assumes a C build
+# and wraps its includes in extern "C" unless told otherwise, which would leave
+# every one of them unresolved at link time.
+target_compile_definitions(lua PUBLIC SOL_USING_CXX_LUA=1)
+add_library(lua::lua ALIAS lua)
+
+# ----------------------------------------------------------------- sol2 -----
+# Header-only, and the reason for choosing it over the raw C API: it binds a
+# C++ class to a Lua table without a code generator, which is what the provider
+# bridge needs and what hand-rolling would make expensive.
+FetchContent_Declare(
+    sol2
+    GIT_REPOSITORY https://github.com/ThePhD/sol2.git
+    GIT_TAG        dca62a0f02bb45f3de296de3ce00b1275eb34c25  # v3.3.1
+    GIT_SHALLOW    TRUE
+)
+set(SOL2_BUILD_LUA OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(sol2)
+
 # --------------------------------------------- nativefiledialog-extended -----
 # Dear ImGui has no file dialog, and a diff tool that cannot open a file from
 # inside its own window is not one a person can launch. A native dialog is what
