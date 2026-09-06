@@ -66,6 +66,25 @@ constexpr float kChipGap = 3.0f;
 /// \brief Background of the canvas.
 constexpr ImU32 kCanvasColour = IM_COL32(22, 25, 31, 255);
 
+/// \brief Reports whether the left button was released without dragging.
+///
+/// \returns `true` on the frame a real click finishes.
+///
+/// \remarks Panning is a left drag on the same canvas, so a press is not
+///          enough to know a click was meant: pressing on empty space is how a
+///          pan begins. Waiting for the release and asking how far the pointer
+///          travelled tells the two apart, and it uses the threshold ImGui
+///          itself uses to start a drag, so the two can never disagree about
+///          where a click stops and a pan starts.
+[[nodiscard]] bool clickedWithoutDragging() {
+    const ImGuiIO& io = ImGui::GetIO();
+    if (!ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+        return false;
+    }
+    const float threshold = io.MouseDragThreshold * io.MouseDragThreshold;
+    return io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] <= threshold;
+}
+
 /// \brief What every card in one pass is drawn against.
 ///
 /// \remarks Gathered into one value because it is the same for every card,
@@ -447,6 +466,16 @@ void NodeView::drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot
         const LayoutNode& card = layout.nodes[hovered_];
         const Tree& tree = card.side == Side::Left ? *snapshot.leftTree : *snapshot.rightTree;
         selection.select(card.side, card.node, tree.node(card.node).span.begin);
+        followedRevision_ = selection.revision;
+    }
+
+    // Clicking the canvas itself clears the selection, the way clicking empty
+    // space does anywhere else. It waits for the release rather than acting on
+    // the press, because a press on empty space is also how a pan begins and
+    // losing the selection every time the view is dragged would be worse than
+    // not being able to clear it at all.
+    if (hovered && hovered_ == kInvalidLayout && selection.active() && clickedWithoutDragging()) {
+        selection.clear();
         followedRevision_ = selection.revision;
     }
     if (hovered && ImGui::IsItemClicked(ImGuiMouseButton_Right) && hovered_ != kInvalidLayout) {
