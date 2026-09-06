@@ -47,8 +47,15 @@ constexpr int kHoverAlpha = 120;
 constexpr float kCardRounding = 3.0f;
 /// \brief Outline thickness of an unchanged card.
 constexpr float kQuietEdgeWidth = 1.0f;
+
+/// \brief How much thicker a changed card's outline is than a quiet one's.
+constexpr float kLoudEdgeFactor = 3.0f;
+
 /// \brief Outline thickness of a card that changed, so it reads first.
-constexpr float kLoudEdgeWidth = 1.8f;
+///
+/// \remarks Derived rather than written out, so the two cannot drift apart
+///          and the ratio between them is the thing stated.
+constexpr float kLoudEdgeWidth = kQuietEdgeWidth * kLoudEdgeFactor;
 /// \brief Width of the stripe carrying the provider's own colour.
 constexpr float kAccentStripeWidth = 3.0f;
 /// \brief Outline thickness drawn around a hovered card.

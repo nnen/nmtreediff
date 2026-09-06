@@ -58,6 +58,7 @@
         <property name="position">
           <entityPosition>
             <target />
+            <property name="foo" value="bar" />
           </entityPosition>
         </property>
         <!-- <property name="target" value="last_noise"/> -->
