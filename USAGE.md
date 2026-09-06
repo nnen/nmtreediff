@@ -113,8 +113,21 @@ direction lays the graph out again, which is why the graph blinks.
 
 Beside the two views sits a panel with the size of each side in bytes, lines and
 nodes, the format that was chosen, and an outline of the newer document. Every
-entry in the outline is coloured by what happened to it and lists the node's
-properties, so you can read down the document without leaving the keyboard.
+entry is coloured by what happened to it.
+
+The properties under each node say what changed and what it changed from, which
+is the one thing the node graph cannot show you:
+
+| Row | Meaning |
+| --- | --- |
+| `speed 1.0 -> 1.4` in amber | The value changed |
+| `fresh new` in green | The property is new |
+| `doomed yes ->` in red | The property was removed |
+| plain | Unchanged |
+
+A removed property is listed after the others. It has no row of its own in the
+newer document, so without this the one thing you could not see would be the
+thing that was taken away.
 
 Formats
 -------

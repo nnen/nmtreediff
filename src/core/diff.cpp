@@ -100,6 +100,8 @@ public:
         model_.cancelled = match.cancelled;
         model_.leftStatus.assign(left.size(), NodeStatus::Unchanged);
         model_.rightStatus.assign(right.size(), NodeStatus::Unchanged);
+        model_.leftChangeIndex.assign(left.size(), kNoChange);
+        model_.rightChangeIndex.assign(right.size(), kNoChange);
     }
 
     /// \brief Classifies the matching.
@@ -166,11 +168,16 @@ private:
             case NodeStatus::Unchanged:
                 return;
         }
+        // Recorded before the move, because the index is where the change
+        // is about to land.
+        const auto at = static_cast<std::uint32_t>(model_.changes.size());
         if (change.left != kInvalidNode) {
             model_.leftStatus[change.left] = change.status;
+            model_.leftChangeIndex[change.left] = at;
         }
         if (change.right != kInvalidNode) {
             model_.rightStatus[change.right] = change.status;
+            model_.rightChangeIndex[change.right] = at;
         }
         model_.changes.push_back(std::move(change));
     }
@@ -411,6 +418,14 @@ const char* describe(NodeStatus status) noexcept {
 NodeStatus DiffModel::statusOf(Side side, NodeId id) const {
     const auto& statuses = side == Side::Left ? leftStatus : rightStatus;
     return id < statuses.size() ? statuses[id] : NodeStatus::Unchanged;
+}
+
+const Change* DiffModel::changeFor(Side side, NodeId id) const {
+    const auto& index = side == Side::Left ? leftChangeIndex : rightChangeIndex;
+    if (id >= index.size() || index[id] == kNoChange) {
+        return nullptr;
+    }
+    return &changes[index[id]];
 }
 
 DiffModel classify(const Tree& left, const Tree& right, const IFormatProvider& provider,

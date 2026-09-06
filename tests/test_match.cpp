@@ -324,3 +324,56 @@ TEST_CASE("the roots pair even when nothing else does", "[match]") {
     const auto result = nmxd::matchTrees(left, right, *provider);
     CHECK(result.matching.toRight(left.root()) == right.root());
 }
+
+TEST_CASE("a node's change is reachable without scanning the change list", "[match]") {
+    // The details panel asks this per visible node per frame, so it has to be a
+    // lookup rather than a search.
+    const auto provider = nmxd::makeGenericXmlProvider();
+    const Tree left = parse(*provider, "<r><item speed=\"1.0\" name=\"a\"/><quiet/></r>");
+    const Tree right = parse(*provider, "<r><item speed=\"1.4\" name=\"a\"/><quiet/></r>");
+
+    const auto model = nmxd::diffTrees(left, right, *provider);
+
+    const NodeId rightItem = right.node(right.root()).children[0];
+    const NodeId leftItem = left.node(left.root()).children[0];
+
+    const auto* change = model.changeFor(Side::Right, rightItem);
+    REQUIRE(change != nullptr);
+    CHECK(change->status == NodeStatus::Modified);
+    CHECK(change->changedProperties == std::vector<std::string>{"speed"});
+
+    // Both sides of one pair lead to the same record, so the panel can ask from
+    // whichever side it happens to be showing.
+    CHECK(model.changeFor(Side::Left, leftItem) == change);
+}
+
+TEST_CASE("an unchanged node has no change to look up", "[match]") {
+    const auto provider = nmxd::makeGenericXmlProvider();
+    const Tree left = parse(*provider, "<r><item speed=\"1.0\"/><quiet/></r>");
+    const Tree right = parse(*provider, "<r><item speed=\"1.4\"/><quiet/></r>");
+
+    const auto model = nmxd::diffTrees(left, right, *provider);
+
+    const NodeId quiet = right.node(right.root()).children[1];
+    CHECK(model.changeFor(Side::Right, quiet) == nullptr);
+
+    // And an id past the end is a question rather than a crash, because the
+    // panel may still be holding a selection from the previous snapshot.
+    CHECK(model.changeFor(Side::Right, static_cast<NodeId>(right.size() + 10)) == nullptr);
+    CHECK(model.changeFor(Side::Left, kInvalidNode) == nullptr);
+}
+
+TEST_CASE("a property present on only one side is reported as changed", "[match]") {
+    // The details panel shows one side, so a property that was taken away has
+    // no row of its own. It can only be drawn if the diff names it.
+    const auto provider = nmxd::makeGenericXmlProvider();
+    const Tree left = parse(*provider, "<r><item keep=\"1\" doomed=\"yes\"/></r>");
+    const Tree right = parse(*provider, "<r><item keep=\"1\" fresh=\"new\"/></r>");
+
+    const auto model = nmxd::diffTrees(left, right, *provider);
+    const NodeId item = right.node(right.root()).children[0];
+
+    const auto* change = model.changeFor(Side::Right, item);
+    REQUIRE(change != nullptr);
+    CHECK(change->changedProperties == std::vector<std::string>{"doomed", "fresh"});
+}

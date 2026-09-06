@@ -65,8 +65,41 @@ private:
     void drawNodeView(const DiffSnapshot& snapshot);
     void drawDetails(const DiffSnapshot& snapshot);
     void drawStatusBar(const DiffSnapshot& snapshot);
-    void drawTreeOutline(const Tree& tree, const IFormatProvider& provider, NodeId id,
-                         const DiffModel* diff, Side side);
+    /// \brief Draws one node and everything below it.
+    ///
+    /// \param tree The tree being shown, which is the newer side.
+    /// \param otherTree The other side, consulted for what a value was
+    ///        before, or null when there is none.
+    /// \param provider The format provider, for titles and property order.
+    /// \param id The node to draw.
+    /// \param diff What changed, or null before the diff is ready.
+    /// \param side Which side \p tree is.
+    void drawTreeOutline(const Tree& tree, const Tree* otherTree, const IFormatProvider& provider,
+                         NodeId id, const DiffModel* diff, Side side);
+
+    /// \brief Draws one node's properties, marking what changed.
+    ///
+    /// \param tree The tree being shown.
+    /// \param otherTree The other side, or null.
+    /// \param provider The format provider, for property order.
+    /// \param id The node whose properties to draw.
+    /// \param diff What changed, or null.
+    /// \param side Which side \p tree is.
+    void drawProperties(const Tree& tree, const Tree* otherTree, const IFormatProvider& provider,
+                        NodeId id, const DiffModel* diff, Side side);
+
+    /// \brief Draws one property row.
+    ///
+    /// \param property The property to draw.
+    /// \param changed Whether the diff says this property differs.
+    /// \param before The same property on the other side, or null when it
+    ///        is new.
+    void drawProperty(const Property& property, bool changed, const Property* before);
+
+    /// \brief Draws a property the other side had and this one does not.
+    ///
+    /// \param property The property as it was before it was removed.
+    void drawRemovedProperty(const Property& property);
     void layoutDockSpaceOnce();
 
     /// \brief Draws the pane shown until both files are chosen.

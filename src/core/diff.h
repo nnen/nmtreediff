@@ -36,6 +36,9 @@ enum class NodeStatus : std::uint8_t {
 /// \returns A single lower-case word, never null.
 [[nodiscard]] const char* describe(NodeStatus status) noexcept;
 
+/// \brief The index meaning "this node has no change recorded".
+inline constexpr std::uint32_t kNoChange = 0xFFFFFFFFu;
+
 /// \brief One reported change.
 struct Change {
     /// \brief What happened to the node.
@@ -77,6 +80,16 @@ struct DiffModel {
     /// \brief Status of every node in the right tree, indexed by NodeId.
     std::vector<NodeStatus> rightStatus;
 
+    /// \brief Where each left node's change sits in \ref changes.
+    ///
+    /// \remarks Indexed by NodeId, holding kNoChange for a node that did not
+    ///          change. An index rather than a search, because the details panel
+    ///          asks this per visible node per frame and scanning the change
+    ///          list would make that quadratic in the size of the diff.
+    std::vector<std::uint32_t> leftChangeIndex;
+    /// \brief Where each right node's change sits in \ref changes.
+    std::vector<std::uint32_t> rightChangeIndex;
+
     std::uint32_t added = 0;      ///< Nodes present on the right only.
     std::uint32_t deleted = 0;    ///< Nodes present on the left only.
     std::uint32_t modified = 0;   ///< Nodes whose properties differ.
@@ -96,6 +109,19 @@ struct DiffModel {
     /// \returns The node's status, or NodeStatus::Unchanged for an id out of
     ///          range.
     [[nodiscard]] NodeStatus statusOf(Side side, NodeId id) const;
+
+    /// \brief Looks up the full record of what happened to one node.
+    ///
+    /// \param side Which document the node belongs to.
+    /// \param id The node to look up.
+    ///
+    /// \returns The change, or null when the node did not change.
+    ///
+    /// \remarks statusOf() answers what happened; this answers the rest,
+    ///          including which properties differ. Kept separate because most
+    ///          callers only need the status and paying for a pointer chase to
+    ///          get it would be wasteful.
+    [[nodiscard]] const Change* changeFor(Side side, NodeId id) const;
 
     /// \brief Reports whether the two trees are the same.
     ///

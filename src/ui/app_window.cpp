@@ -42,6 +42,32 @@ constexpr const char* kDetailsTitle = "Details";
 /// \brief Window title of the status panel.
 constexpr const char* kStatusTitle = "Status";
 
+/// \brief Colour of an added node, or of a property that is new.
+constexpr ImU32 kAddedColour = IM_COL32(96, 200, 140, 255);
+/// \brief Colour of a deleted node, or of a property that is gone.
+constexpr ImU32 kDeletedColour = IM_COL32(226, 110, 105, 255);
+/// \brief Colour of a modified node, or of a property whose value changed.
+constexpr ImU32 kModifiedColour = IM_COL32(224, 176, 82, 255);
+/// \brief Colour of a moved node.
+constexpr ImU32 kMovedColour = IM_COL32(168, 143, 224, 255);
+
+/// \brief What stands between an old value and the new one.
+constexpr const char* kValueArrow = "->";
+
+/// \brief Reports whether a name appears in a list of changed properties.
+///
+/// \param names The names the diff recorded as differing.
+/// \param name The property to look for.
+///
+/// \returns `true` when the diff says this property differs.
+///
+/// \remarks A linear scan because the list holds the properties of one node
+///          that actually changed, which is a handful. Building a set per node
+///          per frame would cost more than the scan saves.
+[[nodiscard]] bool namedIn(const std::vector<std::string>& names, const std::string& name) {
+    return std::find(names.begin(), names.end(), name) != names.end();
+}
+
 /// \brief The first frame counted towards the steady-state frame budget.
 ///
 /// \remarks Frames before this are still settling: the window is being shown and
@@ -552,16 +578,84 @@ void AppWindow::drawDetails(const DiffSnapshot& snapshot) {
     // alongside the node view rather than replacing it. The right side is shown
     // because that is the version being reviewed.
     if (ImGui::BeginChild("outline")) {
-        drawTreeOutline(*snapshot.rightTree, *snapshot.provider, snapshot.rightTree->root(),
-                        snapshot.treeDiff.get(), Side::Right);
+        drawTreeOutline(*snapshot.rightTree, snapshot.leftTree.get(), *snapshot.provider,
+                        snapshot.rightTree->root(), snapshot.treeDiff.get(), Side::Right);
     }
     ImGui::EndChild();
 
     ImGui::End();
 }
 
-void AppWindow::drawTreeOutline(const Tree& tree, const IFormatProvider& provider, NodeId id,
-                                const DiffModel* diff, Side side) {
+void AppWindow::drawProperties(const Tree& tree, const Tree* otherTree,
+                               const IFormatProvider& provider, NodeId id, const DiffModel* diff,
+                               Side side) {
+    const Node& node = tree.node(id);
+
+    // The outline shows one side, so the other side's node has to be found to
+    // say what a property changed from. Without it the panel can say that
+    // something changed but not what it was, which is the question a reviewer
+    // is actually asking.
+    const Change* change = diff != nullptr ? diff->changeFor(side, id) : nullptr;
+    const Node* before = nullptr;
+    if (change != nullptr && otherTree != nullptr) {
+        const NodeId counterpart = side == Side::Right ? change->left : change->right;
+        if (counterpart != kInvalidNode && counterpart < otherTree->size()) {
+            before = &otherTree->node(counterpart);
+        }
+    }
+
+    // Properties in the provider's order, not document order. Ranking is
+    // presentation only; matching still treats them as an unordered set.
+    for (const auto index : propertyDisplayOrder(provider, tree, id)) {
+        const Property& property = node.properties[index];
+        const bool changed = change != nullptr && namedIn(change->changedProperties, property.name);
+        drawProperty(property, changed,
+                     before != nullptr ? before->findProperty(property.name) : nullptr);
+    }
+
+    // A property the other side had and this one does not would otherwise
+    // vanish, leaving the one thing a reviewer cannot see as the one that was
+    // taken away. It is listed after the rest, in the colour of a deletion.
+    if (before != nullptr) {
+        for (const Property& gone : before->properties) {
+            if (node.findProperty(gone.name) == nullptr) {
+                drawRemovedProperty(gone);
+            }
+        }
+    }
+}
+
+void AppWindow::drawProperty(const Property& property, bool changed, const Property* before) {
+    ImGui::TextDisabled("%s", property.name.c_str());
+    ImGui::SameLine();
+
+    if (!changed) {
+        ImGui::TextUnformatted(property.value.c_str());
+        return;
+    }
+
+    // A value with a previous version reads as a change. One without is new, so
+    // it takes the colour of an addition rather than of a modification.
+    ImGui::PushStyleColor(ImGuiCol_Text, before != nullptr ? kModifiedColour : kAddedColour);
+    if (before != nullptr) {
+        ImGui::Text("%s %s %s", before->value.c_str(), kValueArrow, property.value.c_str());
+    } else {
+        ImGui::TextUnformatted(property.value.c_str());
+    }
+    ImGui::PopStyleColor();
+}
+
+void AppWindow::drawRemovedProperty(const Property& property) {
+    ImGui::PushStyleColor(ImGuiCol_Text, kDeletedColour);
+    ImGui::Text("%s", property.name.c_str());
+    ImGui::SameLine();
+    ImGui::Text("%s %s", property.value.c_str(), kValueArrow);
+    ImGui::PopStyleColor();
+}
+
+void AppWindow::drawTreeOutline(const Tree& tree, const Tree* otherTree,
+                                const IFormatProvider& provider, NodeId id, const DiffModel* diff,
+                                Side side) {
     if (id == kInvalidNode || id >= tree.size()) {
         return;
     }
@@ -574,16 +668,16 @@ void AppWindow::drawTreeOutline(const Tree& tree, const IFormatProvider& provide
     ImU32 colour = IM_COL32(style.accent.r, style.accent.g, style.accent.b, 255);
     switch (status) {
         case NodeStatus::Added:
-            colour = IM_COL32(96, 200, 140, 255);
+            colour = kAddedColour;
             break;
         case NodeStatus::Deleted:
-            colour = IM_COL32(226, 110, 105, 255);
+            colour = kDeletedColour;
             break;
         case NodeStatus::Modified:
-            colour = IM_COL32(224, 176, 82, 255);
+            colour = kModifiedColour;
             break;
         case NodeStatus::Moved:
-            colour = IM_COL32(168, 143, 224, 255);
+            colour = kMovedColour;
             break;
         case NodeStatus::Unchanged:
             break;
@@ -606,16 +700,9 @@ void AppWindow::drawTreeOutline(const Tree& tree, const IFormatProvider& provide
     }
 
     if (open) {
-        // Properties in the provider's order, not document order. Ranking is
-        // presentation only; matching still treats them as an unordered set.
-        for (const auto index : propertyDisplayOrder(provider, tree, id)) {
-            const Property& property = node.properties[index];
-            ImGui::TextDisabled("%s", property.name.c_str());
-            ImGui::SameLine();
-            ImGui::TextUnformatted(property.value.c_str());
-        }
+        drawProperties(tree, otherTree, provider, id, diff, side);
         for (const NodeId child : node.children) {
-            drawTreeOutline(tree, provider, child, diff, side);
+            drawTreeOutline(tree, otherTree, provider, child, diff, side);
         }
         if ((flags & ImGuiTreeNodeFlags_NoTreePushOnOpen) == 0) {
             ImGui::TreePop();
