@@ -301,30 +301,61 @@ The text report ends with a list of what happened to each node, one per line:
 Using it from version control
 -----------------------------
 
-Nothing here has been verified against a real client yet, so treat it as the
-shape of the command rather than as tested instructions.
+**This is not a replacement for your usual diff tool.** It reads tree-shaped
+data and has nothing useful to say about source code, so point it at the file
+types it understands and leave everything else alone. Both of the systems below
+can do that, but neither does it the way the rest of this guide sets things up,
+and the details differ more than you would hope.
 
-**Perforce** takes the path of a diff program and appends the two file names to
-it, which is the argument order this tool already expects:
+### Perforce
+
+Per-extension diff applications are a P4V setting, in **Preferences, Diff**.
+Add an entry, choose the extension, browse to `nmxmldiff.exe`, and leave the
+arguments field to pass the two files. Perforce substitutes `%1` and `%2` for
+them.
+
+There is no command-line equivalent. The `P4DIFF` environment variable names one
+diff program for every text file, so setting it to this tool would send your
+source code here too. Set it only if that is genuinely what you want.
+
+### Git
+
+Git does this through `.gitattributes` and a named diff driver, which is all
+settable from the command line. Two steps. First, say which files the driver
+handles:
 
 ```bash
-p4 set P4DIFF=C:\tools\nmtreediff\nmxmldiff.exe
+echo '*.bt diff=treediff' >> .gitattributes
 ```
 
-Perforce does not pass the depot path, so both sides are titled with the
-temporary files it created. There is no way to improve on that from here today.
-
-**Git** lets you build the whole command, so it can pass real titles:
+Then define the driver:
 
 ```bash
-git config --global difftool.nmtreediff.cmd 'nmxmldiff --left-label "$BASE (old)" --right-label "$BASE" "$LOCAL" "$REMOTE"'
+git config diff.treediff.command /path/to/git-treediff.sh
 ```
+
+The wrapper is needed because Git hands an external diff seven arguments, of
+which the two files are the second and the fifth:
 
 ```bash
-git config --global diff.tool nmtreediff
+#!/bin/sh
+# $1 path, $2 old file, $3 old hash, $4 old mode, $5 new file, ...
+exec nmxmldiff --left-label "$1 (old)" --right-label "$1" "$2" "$5"
 ```
 
-Then compare with `git difftool`.
+This drives `git diff`. `git difftool` is a separate mechanism with one tool for
+everything, so it is the wrong door for a tool that only handles some files.
+
+### Not verified yet
+
+None of the above has been run against a real client. The mechanisms are what
+the Perforce and Git documentation describe, and the exact strings still need
+checking on a real installation.
+
+Neither system passes this tool the name a file has in the repository, except
+through the wrapper above, so a Perforce diff of two revisions shows two
+temporary paths as its titles. `--left-label` and `--right-label` are how you
+improve on that where the system gives you somewhere to put them.
 
 Every option
 ------------

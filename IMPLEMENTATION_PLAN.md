@@ -667,9 +667,31 @@ requires two paths, because there is nobody there to answer.
 
 Because Perforce lets a user define the argument order for a custom diff tool,
 the parser needs no tolerance for unusual argument shapes. Plain named options
-and two positional paths are enough, and the setup document supplies the exact
-string to paste into the client. Git and Subversion get the same treatment,
-documented rather than special-cased.
+and two positional paths are enough.
+
+**This is a diff tool for particular file types, not a replacement for the
+default one.** It has nothing useful to say about source code, so registering it
+for everything would be worse for its users than not registering it at all. That
+turns out to change the setup instructions more than expected, and the two
+systems differ:
+
+- **Perforce** does per-extension diff applications in P4V's preferences, one
+  entry per extension with `%1` and `%2` for the two files. There is no
+  command-line equivalent: `P4DIFF` names one program for every text file. So
+  the Perforce setup document is a sequence of screens, not a string to paste.
+- **Git** does it with `.gitattributes` naming a diff driver and
+  `diff.<driver>.command` defining it, both settable with `git config`. But an
+  external diff receives seven arguments rather than two, with the files second
+  and fifth, so it needs a wrapper script. `git difftool` is a different
+  mechanism with one tool for everything and is the wrong door for this.
+
+The wrapper is worth removing. An option that reads Git's seven-argument shape
+directly would turn the Git setup into two commands with nothing to install
+alongside them, and it is a small piece of argument handling rather than a
+feature. M9 should decide whether to add it while it is writing those documents
+against real clients.
+
+Subversion gets the same treatment, documented rather than special-cased.
 
 Headless mode with a JSON report and an exit code runs the whole pipeline with
 no window. That serves scripting and continuous integration checks on asset
@@ -689,7 +711,7 @@ submissions, and it is also how the end-to-end tests run.
 | M6 &check; | Custom formats | Sample behavior-tree provider, format override, provider config, versioned provider documentation | Done. A `<node>` follows its GUID from one branch of the tree to another and is reported as one move, and survives a change of `type` that no structural heuristic could. docs/PROVIDERS.md carries interface version 1 |
 | M7 &check; | Standing on its own | File picker and a welcome pane, graph direction in the layout with a per-format override and a View menu default, a pass over the existing code against CODE_GUIDELINES.md | Done. The window opens with no arguments and both files are chosen in it; the behaviour tree draws itself left to right without being asked, and the interface version stayed at 1 |
 | M8 &check; | Formats without a compiler | Lua configuration from the home directory and the command line, retiring the M6 reader, the Lua provider bridge, the sample behaviour tree reimplemented in script, the graph direction and exit key settings | Done. The scripted behaviour tree produces the same tree and the same change list as the compiled one, and `kProviderInterfaceVersion` stayed at 1 |
-| M9 | Ship | Headless report, exit codes, a portable archive built in continuous integration from a tag and attached to a GitHub release, MIT licence and attribution for bundled dependencies, one-page Perforce and Git setup docs verified against real clients, settings persistence | A technical artist can unzip it and configure it without help |
+| M9 | Ship | Headless report, exit codes, a portable archive built in continuous integration from a tag and attached to a GitHub release, MIT licence and attribution for bundled dependencies, per-extension Perforce and Git setup docs verified against real clients, possibly a Git seven-argument mode, settings persistence | A technical artist can unzip it and configure it without help |
 | M10 | Later | Three-way merge, further game asset formats | Out of initial scope |
 
 M0 through M4 were the critical path. JSON sat at M5, deliberately ahead of the

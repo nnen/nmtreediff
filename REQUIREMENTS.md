@@ -40,6 +40,10 @@ NM Tree Diff Requirements
   - *R7.6*: Defines which extension it applies to by default. However, which
     actual format provider is used should be overridable through the command
     line.
+  - *R7.7*: Properties can be nested, so that complex types can be represented.
+  - *R7.8*: Everything, that's not a node is considered a property.
+  - *R7.9*: There must be a way to make both XML element's attributes *and*
+    child elements node properties.
 - *R8*: Three-way merge should not be initially implemented, but it should
   remain possible to implement it later.
 - *R9*: Although it has humble beginnings, this tool has the ambition to become
@@ -55,6 +59,8 @@ NM Tree Diff Requirements
     3. config file passed to the tool through the `--config` command line option
   - *R11.2*: When Lua custom format providers are implemented, it should be
     possible to specify them inside the config files.
+  - *R11.3*: Single Lua config file must be able to describe multiple format
+    providers.
 - *R12*: It should be possible to choose the direction of the tree node graph
   (top-down or left-to-right). There should be global default (configurable
   through config files when *R11* is implemented), but also specifiable
@@ -64,4 +70,7 @@ NM Tree Diff Requirements
   should only describe the current state of the repository and the app.
 - *R14*: `USAGE.md` should be the primary user documentation. It should be
   referenced at the top of `README.md`.
+- *R15*: Every keyboard shorcut must be configurable through config file.
+- *R16*: It must be possible to bind more than one keyboard shortcut to a any
+  action.
 

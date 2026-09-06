@@ -2,8 +2,9 @@ NM Tree Diff
 ============
 
 A lightweight GUI tool for diffing tree-shaped data. It shows the same diff two
-ways, as text and as a node graph, and it runs from the command line so it can
-serve as the diff tool for Perforce or another version control system.
+ways, as text and as a node graph, and it runs from the command line so a
+version control system can open it for the file types it understands. It is not
+meant to replace your usual diff tool for everything else.
 
 **[USAGE.md](USAGE.md) is the user guide.** Start there if you want to use the
 tool rather than work on it.
