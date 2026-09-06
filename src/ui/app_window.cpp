@@ -574,16 +574,45 @@ void AppWindow::drawDetails(const DiffSnapshot& snapshot) {
     ImGui::Separator();
     ImGui::Spacing();
 
-    // An outline of the parsed tree, coloured by change status, standing
-    // alongside the node view rather than replacing it. The right side is shown
-    // because that is the version being reviewed.
+    ImGui::Checkbox("Whole tree", &detailsWholeTree_);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Off: only the selected node. On: the whole document.");
+    }
+    ImGui::Spacing();
+
     if (ImGui::BeginChild("outline")) {
-        drawTreeOutline(*snapshot.rightTree, snapshot.leftTree.get(), *snapshot.provider,
-                        snapshot.rightTree->root(), snapshot.treeDiff.get(), Side::Right);
+        drawOutline(snapshot);
     }
     ImGui::EndChild();
 
     ImGui::End();
+}
+
+void AppWindow::drawOutline(const DiffSnapshot& snapshot) {
+    const Tree& right = *snapshot.rightTree;
+
+    // Nothing selected means there is no node to narrow to, so the whole
+    // document is the only useful answer whatever the toggle says.
+    if (detailsWholeTree_ || !selection_.active()) {
+        drawTreeOutline(right, snapshot.leftTree.get(), *snapshot.provider, right.root(),
+                        snapshot.treeDiff.get(), Side::Right);
+        return;
+    }
+
+    // A deleted node only exists on the left, and the node view shows it, so
+    // the panel has to be able to show it too. Which tree to read comes from
+    // the selection rather than from an assumption that it is always the newer
+    // one.
+    const bool fromLeft = selection_.side == Side::Left;
+    const Tree* tree = fromLeft ? snapshot.leftTree.get() : &right;
+    const Tree* other = fromLeft ? &right : snapshot.leftTree.get();
+    if (tree == nullptr || selection_.node >= tree->size()) {
+        ImGui::TextDisabled("The selection is not in this comparison.");
+        return;
+    }
+
+    drawTreeOutline(*tree, other, *snapshot.provider, selection_.node, snapshot.treeDiff.get(),
+                    selection_.side, false);
 }
 
 void AppWindow::drawProperties(const Tree& tree, const Tree* otherTree,
@@ -655,7 +684,7 @@ void AppWindow::drawRemovedProperty(const Property& property) {
 
 void AppWindow::drawTreeOutline(const Tree& tree, const Tree* otherTree,
                                 const IFormatProvider& provider, NodeId id, const DiffModel* diff,
-                                Side side) {
+                                Side side, bool withChildren) {
     if (id == kInvalidNode || id >= tree.size()) {
         return;
     }
@@ -687,7 +716,7 @@ void AppWindow::drawTreeOutline(const Tree& tree, const Tree* otherTree,
     ImGui::PushStyleColor(ImGuiCol_Text, colour);
 
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen;
-    if (node.isLeaf() && node.properties.empty()) {
+    if ((node.isLeaf() || !withChildren) && node.properties.empty()) {
         flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
     }
 
@@ -701,8 +730,14 @@ void AppWindow::drawTreeOutline(const Tree& tree, const Tree* otherTree,
 
     if (open) {
         drawProperties(tree, otherTree, provider, id, diff, side);
-        for (const NodeId child : node.children) {
-            drawTreeOutline(tree, otherTree, provider, child, diff, side);
+        if (withChildren) {
+            for (const NodeId child : node.children) {
+                drawTreeOutline(tree, otherTree, provider, child, diff, side);
+            }
+        } else if (!node.children.empty()) {
+            // Say what is being left out, so a narrowed outline never reads as
+            // a node that simply has nothing under it.
+            ImGui::TextDisabled("%zu below, hidden", node.children.size());
         }
         if ((flags & ImGuiTreeNodeFlags_NoTreePushOnOpen) == 0) {
             ImGui::TreePop();

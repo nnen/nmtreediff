@@ -75,7 +75,12 @@ private:
     /// \param diff What changed, or null before the diff is ready.
     /// \param side Which side \p tree is.
     void drawTreeOutline(const Tree& tree, const Tree* otherTree, const IFormatProvider& provider,
-                         NodeId id, const DiffModel* diff, Side side);
+                         NodeId id, const DiffModel* diff, Side side, bool withChildren = true);
+
+    /// \brief Draws the outline rooted wherever the reader asked for.
+    ///
+    /// \param snapshot The comparison being shown.
+    void drawOutline(const DiffSnapshot& snapshot);
 
     /// \brief Draws one node's properties, marking what changed.
     ///
@@ -134,6 +139,15 @@ private:
 
     /// \brief What both views agree is selected.
     Selection selection_;
+
+    /// \brief Whether the details outline shows the whole document.
+    ///
+    /// \remarks Off by default, which shows the selected node alone. A large
+    ///          document makes an outline long enough that finding the node you
+    ///          just clicked is work, and the panel exists to answer a question
+    ///          about that one node. With nothing selected there is no node to
+    ///          narrow to, so the whole tree is shown whatever this says.
+    bool detailsWholeTree_ = false;
 
     GLFWwindow* window_ = nullptr;
     bool running_ = false;
