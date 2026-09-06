@@ -269,15 +269,43 @@ public:
 };
 ```
 
-**Whether generic JSON should change is a decision inside M9.** A scalar array
-is currently a node holding one node per element, which is what makes the node
-count in the budget benchmark what it is. R7.10 makes another reading available:
-one array property holding its values. The second is better for a reader, since
-`tags` changing reads as one property rather than as a subtree of anonymous
-`item` nodes, and it would cut the node count on array-heavy files. It is also a
-change to what every existing JSON golden case produces, so it needs deciding
-deliberately rather than falling out of the implementation. The provider table
-above records today's behaviour, not the answer.
+**A scalar array becomes one property, from M9.** Today it is a node holding one
+anonymous `item` node per element, and a changed tag reads as a subtree of
+things with no names. As a property it reads as one line, `tags`, which is what
+the file says and what a reviewer is looking at. It also cuts the node count on
+array-heavy files, which is where most of the budget benchmark's nodes come
+from.
+
+The rule has to be stated precisely, because it decides what every JSON file
+turns into:
+
+> An array becomes a property when every element is a scalar, or is itself an
+> array that becomes a property. An array holding an object stays a node.
+
+The recursive half is not tidiness. A four by four transform matrix is an array
+of arrays of numbers, and it is exactly the kind of thing R7.7 was asked for: one
+property with parts, not sixteen anonymous nodes four levels deep. An array with
+an object in it is a different animal, because an object has named fields that a
+reader will want to match against their counterparts, and that is what nodes are
+for.
+
+Being a sequence rather than a record, an array property compares by position, so
+reordering a list of tags registers as a change. That is the behaviour arrays
+already have as nodes, kept rather than lost.
+
+**A scripted JSON format decides for itself.** The `is_node` hook already means
+what is needed: answer `true` and the array is a node, answer `false` and R7.8
+makes it a property. What M9 has to add is the information a script needs to
+answer, because a JSON element is not an XML element. It should see what kind of
+container it is looking at and whether the elements inside are scalars, so a
+studio whose spawn lists want to be nodes and whose tag lists want to be
+properties can say so in one line each.
+
+**This moves every JSON golden case,** which is the cost and the reason it is
+worth doing at the start of M9 rather than the end. Regenerating them is the
+point at which the change is reviewable: the expected output is the record of
+what the tool believes, and a smaller, better-named set of changes is what the
+diff of that record should show.
 
 **Nothing a provider does not recognise may be dropped, from M9.** R7.8 settles
 what was an open question: everything that is not a node is a property. A
@@ -484,7 +512,7 @@ detail the generic ones have to keep.
 | | What is a node | What is a property | Child order | Default identity |
 | --- | --- | --- | --- | --- |
 | Generic XML | Every element | Every attribute, plus `#text` for a leaf element's text | Ordered | Element name and sibling index; weak |
-| Generic JSON | Every object, every array, and every array element | Scalar members of an object, plus `#value` for a scalar array element and `#type` on every container | Arrays ordered, object members unordered | Member key inside its parent object; weak. Array elements have none. |
+| Generic JSON | Every object, and every array that holds an object | Scalar members of an object, plus `#type` on every container, plus one ordered array property per array of scalars (M9) | Arrays ordered, object members unordered | Member key inside its parent object; weak. Array elements have none. |
 | Behavior tree | Only `<node>` elements, plus the document element | Every attribute, plus each `<property name= value=>` child folded in | Ordered, because sibling order is execution order | The `id` attribute; **strong** |
 
 **JSON is where the ordering hook earns its place.** Reordering the members of
@@ -765,7 +793,7 @@ submissions, and it is also how the end-to-end tests run.
 | M6 &check; | Custom formats | Sample behavior-tree provider, format override, provider config, versioned provider documentation | Done. A `<node>` follows its GUID from one branch of the tree to another and is reported as one move, and survives a change of `type` that no structural heuristic could. docs/PROVIDERS.md carries interface version 1 |
 | M7 &check; | Standing on its own | File picker and a welcome pane, graph direction in the layout with a per-format override and a View menu default, a pass over the existing code against CODE_GUIDELINES.md | Done. The window opens with no arguments and both files are chosen in it; the behaviour tree draws itself left to right without being asked, and the interface version stayed at 1 |
 | M8 &check; | Formats without a compiler | Lua configuration from the home directory and the command line, retiring the M6 reader, the Lua provider bridge, the sample behaviour tree reimplemented in script, the graph direction and exit key settings | Done. The scripted behaviour tree produces the same tree and the same change list as the compiled one, and `kProviderInterfaceVersion` stayed at 1 |
-| M9 | Properties with parts | Nested properties in the data model, hashing, matching and both views; record and sequence parts, so an array property reorders as a change and a record does not; the rule that anything not a node becomes a property; a way for a format to take both an element's attributes and its child elements as properties; the scripted surface and the golden corpus updated to match | A format can represent a transform, a colour or a list of tags as one property, reordering a list registers while reordering a record does not, and no provider can drop an element it does not recognise |
+| M9 | Properties with parts | Nested properties in the data model, hashing, matching and both views; record and sequence parts, so an array property reorders as a change and a record does not; generic JSON reading a scalar array as one property, with a scripted format able to choose otherwise; the rule that anything not a node becomes a property; a way for a format to take both an element's attributes and its child elements as properties; the scripted surface and the golden corpus updated to match | A format can represent a transform, a colour or a list of tags as one property, reordering a list registers while reordering a record does not, and no provider can drop an element it does not recognise |
 | M10 | Keys | Every action named, every shortcut settable from a configuration script, more than one binding allowed per action, the menus showing whatever is bound | A reader rebinds next-change to two keys of their own and the menu says so |
 | M11 | Ship | Headless report, exit codes, a portable archive built in continuous integration from a tag and attached to a GitHub release, MIT licence and attribution for bundled dependencies, per-extension Perforce and Git setup docs verified against real clients, possibly a Git seven-argument mode, settings persistence | A technical artist can unzip it and configure it without help |
 | M12 | Later | Three-way merge, further game asset formats | Out of initial scope |
