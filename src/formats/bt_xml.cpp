@@ -253,10 +253,11 @@ private:
     /// \param token Checked before each element.
     ///
     /// \remarks An element that is neither a node nor a foldable property is
-    ///          walked through rather than represented, so a wrapper such as
-    ///          `<children>` does not break the tree. That is the one place
-    ///          this sample is simpler than a studio provider would be: it
-    ///          silently drops whatever such an element carried of its own.
+    ///          kept as a property of the node above and walked through, so a
+    ///          wrapper such as `<children>` neither breaks the tree nor
+    ///          disappears from it. Nothing this format fails to recognise is
+    ///          dropped, because a diff tool that silently loses content is the
+    ///          one thing a reviewer cannot forgive.
     static void collect(Tree& tree, NodeId owner, const pugi::xml_node& element,
                         std::string_view text, const std::stop_token& token) {
         if (token.stop_requested()) {
@@ -284,10 +285,52 @@ private:
             } else if (isFoldableProperty(child)) {
                 foldProperty(tree, owner, child, text);
             } else {
-                // Not ours, but something below it might be.
+                // Not a node and not a property pair, but nothing is dropped:
+                // the element becomes a property of the node above it, and the
+                // walk carries on inside so any nodes it holds still surface
+                // where they belong. Keeping only one of those two would lose
+                // either the wrapper or its contents.
+                foldUnknown(tree, owner, child, text);
                 collect(tree, owner, child, text, token);
             }
         }
+    }
+
+    /// \brief Keeps an element this format does not recognise.
+    ///
+    /// \param tree The tree being built.
+    /// \param owner The node to attach the property to.
+    /// \param element The element that is neither a node nor a property.
+    /// \param text The whole document, used to recover spans.
+    ///
+    /// \remarks Named after the element and holding a part per attribute, so
+    ///          a wrapper carrying something of its own keeps it. An element
+    ///          with nothing but a name still leaves a property behind, because
+    ///          its presence is a fact about the file and its removal is a
+    ///          change worth reporting.
+    static void foldUnknown(Tree& tree, NodeId owner, const pugi::xml_node& element,
+                            std::string_view text) {
+        const auto nameOffset = static_cast<std::uint32_t>(element.offset_debug());
+        const std::uint32_t begin = nameOffset > 0 ? nameOffset - 1 : 0;
+        const std::uint32_t startTagEnd = endOfTag(text, begin);
+        const std::uint32_t end =
+            isSelfClosing(text, startTagEnd) ? startTagEnd : endOfClosingTag(text, startTagEnd);
+
+        Property folded;
+        folded.name = element.name();
+        folded.span = SourceSpan{begin, end};
+        for (const pugi::xml_attribute& attribute : element.attributes()) {
+            Property part;
+            part.name = attribute.name();
+            part.value = attribute.value();
+            folded.children.push_back(std::move(part));
+        }
+        if (folded.children.size() == 1) {
+            // One attribute and nothing else reads as a value, not a record.
+            folded.value = folded.children.front().value;
+            folded.children.clear();
+        }
+        tree.addProperty(owner, std::move(folded));
     }
 
     /// \brief Folds one `<property>` element into its owning node.

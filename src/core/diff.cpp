@@ -28,6 +28,45 @@ std::vector<std::uint32_t> siblingIndices(const Tree& tree) {
     return indices;
 }
 
+/// \brief Reports whether two properties differ, parts and all.
+///
+/// \param left The property on the left.
+/// \param right The property on the right.
+///
+/// \returns `true` when anything about them differs.
+///
+/// \remarks A record's parts are matched by name and a sequence's by
+///          position, which is the same rule their hashes use. The change list
+///          names the outermost property that differs rather than a path into
+///          it: a reader looking at a transform wants to be told the transform
+///          changed, and the details panel is where the parts are.
+[[nodiscard]] bool propertiesDiffer(const Property& left, const Property& right) {
+    if (left.value != right.value || left.ordered != right.ordered ||
+        left.children.size() != right.children.size()) {
+        return true;
+    }
+
+    if (left.ordered) {
+        for (std::size_t i = 0; i < left.children.size(); ++i) {
+            if (left.children[i].name != right.children[i].name ||
+                propertiesDiffer(left.children[i], right.children[i])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    for (const Property& part : left.children) {
+        const auto it = std::find_if(
+            right.children.begin(), right.children.end(),
+            [&part](const Property& other) { return other.name == part.name; });
+        if (it == right.children.end() || propertiesDiffer(part, *it)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /// \brief Lists the property names that differ between two matched nodes.
 ///
 /// \param provider The provider whose ranking orders the result.
@@ -47,16 +86,16 @@ std::vector<std::string> changedPropertyNames(const IFormatProvider& provider, c
     const Node& left = leftTree.node(leftId);
     const Node& right = rightTree.node(rightId);
 
-    std::unordered_map<std::string, const std::string*> rightValues;
-    rightValues.reserve(right.properties.size());
+    std::unordered_map<std::string, const Property*> rightProperties;
+    rightProperties.reserve(right.properties.size());
     for (const auto& property : right.properties) {
-        rightValues.emplace(property.name, &property.value);
+        rightProperties.emplace(property.name, &property);
     }
 
     std::vector<std::string> changed;
     for (const auto& property : left.properties) {
-        const auto it = rightValues.find(property.name);
-        if (it == rightValues.end() || *it->second != property.value) {
+        const auto it = rightProperties.find(property.name);
+        if (it == rightProperties.end() || propertiesDiffer(property, *it->second)) {
             changed.push_back(property.name);
         }
     }

@@ -122,9 +122,11 @@ TEST_CASE("a property with no value attribute takes the element text", "[bt]") {
     CHECK(say->findProperty("line")->value == "Halt, who goes there?");
 }
 
-TEST_CASE("a property with no name is not folded", "[bt]") {
-    // There is nothing to call it, and folding it in under an empty name would
-    // put a property in the list that no reader could match to the file.
+TEST_CASE("a property with no name is kept under the element's own name", "[bt]") {
+    // It cannot be folded in as a name and value pair, because there is nothing
+    // to call it. It is not dropped either: a diff tool that silently loses
+    // content is the one thing a reviewer cannot forgive. So it keeps the name
+    // the file gave it, which a reader can match against the file.
     const auto provider = nmxd::makeBehaviorTreeProvider();
     const Tree tree = parseOrFail(*provider,
                                   makeSource("<behaviortree>\n"
@@ -136,7 +138,11 @@ TEST_CASE("a property with no name is not folded", "[bt]") {
     const Node* wait = findByKind(tree, "Wait");
     REQUIRE(wait != nullptr);
     CHECK(wait->findProperty("") == nullptr);
-    CHECK(wait->properties.size() == 2);  // id and type, nothing else
+
+    const Property* kept = wait->findProperty("property");
+    REQUIRE(kept != nullptr);
+    CHECK(kept->value == "1");
+    CHECK(wait->properties.size() == 3);  // id, type, and the element itself
 }
 
 TEST_CASE("a wrapper element is walked through rather than represented", "[bt]") {
@@ -372,4 +378,57 @@ TEST_CASE("reading one document two ways gives two answers", "[bt]") {
 
     CHECK(collapsed.size() == 3);
     CHECK(verbatim.size() == 5);
+}
+
+TEST_CASE("an unrecognised element is kept as a property with parts", "[bt]") {
+    // Nothing this format does not recognise may be dropped, and an element
+    // that carries several attributes is one thing with parts rather than a
+    // handful of loose names.
+    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const Tree tree = parseOrFail(
+        *provider,
+        makeSource("<behaviortree>\n"
+                   "  <node id=\"a\" type=\"MoveTo\">\n"
+                   "    <transform x=\"1\" y=\"2\" z=\"3\"/>\n"
+                   "  </node>\n"
+                   "</behaviortree>\n"));
+
+    const Node* move = findByKind(tree, "MoveTo");
+    REQUIRE(move != nullptr);
+
+    const Property* transform = move->findProperty("transform");
+    REQUIRE(transform != nullptr);
+    CHECK(transform->hasParts());
+    CHECK_FALSE(transform->ordered);  // a record, so reordering it is not a change
+    REQUIRE(transform->children.size() == 3);
+    CHECK(transform->children[0].name == "x");
+    CHECK(transform->children[0].value == "1");
+    CHECK(transform->children[2].name == "z");
+}
+
+TEST_CASE("a wrapper keeps both itself and the nodes inside it", "[bt]") {
+    // The case the rule turns on. Swallowing the nodes would be simpler and
+    // would lose them; dropping the wrapper would lose what it carried.
+    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const Tree tree = parseOrFail(
+        *provider,
+        makeSource("<behaviortree>\n"
+                   "  <node id=\"a\" type=\"Sequence\">\n"
+                   "    <children policy=\"all\">\n"
+                   "      <node id=\"b\" type=\"Wait\"/>\n"
+                   "    </children>\n"
+                   "  </node>\n"
+                   "</behaviortree>\n"));
+
+    // The node inside surfaced where it belongs, under the sequence.
+    const Node* sequence = findByKind(tree, "Sequence");
+    const Node* wait = findByKind(tree, "Wait");
+    REQUIRE(sequence != nullptr);
+    REQUIRE(wait != nullptr);
+    CHECK(wait->parent == sequence->id);
+
+    // And the wrapper itself is still there, carrying what it said.
+    const Property* wrapper = sequence->findProperty("children");
+    REQUIRE(wrapper != nullptr);
+    CHECK(wrapper->value == "all");
 }

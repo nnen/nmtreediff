@@ -39,15 +39,38 @@ inline constexpr std::string_view kValueProperty = "#value";
 
 /// \brief A named value attached to a node.
 struct Property {
-    /// \brief The property name, unique within its node.
+    /// \brief The property's name.
     std::string name;
-    /// \brief The property value as written in the source.
+
+    /// \brief The property's value, or empty when it has parts instead.
     std::string value;
+
     /// \brief Where the property sits in the source bytes.
     SourceSpan span;
 
-    /// \brief Compares two properties for equality.
-    friend bool operator==(const Property&, const Property&) = default;
+    /// \brief The property's parts, for a value with structure.
+    ///
+    /// \remarks A transform, a colour or a list of tags is one thing with
+    ///          parts rather than a string. Flattening it into names like
+    ///          `transform.position.x` would turn one changed number into a
+    ///          changed string with a made-up name, so the shape the file had is
+    ///          kept instead.
+    std::vector<Property> children;
+
+    /// \brief Whether those parts are a sequence rather than a record.
+    ///
+    /// \remarks A record's parts are named and their order means nothing, so
+    ///          they compare as a set: reordering a transform's fields is not a
+    ///          change. A sequence's parts are positional, so reordering a list
+    ///          of tags is. This is the same distinction nodes carry through
+    ///          IFormatProvider::childrenOrdered(), one level further down.
+    bool ordered = false;
+
+    /// \brief Reports whether this property has parts.
+    ///
+    /// \returns `true` when the property's content is structure rather than
+    ///          a value.
+    [[nodiscard]] bool hasParts() const noexcept { return !children.empty(); }
 };
 
 /// \brief One node of a parsed document.
@@ -164,6 +187,17 @@ public:
     /// \param value The property value.
     /// \param span Where the property sits in the source bytes.
     void addProperty(NodeId node, std::string name, std::string value, SourceSpan span = {});
+
+    /// \brief Attaches a property that already has its parts.
+    ///
+    /// \param node The node to attach it to.
+    /// \param property The property, parts and all.
+    ///
+    /// \remarks The other overload builds a property from a name and a value,
+    ///          which is every property a format without structure produces.
+    ///          This one takes a property that was assembled first, which is how
+    ///          a nested or array property arrives.
+    void addProperty(NodeId node, Property property);
 
     /// \brief Accesses a node by id.
     ///

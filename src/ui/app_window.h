@@ -101,6 +101,13 @@ private:
     ///        is new.
     void drawProperty(const Property& property, bool changed, const Property* before);
 
+    /// \brief Draws a property that has parts, as a small tree.
+    ///
+    /// \param property The property to draw.
+    /// \param changed Whether the diff says this property differs.
+    /// \param before The same property on the other side, or null.
+    void drawPropertyParts(const Property& property, bool changed, const Property* before);
+
     /// \brief Draws a property the other side had and this one does not.
     ///
     /// \param property The property as it was before it was removed.

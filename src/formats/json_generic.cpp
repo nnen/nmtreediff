@@ -218,7 +218,11 @@ private:
             }
             case ondemand::json_type::array: {
                 tree_.addProperty(id, std::string(kTypeProperty), std::string(kArrayType));
-                if (const auto error = buildArray(id, value)) {
+                ondemand::array array;
+                if (const auto error = value.get_array().get(array)) {
+                    return error;
+                }
+                if (const auto error = buildArrayElements(id, array)) {
                     return error;
                 }
                 break;
@@ -274,8 +278,32 @@ private:
                 return error;
             }
 
-            if (memberType == ondemand::json_type::object ||
-                memberType == ondemand::json_type::array) {
+            if (memberType == ondemand::json_type::array) {
+                ondemand::array array;
+                if (const auto error = memberValue.get_array().get(array)) {
+                    return error;
+                }
+                bool asProperty = false;
+                if (const auto error = arrayBecomesProperty(array, asProperty)) {
+                    return error;
+                }
+
+                if (asProperty) {
+                    Property property;
+                    property.name = std::string(key);
+                    if (const auto error = collectArrayProperty(property, array)) {
+                        return error;
+                    }
+                    property.span = SourceSpan{offsetOf(keyBegin), cursor()};
+                    tree_.addProperty(id, std::move(property));
+                } else if (const auto error =
+                               buildArrayNode(id, std::string(key), keyBegin, array)) {
+                    return error;
+                }
+                if (cancelled_) {
+                    return simdjson::SUCCESS;
+                }
+            } else if (memberType == ondemand::json_type::object) {
                 if (const auto error = build(id, std::string(key), keyBegin, memberValue)) {
                     return error;
                 }
@@ -294,6 +322,130 @@ private:
         return simdjson::SUCCESS;
     }
 
+    /// \brief Reports whether an array should become one property.
+    ///
+    /// \param array The array to look at, left rewound afterwards.
+    /// \param answer Set to `true` when the array holds no object.
+    ///
+    /// \returns simdjson::SUCCESS, or the first error the walk ran into.
+    ///
+    /// \remarks An array becomes a property when every element is a scalar,
+    ///          or is itself an array that becomes one. An array holding an
+    ///          object stays a node, because an object has named fields a reader
+    ///          will want matched against their counterparts, and matching is
+    ///          what nodes are for.
+    ///
+    ///          The recursive half is what makes a four by four transform matrix
+    ///          one property with parts rather than sixteen anonymous nodes four
+    ///          levels deep.
+    ///
+    ///          This costs a second pass over the array. On Demand parsing is
+    ///          forward only, so the alternative was to build optimistically and
+    ///          unpick it on meeting an object, which is more code and more ways
+    ///          to be wrong.
+    simdjson::error_code arrayBecomesProperty(ondemand::array& array, bool& answer) {
+        answer = true;
+        for (auto elementResult : array) {
+            ondemand::value element;
+            if (const auto error = std::move(elementResult).get(element)) {
+                return error;
+            }
+            ondemand::json_type type{};
+            if (const auto error = element.type().get(type)) {
+                return error;
+            }
+
+            if (type == ondemand::json_type::object) {
+                answer = false;
+            } else if (type == ondemand::json_type::array) {
+                ondemand::array nested;
+                if (const auto error = element.get_array().get(nested)) {
+                    return error;
+                }
+                bool nestedAnswer = true;
+                if (const auto error = arrayBecomesProperty(nested, nestedAnswer)) {
+                    return error;
+                }
+                answer = answer && nestedAnswer;
+            }
+        }
+
+        // Walked to the end even once the answer is known, because leaving the
+        // iterator part way through is what would make the rewind unreliable.
+        bool rewound = false;
+        return array.reset().get(rewound);
+    }
+
+    /// \brief Collects an array into one property with parts.
+    ///
+    /// \param into The property to fill in.
+    /// \param array The array to read.
+    ///
+    /// \returns simdjson::SUCCESS, or the first error the walk ran into.
+    ///
+    /// \remarks The parts have no names, because a position in a list is not
+    ///          a name. They are marked as a sequence, so reordering them is a
+    ///          change while reordering a record's fields is not.
+    simdjson::error_code collectArrayProperty(Property& into, ondemand::array& array) {
+        into.ordered = true;
+        for (auto elementResult : array) {
+            ondemand::value element;
+            if (const auto error = std::move(elementResult).get(element)) {
+                return error;
+            }
+            ondemand::json_type type{};
+            if (const auto error = element.type().get(type)) {
+                return error;
+            }
+
+            Property part;
+            if (type == ondemand::json_type::array) {
+                ondemand::array nested;
+                if (const auto error = element.get_array().get(nested)) {
+                    return error;
+                }
+                const char* begin = element.raw_json_token().data();
+                if (const auto error = collectArrayProperty(part, nested)) {
+                    return error;
+                }
+                part.span = SourceSpan{offsetOf(begin), cursor()};
+            } else {
+                const std::string_view raw = trimRight(element.raw_json_token());
+                part.value = std::string(raw);
+                part.span = SourceSpan{offsetOf(raw.data()), endOf(raw)};
+                if (const auto error = validateScalar(type, element)) {
+                    return error;
+                }
+            }
+            into.children.push_back(std::move(part));
+        }
+        return simdjson::SUCCESS;
+    }
+
+    /// \brief Adds an array that stays a node, given the array itself.
+    ///
+    /// \param parent The node the array hangs from.
+    /// \param kind The member key the array appeared under.
+    /// \param spanBegin Where the member starts in the source.
+    /// \param array The array, already obtained by the caller.
+    ///
+    /// \returns simdjson::SUCCESS, or the first error the walk ran into.
+    ///
+    /// \remarks Separate from build() because deciding whether an array is a
+    ///          property means obtaining it first, and On Demand hands a value
+    ///          out once.
+    simdjson::error_code buildArrayNode(NodeId parent, std::string kind, const char* spanBegin,
+                                        ondemand::array& array) {
+        const std::uint32_t begin = offsetOf(spanBegin);
+        const NodeId id = tree_.add(parent, std::move(kind), SourceSpan{begin, begin});
+        tree_.addProperty(id, std::string(kTypeProperty), std::string(kArrayType));
+        if (const auto error = buildArrayElements(id, array)) {
+            return error;
+        }
+        tree_.node(id).span.end = cursor();
+        return simdjson::SUCCESS;
+    }
+
     /// \brief Adds an array's elements to a node.
     ///
     /// \param id The node standing for the array.
@@ -304,12 +456,7 @@ private:
     /// \remarks Every element becomes a node, scalar or not, because position
     ///          in an array is meaningful and a value that only exists as a
     ///          property cannot be reported as having moved.
-    simdjson::error_code buildArray(NodeId id, ondemand::value& value) {
-        ondemand::array array;
-        if (const auto error = value.get_array().get(array)) {
-            return error;
-        }
-
+    simdjson::error_code buildArrayElements(NodeId id, ondemand::array& array) {
         for (auto elementResult : array) {
             ondemand::value element;
             if (const auto error = std::move(elementResult).get(element)) {

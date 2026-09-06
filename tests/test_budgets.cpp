@@ -123,7 +123,11 @@ std::string generateJson(std::size_t entities, std::size_t modifyEvery) {
 TEST_CASE("a 100k node JSON pair parses and matches inside the budget", "[budget][.slow]") {
     // The same shape of measurement as the XML case, so that the two built-in
     // formats can be compared rather than each being judged against itself.
-    constexpr std::size_t kEntities = 20000;
+    // Each entity is two nodes: itself and its transform. Its tag list is one
+    // property rather than a subtree, which is what M9 changed, so the entity
+    // count had to rise for this to still measure the hundred thousand nodes it
+    // is named for.
+    constexpr std::size_t kEntities = 50000;
     constexpr std::size_t kModifyEvery = 500;
 
     const auto provider = nmxd::makeGenericJsonProvider();

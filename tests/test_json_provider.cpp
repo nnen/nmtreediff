@@ -153,29 +153,54 @@ TEST_CASE("scalar values are kept exactly as written", "[json]") {
     CHECK(root.findProperty("e")->value == "null");
 }
 
-TEST_CASE("every array element becomes a node", "[json]") {
+TEST_CASE("an array of scalars becomes one property", "[json]") {
     const auto provider = nmxd::makeGenericJsonProvider();
     const auto source = makeSource(R"({"tags": ["a", "b"], "rooms": [{"n": 1}]})");
     const Tree tree = parseOrFail(*provider, source);
 
-    const Node* tags = childByKind(tree, tree.root(), "tags");
+    // A list of scalars is one thing with parts, so it reads as one line rather
+    // than as a subtree of anonymous items.
+    const Node& root = tree.node(tree.root());
+    const Property* tags = root.findProperty("tags");
     REQUIRE(tags != nullptr);
+    CHECK(tags->ordered);
     REQUIRE(tags->children.size() == 2);
+    CHECK(tags->children[0].value == "\"a\"");
+    CHECK(tags->children[1].value == "\"b\"");
+    // Parts of a sequence have no names, because a position in a list is not a
+    // name.
+    CHECK(tags->children[0].name.empty());
 
-    // A scalar element is a node with its value folded in, not a property,
-    // because a value that only exists as a property cannot be reported as
-    // having moved.
-    const Node& first = tree.node(tags->children.front());
-    CHECK(first.kind == "item");
-    REQUIRE(first.findProperty(kValueProperty) != nullptr);
-    CHECK(first.findProperty(kValueProperty)->value == "\"a\"");
-
+    // An array holding an object stays a node, because an object has named
+    // fields a reader will want matched against their counterparts.
+    CHECK(childByKind(tree, tree.root(), "tags") == nullptr);
     const Node* rooms = childByKind(tree, tree.root(), "rooms");
     REQUIRE(rooms != nullptr);
     REQUIRE(rooms->children.size() == 1);
     const Node& room = tree.node(rooms->children.front());
     CHECK(room.kind == "item");
     CHECK(room.findProperty("n") != nullptr);
+}
+
+TEST_CASE("an array of arrays of scalars is one property with parts", "[json]") {
+    // A four by four transform matrix is this shape, and it is the case nested
+    // properties were asked for: one property, not sixteen anonymous nodes four
+    // levels deep.
+    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto source = makeSource(R"({"matrix": [[1, 0], [0, 1]]})");
+    const Tree tree = parseOrFail(*provider, source);
+
+    CHECK(tree.size() == 1);
+    const Property* matrix = tree.node(tree.root()).findProperty("matrix");
+    REQUIRE(matrix != nullptr);
+    CHECK(matrix->ordered);
+    REQUIRE(matrix->children.size() == 2);
+
+    const Property& row = matrix->children.front();
+    CHECK(row.ordered);
+    REQUIRE(row.children.size() == 2);
+    CHECK(row.children[0].value == "1");
+    CHECK(row.children[1].value == "0");
 }
 
 TEST_CASE("node spans slice back to the source", "[json][span]") {
@@ -197,13 +222,18 @@ TEST_CASE("node spans slice back to the source", "[json][span]") {
     REQUIRE(settings != nullptr);
     CHECK(slice(source, settings->span) == R"("settings": { "fog": true })");
 
-    // An array element has no key of its own, so its span is the value alone.
-    const Node* tags = childByKind(tree, tree.root(), "tags");
+    // An array of scalars is a property, and its span covers the key and the
+    // whole list, which is what a reader expects highlighted when the list
+    // changes.
+    const Property* tags = tree.node(tree.root()).findProperty("tags");
     REQUIRE(tags != nullptr);
     CHECK(slice(source, tags->span) == R"("tags": [ "a", "bb" ])");
+
+    // Each part keeps a span of its own, so a changed element can still be
+    // pointed at.
     REQUIRE(tags->children.size() == 2);
-    CHECK(slice(source, tree.node(tags->children[0]).span) == "\"a\"");
-    CHECK(slice(source, tree.node(tags->children[1]).span) == "\"bb\"");
+    CHECK(slice(source, tags->children[0].span) == "\"a\"");
+    CHECK(slice(source, tags->children[1].span) == "\"bb\"");
 
     // A property span covers the key, the colon and the value, which is what a
     // reader would expect to see highlighted for a changed member.
@@ -226,19 +256,37 @@ TEST_CASE("spans survive a byte order mark", "[json][span]") {
 
 TEST_CASE("object members are unordered and array elements are not", "[json][order]") {
     const auto provider = nmxd::makeGenericJsonProvider();
-    const auto source = makeSource(R"({"list": [1, 2], "map": {"x": 1}})");
+    const auto source = makeSource(R"({"list": [1, 2], "rooms": [{"n": 1}], "map": {"x": 1}})");
     const Tree tree = parseOrFail(*provider, source);
 
-    const Node* list = childByKind(tree, tree.root(), "list");
+    const Node* rooms = childByKind(tree, tree.root(), "rooms");
     const Node* map = childByKind(tree, tree.root(), "map");
-    REQUIRE(list != nullptr);
+    REQUIRE(rooms != nullptr);
     REQUIRE(map != nullptr);
 
     // The hook that generic XML never exercises, and the reason JSON ships
     // before the provider interface is published.
-    CHECK(provider->childrenOrdered(tree, list->id));
+    CHECK(provider->childrenOrdered(tree, rooms->id));
     CHECK_FALSE(provider->childrenOrdered(tree, map->id));
     CHECK_FALSE(provider->childrenOrdered(tree, tree.root()));
+
+    // The same distinction one level down: a list of scalars is a sequence, so
+    // its parts are positional, while a node's properties never are.
+    const Property* list = tree.node(tree.root()).findProperty("list");
+    REQUIRE(list != nullptr);
+    CHECK(list->ordered);
+}
+
+TEST_CASE("reordering a list is a change and reordering a record is not",
+          "[json][order]") {
+    const auto provider = nmxd::makeGenericJsonProvider();
+    const Tree listBefore = parseOrFail(*provider, makeSource(R"({"tags": ["a", "b"]})"));
+    const Tree listAfter = parseOrFail(*provider, makeSource(R"({"tags": ["b", "a"]})"));
+    CHECK_FALSE(nmxd::diffTrees(listBefore, listAfter, *provider).identical());
+
+    const Tree recordBefore = parseOrFail(*provider, makeSource(R"({"m": {"x": 1, "y": 2}})"));
+    const Tree recordAfter = parseOrFail(*provider, makeSource(R"({"m": {"y": 2, "x": 1}})"));
+    CHECK(nmxd::diffTrees(recordBefore, recordAfter, *provider).identical());
 }
 
 TEST_CASE("reordering object members is not a change", "[json][order]") {

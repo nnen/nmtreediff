@@ -45,6 +45,43 @@ std::uint64_t hashBytes(std::string_view bytes, std::uint64_t seed) noexcept {
     return h;
 }
 
+/// \brief Hashes one property, including any parts it has.
+///
+/// \param property The property to hash.
+///
+/// \returns A hash covering the name, the value and the whole subtree.
+///
+/// \remarks A record's parts are folded in sorted order and a sequence's in
+///          the order they appear, which is what makes reordering a transform's
+///          fields invisible and reordering a list of tags a change.
+///
+///          A property with no parts hashes exactly as it did before properties
+///          could have any, so nothing in the golden corpus moves except where a
+///          format actually starts nesting.
+[[nodiscard]] std::uint64_t hashProperty(const Property& property) {
+    std::uint64_t h = hashBytes(property.name, kOffsetBasis);
+    h = hashBytes("=", h);
+    h = hashBytes(property.value, h);
+    if (!property.hasParts()) {
+        return h;
+    }
+
+    std::vector<std::uint64_t> parts;
+    parts.reserve(property.children.size());
+    for (const Property& child : property.children) {
+        parts.push_back(hashProperty(child));
+    }
+    if (!property.ordered) {
+        std::sort(parts.begin(), parts.end());
+    }
+
+    h = mix(h, parts.size());
+    for (const std::uint64_t part : parts) {
+        h = mix(h, part);
+    }
+    return h;
+}
+
 void computeHashes(Tree& tree, const IFormatProvider& provider, std::stop_token token) {
     if (tree.empty()) {
         return;
@@ -70,10 +107,7 @@ void computeHashes(Tree& tree, const IFormatProvider& provider, std::stop_token 
         propertyHashes.clear();
         propertyHashes.reserve(node.properties.size());
         for (const auto& property : node.properties) {
-            std::uint64_t ph = hashBytes(property.name, kOffsetBasis);
-            ph = hashBytes("=", ph);
-            ph = hashBytes(property.value, ph);
-            propertyHashes.push_back(ph);
+            propertyHashes.push_back(hashProperty(property));
         }
         std::sort(propertyHashes.begin(), propertyHashes.end());
         h = mix(h, propertyHashes.size());

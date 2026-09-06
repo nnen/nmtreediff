@@ -657,7 +657,7 @@ jobs rather than fine-grained parallelism.
 | Text view usable, 20 MB pair | under 800 ms | 145 ms (M1) | M1 budget test |
 | Full match, 100k nodes | under 2 s | 84 ms (M3) | M3 budget test |
 | Cancellation acknowledged | under 50 ms | 3.2 ms (M5) | M5 cancellation test |
-| Parse and match, 100k nodes, JSON | under 2 s | 113 ms and 80 ms (M5) | M5 budget test |
+| Parse and match, 100k nodes, JSON | under 2 s | 258 ms and 161 ms (M9) | M9 budget test |
 
 Frame time is measured in steady state, after the window has settled. Showing
 a window costs a compositor round trip of roughly two vsync intervals, landing
@@ -793,7 +793,7 @@ submissions, and it is also how the end-to-end tests run.
 | M6 &check; | Custom formats | Sample behavior-tree provider, format override, provider config, versioned provider documentation | Done. A `<node>` follows its GUID from one branch of the tree to another and is reported as one move, and survives a change of `type` that no structural heuristic could. docs/PROVIDERS.md carries interface version 1 |
 | M7 &check; | Standing on its own | File picker and a welcome pane, graph direction in the layout with a per-format override and a View menu default, a pass over the existing code against CODE_GUIDELINES.md | Done. The window opens with no arguments and both files are chosen in it; the behaviour tree draws itself left to right without being asked, and the interface version stayed at 1 |
 | M8 &check; | Formats without a compiler | Lua configuration from the home directory and the command line, retiring the M6 reader, the Lua provider bridge, the sample behaviour tree reimplemented in script, the graph direction and exit key settings | Done. The scripted behaviour tree produces the same tree and the same change list as the compiled one, and `kProviderInterfaceVersion` stayed at 1 |
-| M9 | Properties with parts | Nested properties in the data model, hashing, matching and both views; record and sequence parts, so an array property reorders as a change and a record does not; generic JSON reading a scalar array as one property, with a scripted format able to choose otherwise; the rule that anything not a node becomes a property; a way for a format to take both an element's attributes and its child elements as properties; the scripted surface and the golden corpus updated to match | A format can represent a transform, a colour or a list of tags as one property, reordering a list registers while reordering a record does not, and no provider can drop an element it does not recognise |
+| M9 &check; | Properties with parts | Nested properties in the data model, hashing, matching and both views; record and sequence parts, so an array property reorders as a change and a record does not; generic JSON reading a scalar array as one property, with a scripted format able to choose otherwise; the rule that anything not a node becomes a property; a way for a format to take both an element's attributes and its child elements as properties; the scripted surface and the golden corpus updated to match | Done. A list of scalars is one property, a matrix is one property with parts, reordering a list registers while reordering a record does not, and neither built-in format nor the bridge can drop an element it does not recognise |
 | M10 | Keys | Every action named, every shortcut settable from a configuration script, more than one binding allowed per action, the menus showing whatever is bound | A reader rebinds next-change to two keys of their own and the menu says so |
 | M11 | Ship | Headless report, exit codes, a portable archive built in continuous integration from a tag and attached to a GitHub release, MIT licence and attribution for bundled dependencies, per-extension Perforce and Git setup docs verified against real clients, possibly a Git seven-argument mode, settings persistence | A technical artist can unzip it and configure it without help |
 | M12 | Later | Three-way merge, further game asset formats | Out of initial scope |
@@ -937,6 +937,38 @@ around, and changing it afterwards costs more than building it now.
 **R11.3 was already satisfied**, which was checked rather than assumed: one
 script may declare as many providers as it likes, because each declaration is
 an ordinary call and nothing about the reader is limited to one.
+
+M9 landed, and the corpus is what makes that claim worth anything: only two
+JSON cases moved, and both moved the way they were meant to. A change buried in
+an anonymous `item` node became a named property on the node above it, which is
+the whole point of the milestone in one line of expected output.
+
+Three things were decided while building rather than before, and each is worth
+keeping.
+
+**The boundary is "contains an object", not "is empty".** An empty array
+becoming a property means an empty object and an empty array flip
+representation, which shows up as a deletion beside an addition rather than as a
+changed type. That is churn on a rare edit. Putting the boundary at emptiness
+instead would have moved the churn onto adding the first element to a list,
+which is a common edit, so the rarer boundary is the right one.
+
+**Deciding needs a second pass over the array.** On Demand parsing is forward
+only, so the choice was between looking twice and building optimistically then
+unpicking it on meeting an object. The parser's own rewind makes the first cheap
+and exact, and the second would have been more code and more ways to be wrong.
+
+**The benchmark had to grow.** Turning tag lists into properties took the
+hundred-thousand-node case down to forty thousand for the same file, so the test
+would have gone on passing while measuring a smaller problem than its name
+claims. The entity count went up to keep it honest, which is why parse and match
+now read higher: the file is six megabytes rather than three, not the code
+slower.
+
+The rule that nothing may be dropped reached the compiled behaviour-tree
+provider too, not only the bridge. It had the same walk-through path, and the
+sample provider being the worked example is exactly why it should not be the one
+place the rule is broken.
 
 12. Testing
 -----------

@@ -141,7 +141,13 @@ is the one thing the node graph cannot show you:
 | `speed 1.0 -> 1.4` in amber | The value changed |
 | `fresh new` in green | The property is new |
 | `doomed yes ->` in red | The property was removed |
+| `transform {}` or `tags [3]` | A property with parts, which opens |
 | plain | Unchanged |
+
+A property with parts opens by itself when something inside it changed, so you
+do not have to go looking. A name in braces is a record, whose parts are named
+and whose order means nothing. A name with a count in brackets is a list, whose
+parts are positional, so reordering one is a change.
 
 A removed property is listed after the others. It has no row of its own in the
 newer document, so without this the one thing you could not see would be the
@@ -157,9 +163,10 @@ nmxmldiff --list-formats
 ```
 
 - **XML**, where every element is a node and every attribute is a property.
-- **JSON**, where objects, arrays and array elements are nodes. Members of an
-  object are treated as unordered, so reordering them is not a change, while
-  reordering an array is.
+- **JSON**, where objects are nodes and so is an array holding objects. A list
+  of scalars is one property rather than a subtree, so a changed tag reads as
+  one line. Members of an object are unordered, so reordering them is not a
+  change, while reordering a list is.
 - **Behaviour tree**, a worked example of a format that knows its own schema.
 
 A format is chosen by extension first, and by a look at the first bytes when

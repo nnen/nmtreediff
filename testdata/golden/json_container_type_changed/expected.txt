@@ -1,3 +1,5 @@
-~ /$/slots[0] [#type]
-~ /$/effects[0] [#type]
-~ /$/nested[0]/a[0] [#type]
+~ /$ [effects, slots]
++ /$/effects[0]
+- /$/slots[0]
+~ /$/nested[0] [a]
++ /$/nested[0]/a[0]

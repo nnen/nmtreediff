@@ -66,10 +66,15 @@ with only a `base` reads exactly like the format it sits on.
 | `graph_direction` | `top_down` or `left_to_right`. |
 | `property_order` | Which properties sort first. Presentation only. |
 | `is_node` | Whether an element becomes a node. Default: every element does. |
-| `fold_into_parent` | Whether it becomes a property of the node above instead. An element that is neither is walked through, so a wrapper does not swallow what is inside it. |
+| `fold_into_parent` | Whether it becomes a name and value pair on the node above. An element that is neither still becomes a property, named after itself and holding a part per attribute, and the walk carries on inside it so any nodes it wraps still surface. |
 | `kind` | What sort of node this is. Default: the element's name. |
 | `identity` | What makes this the same node across versions. Return a second value of `"strong"` to say the key may be matched across any distance. |
 | `title` | The card's first line, and optionally a second. |
+
+**Nothing is dropped.** An element is a node or it is a property. There is no
+third answer, so a format cannot lose content by failing to mention it. A
+wrapper keeps both halves: the wrapper itself becomes a property, and the nodes
+inside it attach to the nearest node above.
 
 **Each function is asked once per node, while the document is open.** The
 answers are kept with the tree, so nothing crosses into the interpreter while a
@@ -129,8 +134,12 @@ A tree of nodes. A node has a **kind**, a list of **properties**, a list of
   interprets them, and both views show it as the card title unless `style()`
   says otherwise. Two nodes of different kinds are never paired by any
   structural heuristic, so kind is a strong statement.
-- **Properties** are name and value pairs. Matching treats them as an unordered
-  set, so a reordered attribute list is never a change. Where they came from in
+- **Properties** are name and value pairs, and a property may have parts of its
+  own. A record's parts are named and unordered, so reordering a transform's
+  fields is not a change; a sequence's parts are positional, so reordering a
+  list of tags is. Set `ordered` to say which you built. Matching treats a
+  node's properties as an unordered set either way, so a reordered attribute
+  list is never a change. Where they came from in
   the file is up to you: the behaviour-tree provider fills the list from both
   the node's own attributes and its `<property>` children, and nothing above
   learns that the format writes them two different ways.

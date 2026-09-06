@@ -56,6 +56,39 @@ constexpr ImU32 kMovedColour = IM_COL32(168, 143, 224, 255);
 /// \brief What stands between an old value and the new one.
 constexpr const char* kValueArrow = "->";
 
+/// \brief Reports whether two properties differ, parts and all.
+///
+/// \param left The property on the left.
+/// \param right The property on the right.
+///
+/// \returns `true` when anything about them differs.
+///
+/// \remarks The same rule the engine applies, so the panel never marks a
+///          part changed that the change list did not count, or the reverse.
+[[nodiscard]] bool propertyDiffers(const Property& left, const Property& right) {
+    if (left.value != right.value || left.ordered != right.ordered ||
+        left.children.size() != right.children.size()) {
+        return true;
+    }
+    for (std::size_t i = 0; i < left.children.size(); ++i) {
+        const Property& part = left.children[i];
+        if (left.ordered) {
+            if (part.name != right.children[i].name ||
+                propertyDiffers(part, right.children[i])) {
+                return true;
+            }
+            continue;
+        }
+        const auto it =
+            std::find_if(right.children.begin(), right.children.end(),
+                         [&part](const Property& other) { return other.name == part.name; });
+        if (it == right.children.end() || propertyDiffers(part, *it)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /// \brief Reports whether a name appears in a list of changed properties.
 ///
 /// \param names The names the diff recorded as differing.
@@ -719,6 +752,14 @@ void AppWindow::drawProperties(const Tree& tree, const Tree* otherTree,
 }
 
 void AppWindow::drawProperty(const Property& property, bool changed, const Property* before) {
+    // A property with parts is a small tree of its own, so it is drawn as one.
+    // The parts of a record keep their names; the parts of a sequence are
+    // numbered, because a position in a list is not a name.
+    if (property.hasParts()) {
+        drawPropertyParts(property, changed, before);
+        return;
+    }
+
     ImGui::TextDisabled("%s", property.name.c_str());
     ImGui::SameLine();
 
@@ -736,6 +777,58 @@ void AppWindow::drawProperty(const Property& property, bool changed, const Prope
         ImGui::TextUnformatted(property.value.c_str());
     }
     ImGui::PopStyleColor();
+}
+
+void AppWindow::drawPropertyParts(const Property& property, bool changed,
+                                  const Property* before) {
+    ImGui::PushID(property.name.c_str());
+    if (changed) {
+        ImGui::PushStyleColor(ImGuiCol_Text, kModifiedColour);
+    }
+
+    const std::string label =
+        property.name + (property.ordered ? " [" + std::to_string(property.children.size()) + "]"
+                                          : " {}");
+    // A property that changed opens itself, so the change is visible rather than
+    // something the reader has to go looking for.
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth;
+    if (changed) {
+        flags |= ImGuiTreeNodeFlags_DefaultOpen;
+    }
+    const bool open = ImGui::TreeNodeEx("parts", flags, "%s", label.c_str());
+    if (changed) {
+        ImGui::PopStyleColor();
+    }
+
+    if (open) {
+        for (std::size_t i = 0; i < property.children.size(); ++i) {
+            const Property& part = property.children[i];
+
+            // What the same part was before, matched the way its parent
+            // compares: a record by name, a sequence by position.
+            const Property* was = nullptr;
+            if (before != nullptr) {
+                if (property.ordered) {
+                    was = i < before->children.size() ? &before->children[i] : nullptr;
+                } else {
+                    const auto it = std::find_if(
+                        before->children.begin(), before->children.end(),
+                        [&part](const Property& other) { return other.name == part.name; });
+                    was = it != before->children.end() ? &*it : nullptr;
+                }
+            }
+
+            Property shown = part;
+            if (shown.name.empty()) {
+                shown.name = std::to_string(i);
+            }
+            const bool partChanged =
+                before != nullptr && (was == nullptr || propertyDiffers(part, *was));
+            drawProperty(shown, partChanged, was);
+        }
+        ImGui::TreePop();
+    }
+    ImGui::PopID();
 }
 
 void AppWindow::drawRemovedProperty(const Property& property) {

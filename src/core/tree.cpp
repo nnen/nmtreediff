@@ -37,6 +37,10 @@ void Tree::addProperty(NodeId node, std::string name, std::string value, SourceS
     nodes_[node].properties.push_back(Property{std::move(name), std::move(value), span});
 }
 
+void Tree::addProperty(NodeId node, Property property) {
+    nodes_[node].properties.push_back(std::move(property));
+}
+
 void Tree::finalize() {
     if (nodes_.empty()) {
         return;

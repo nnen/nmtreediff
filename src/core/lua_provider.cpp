@@ -319,8 +319,15 @@ private:
         /// \remarks A folded element usually describes its parent rather than
         ///          standing on its own: a name and a value pair in the file
         ///          become one property of the node above.
+        ///
+        ///          Anything else keeps its own shape. An element with several
+        ///          attributes becomes one property named after the element,
+        ///          holding a part per attribute, which is what R7.7 asked for:
+        ///          a transform stays one thing with parts rather than becoming
+        ///          a handful of loose names.
         void fold(NodeId id, NodeId owner) {
             const Node& source = generic_.node(id);
+
             const Property* named = source.findProperty("name");
             const Property* valued = source.findProperty("value");
             if (named != nullptr && valued != nullptr) {
@@ -328,11 +335,16 @@ private:
                 return;
             }
 
-            // Without that pair there is nothing to name the property, so every
-            // attribute is folded in under its own name rather than dropped.
-            for (const Property& property : source.properties) {
-                shaped_.addProperty(owner, property.name, property.value, property.span);
+            Property folded;
+            folded.name = source.kind;
+            folded.span = source.span;
+            if (source.properties.size() == 1) {
+                // One attribute and nothing else is a value, not a record.
+                folded.value = source.properties.front().value;
+            } else {
+                folded.children = source.properties;
             }
+            shaped_.addProperty(owner, std::move(folded));
         }
 
         /// \brief Walks a generic node's children into the shaped tree.
@@ -359,20 +371,27 @@ private:
         /// \param owner The shaped node it sits under.
         /// \param token Checked on a bounded interval.
         ///
-        /// \remarks Three answers: it is a node, it folds into the node above
-        ///          it, or it is neither and the walk passes through it. The
-        ///          third is what keeps a wrapper element from swallowing
-        ///          everything inside it.
+        /// \remarks Two answers, not three. An element is a node, or it is a
+        ///          property of the node above it. There used to be a third,
+        ///          walking through an element and keeping nothing of it, and
+        ///          that is what made it possible to lose content by accident.
+        ///          A diff tool that silently drops what it does not recognise
+        ///          is the one thing a reviewer cannot forgive, so it is gone.
+        ///
+        ///          An element that is not a node but contains nodes keeps
+        ///          both: its own name and attributes become a property, and
+        ///          the nodes inside it attach to the nearest ancestor node.
+        ///          Swallowing them into property content would be simpler and
+        ///          would lose them, which is the problem this rule exists to
+        ///          remove.
         void collectOne(NodeId id, NodeId owner, const std::stop_token& token) {
             if (ask(kIsNode, id, true)) {
                 const NodeId placed = addNode(id, owner);
                 collectChildren(id, placed, token);
                 return;
             }
-            if (ask(kFoldIntoParent, id, false)) {
-                fold(id, owner);
-                return;
-            }
+
+            fold(id, owner);
             collectChildren(id, owner, token);
         }
 

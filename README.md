@@ -26,8 +26,12 @@ What it does
   between them at will; selection is shared, so a node in one view is the same
   node in the other.
 - **Understands your formats.** Out of the box, XML elements are nodes and
-  attributes are properties, and JSON objects, arrays, and array elements are
-  nodes. Beyond that, a format provider defines what counts as a node, which
+  attributes are properties. JSON objects are nodes, and a list of scalars is
+  one property with parts rather than a subtree of anonymous items, so a
+  transform or a tag list reads as the one thing it is.
+- **Keeps what it does not recognise.** An element a format has no rule for
+  becomes a property rather than being passed over, so nothing in a file goes
+  unreported. Beyond that, a format provider defines what counts as a node, which
   two nodes are the same node across versions, and how a node is titled and
   coloured.
 - **Takes a format you write yourself, with no compiler.** A Lua script sits on
