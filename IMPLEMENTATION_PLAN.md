@@ -165,6 +165,7 @@ struct Property {
     std::string value;
     SourceSpan  span;
     std::vector<Property> children;   // M9: a property may hold properties
+    bool        ordered = false;      // M9: true when those parts are a sequence
 };
 
 struct Node {
@@ -189,6 +190,16 @@ asset format does not restrict itself to flat name and value pairs: a transform,
 a colour, a bounding box are each one thing with parts, and flattening them into
 `transform.position.x` would turn one changed number into a changed string with
 a made-up name. A nested property keeps the shape the file had.
+
+**A property's parts are either a record or a sequence.** R7.10 asks for array
+properties, and an array differs from a record in the way that matters most to a
+diff: position means something and names do not. So a property carries the same
+distinction a node already carries through `childrenOrdered()`. A record's parts
+compare as a set by name and hash over sorted pairs, exactly as a node's
+properties do today. A sequence's parts compare by position and hash in order,
+so reordering a list of tags is a change and reordering a transform's fields is
+not. This is the ordering hook JSON earned at M5, one level further down, and it
+is the same rule rather than a second one.
 
 That is the one data model change still ahead, and it reaches further than it
 looks: hashing walks properties, matching compares them as a set, the details
@@ -257,6 +268,16 @@ public:
     }
 };
 ```
+
+**Whether generic JSON should change is a decision inside M9.** A scalar array
+is currently a node holding one node per element, which is what makes the node
+count in the budget benchmark what it is. R7.10 makes another reading available:
+one array property holding its values. The second is better for a reader, since
+`tags` changing reads as one property rather than as a subtree of anonymous
+`item` nodes, and it would cut the node count on array-heavy files. It is also a
+change to what every existing JSON golden case produces, so it needs deciding
+deliberately rather than falling out of the implementation. The provider table
+above records today's behaviour, not the answer.
 
 **Nothing a provider does not recognise may be dropped, from M9.** R7.8 settles
 what was an open question: everything that is not a node is a property. A
@@ -744,7 +765,7 @@ submissions, and it is also how the end-to-end tests run.
 | M6 &check; | Custom formats | Sample behavior-tree provider, format override, provider config, versioned provider documentation | Done. A `<node>` follows its GUID from one branch of the tree to another and is reported as one move, and survives a change of `type` that no structural heuristic could. docs/PROVIDERS.md carries interface version 1 |
 | M7 &check; | Standing on its own | File picker and a welcome pane, graph direction in the layout with a per-format override and a View menu default, a pass over the existing code against CODE_GUIDELINES.md | Done. The window opens with no arguments and both files are chosen in it; the behaviour tree draws itself left to right without being asked, and the interface version stayed at 1 |
 | M8 &check; | Formats without a compiler | Lua configuration from the home directory and the command line, retiring the M6 reader, the Lua provider bridge, the sample behaviour tree reimplemented in script, the graph direction and exit key settings | Done. The scripted behaviour tree produces the same tree and the same change list as the compiled one, and `kProviderInterfaceVersion` stayed at 1 |
-| M9 | Properties with parts | Nested properties in the data model, hashing, matching and both views; the rule that anything not a node becomes a property; a way for a format to take both an element's attributes and its child elements as properties; the scripted surface and the golden corpus updated to match | A format can represent a transform or a colour as one property with parts, and no provider can drop an element it does not recognise |
+| M9 | Properties with parts | Nested properties in the data model, hashing, matching and both views; record and sequence parts, so an array property reorders as a change and a record does not; the rule that anything not a node becomes a property; a way for a format to take both an element's attributes and its child elements as properties; the scripted surface and the golden corpus updated to match | A format can represent a transform, a colour or a list of tags as one property, reordering a list registers while reordering a record does not, and no provider can drop an element it does not recognise |
 | M10 | Keys | Every action named, every shortcut settable from a configuration script, more than one binding allowed per action, the menus showing whatever is bound | A reader rebinds next-change to two keys of their own and the menu says so |
 | M11 | Ship | Headless report, exit codes, a portable archive built in continuous integration from a tag and attached to a GitHub release, MIT licence and attribution for bundled dependencies, per-extension Perforce and Git setup docs verified against real clients, possibly a Git seven-argument mode, settings persistence | A technical artist can unzip it and configure it without help |
 | M12 | Later | Three-way merge, further game asset formats | Out of initial scope |
@@ -983,6 +1004,23 @@ library is what makes that acceptable.
   a real pipeline. Picking one concrete format gives the performance work a
   realistic corpus instead of synthetic trees, and decides who can try the tool
   on day one.
+- **Settled: properties do not move.** A property is compared inside the node
+  that owns it and is never matched against a property somewhere else, so a
+  transform block cut from one entity and pasted into another reads as a
+  deletion beside an addition rather than as one move. Making it read as a move
+  would mean giving properties identity and matching of their own, which is most
+  of what a node is, and the cheapest way to get there would be to make
+  properties nodes outright. That was considered and refused on two grounds.
+  Counting properties per node across the samples and the benchmark gives 2.2 to
+  2.4, so the hundred-thousand-node budget case would become roughly three
+  hundred and twenty thousand nodes for the same input file, and the headline
+  number would stop describing the file a person opened. And properties compare
+  as an unordered set while nodes match by identity, hash and similarity, so
+  unifying them would either put that distinction straight back inside the
+  matcher or make a reordered attribute list read as a move, which the plan
+  promises it never will. Reopen this only if reporting a moved property block
+  becomes something a studio actually asks for; the numbers above are what to
+  weigh it against.
 - **Settled: how much a provider may drop.** Nothing. R7.8 makes everything that
   is not a node a property, so the walk-through answer that let content fall out
   of a tree is gone at M9. The question had been whether to make dropping harder

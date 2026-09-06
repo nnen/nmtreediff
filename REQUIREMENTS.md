@@ -44,6 +44,7 @@ NM Tree Diff Requirements
   - *R7.8*: Everything, that's not a node is considered a property.
   - *R7.9*: There must be a way to make both XML element's attributes *and*
     child elements node properties.
+  - *R7.10*: Array properties must be supported.
 - *R8*: Three-way merge should not be initially implemented, but it should
   remain possible to implement it later.
 - *R9*: Although it has humble beginnings, this tool has the ambition to become
