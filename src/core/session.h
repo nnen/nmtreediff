@@ -10,6 +10,7 @@
 
 #include "core/config.h"
 #include "core/jobs.h"
+#include "core/layout_tree.h"
 #include "core/registry.h"
 #include "core/snapshot.h"
 
@@ -33,6 +34,22 @@ struct SessionRequest {
     ///          quietly ignored, because it is usually a typo in a diff-tool
     ///          configuration that would otherwise go unnoticed for a long time.
     std::string format;
+
+    /// \brief The sizes to lay the node view out in.
+    ///
+    /// \remarks Supplied by the caller because layout units are character
+    ///          cells and the text size is the interface's decision, which the
+    ///          core has no way of knowing. The default suits a thirteen-pixel
+    ///          font, which is what a headless run and the tests measure in.
+    LayoutMetrics layoutMetrics;
+
+    /// \brief Which way to draw the node graph when the format has no
+    ///        opinion.
+    ///
+    /// \remarks The reader's standing choice. A provider that names a
+    ///          direction of its own wins over this, because it knows the shape
+    ///          of its trees and this is only a default.
+    GraphDirection graphDirection = GraphDirection::TopDown;
 };
 
 /// \brief Owns a comparison: its worker pool, its registry, and its snapshot.

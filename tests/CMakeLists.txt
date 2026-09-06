@@ -10,6 +10,7 @@ add_executable(nmxd_tests
     test_match.cpp
     test_json_provider.cpp
     test_jobs.cpp
+    test_direction.cpp
     test_layout.cpp
     test_result.cpp
     test_session.cpp

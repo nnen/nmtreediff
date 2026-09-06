@@ -35,6 +35,11 @@ bool IFormatProvider::claimsExtension(const SourceFile& source) const {
     return std::find(extensions.begin(), extensions.end(), extension) != extensions.end();
 }
 
+GraphDirection resolveDirection(const IFormatProvider& provider, GraphDirection fallback) {
+    const GraphDirection stated = provider.graphDirection();
+    return stated == GraphDirection::Inherit ? fallback : stated;
+}
+
 int rankFromList(std::span<const std::string_view> order, std::string_view name) {
     for (std::size_t i = 0; i < order.size(); ++i) {
         if (order[i] == name) {

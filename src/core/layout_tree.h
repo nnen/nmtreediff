@@ -76,46 +76,6 @@ struct LayoutNode {
     std::uint32_t hiddenDescendants = 0;
 };
 
-/// \brief The union of both trees, laid out for drawing.
-///
-/// \remarks Holds one card per node of the right tree, plus a card for every
-///          node the left tree lost. Positions are in abstract layout units
-///          rather than pixels, so the layout can be computed on a worker with
-///          no access to the font.
-struct TreeLayout {
-    /// \brief Every card, parents before children.
-    std::vector<LayoutNode> nodes;
-
-    /// \brief The root card, or kInvalidLayout when the layout is empty.
-    LayoutId root = kInvalidLayout;
-
-    /// \brief Width of the whole drawing in layout units.
-    float width = 0.0f;
-    /// \brief Height of the whole drawing in layout units.
-    float height = 0.0f;
-
-    /// \brief Whether the layout stopped early because it was cancelled.
-    bool cancelled = false;
-
-    /// \brief Finds the card standing for one document node.
-    ///
-    /// \param side Which document the node belongs to.
-    /// \param node The node to look for.
-    ///
-    /// \returns The card's id, or kInvalidLayout when the node has no card.
-    [[nodiscard]] LayoutId find(Side side, NodeId node) const;
-
-    /// \brief Returns how many cards the layout holds.
-    ///
-    /// \returns The card count.
-    [[nodiscard]] std::size_t size() const noexcept { return nodes.size(); }
-
-    /// \brief Reports whether the layout holds any cards.
-    ///
-    /// \returns `true` when there is nothing to draw.
-    [[nodiscard]] bool empty() const noexcept { return nodes.empty(); }
-};
-
 /// \brief The sizes the layout works in.
 ///
 /// \remarks Layout units are approximate character cells rather than pixels, so
@@ -138,6 +98,61 @@ struct LayoutMetrics {
     float levelGap = 46.0f;
 };
 
+/// \brief The union of both trees, laid out for drawing.
+///
+/// \remarks Holds one card per node of the right tree, plus a card for every
+///          node the left tree lost. Positions are in abstract layout units
+///          rather than pixels, so the layout can be computed on a worker with
+///          no access to the font.
+struct TreeLayout {
+    /// \brief Every card, parents before children.
+    std::vector<LayoutNode> nodes;
+
+    /// \brief The root card, or kInvalidLayout when the layout is empty.
+    LayoutId root = kInvalidLayout;
+
+    /// \brief Width of the whole drawing in layout units.
+    float width = 0.0f;
+    /// \brief Height of the whole drawing in layout units.
+    float height = 0.0f;
+
+    /// \brief Whether the layout stopped early because it was cancelled.
+    bool cancelled = false;
+
+    /// \brief Which way this layout runs.
+    ///
+    /// \remarks Carried with the layout for the same reason the metrics are:
+    ///          the view draws edges between cards and has to attach them to the
+    ///          sides the positions were computed for.
+    GraphDirection direction = GraphDirection::TopDown;
+
+    /// \brief The sizes this layout was built in.
+    ///
+    /// \remarks Carried with the layout so the view draws a card's text at the
+    ///          size the card was measured for. The alternative, a second copy
+    ///          of the numbers in the view, goes wrong the first time either
+    ///          copy is changed alone.
+    LayoutMetrics metrics;
+
+    /// \brief Finds the card standing for one document node.
+    ///
+    /// \param side Which document the node belongs to.
+    /// \param node The node to look for.
+    ///
+    /// \returns The card's id, or kInvalidLayout when the node has no card.
+    [[nodiscard]] LayoutId find(Side side, NodeId node) const;
+
+    /// \brief Returns how many cards the layout holds.
+    ///
+    /// \returns The card count.
+    [[nodiscard]] std::size_t size() const noexcept { return nodes.size(); }
+
+    /// \brief Reports whether the layout holds any cards.
+    ///
+    /// \returns `true` when there is nothing to draw.
+    [[nodiscard]] bool empty() const noexcept { return nodes.empty(); }
+};
+
 /// \brief Builds the union of two trees and positions it for drawing.
 ///
 /// \param left The left tree.
@@ -147,19 +162,25 @@ struct LayoutMetrics {
 /// \param token Checked while building; the layout gives up when a stop is
 ///        requested.
 /// \param metrics The sizes to lay out in.
+/// \param direction Which way the graph runs.
 ///
 /// \returns The positioned union. TreeLayout::cancelled is set when the token
 ///          stopped the work.
 ///
-/// \remarks Cards are laid out top down: children sit below their parent and a
-///          parent is centred over them. Sibling subtrees are placed one after
-///          another with a gap, which never overlaps and costs one pass over the
-///          tree. A tighter packing that interleaves subtrees of different
-///          depths would save horizontal space and is a possible refinement, not
-///          a correctness fix.
+/// \remarks The positioning pass works in breadth and depth rather than in x
+///          and y, and \p direction decides which is which. Children are placed
+///          one after another along the breadth axis and their parent is centred
+///          over them; each depth begins where the deepest card of the previous
+///          one ended, so levels line up instead of running ragged. Card sizes
+///          stay in screen space either way, because text does not rotate.
+///
+///          Both passes are linear. A tighter packing that interleaves subtrees
+///          of different depths would save space and is a possible refinement,
+///          not a correctness fix.
 [[nodiscard]] TreeLayout buildLayout(const Tree& left, const Tree& right, const DiffModel& model,
                                      const IFormatProvider& provider, std::stop_token token = {},
-                                     LayoutMetrics metrics = {});
+                                     LayoutMetrics metrics = {},
+                                     GraphDirection direction = GraphDirection::TopDown);
 
 /// \brief Finds the innermost node whose span covers a byte offset.
 ///

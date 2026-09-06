@@ -364,26 +364,12 @@ private:
             result_.quality = MatchQuality::SimilarityTrimmed;
             return;
         }
-
-        steps_ = 0;
-
-        std::deque<std::pair<NodeId, NodeId>> work;
         if (left_.empty() || right_.empty()) {
             return;
         }
 
-        // Start from the root pair when there is one; otherwise every matched
-        // pair is its own starting point.
-        if (result_.matching.toRight(left_.root()) == right_.root()) {
-            work.emplace_back(left_.root(), right_.root());
-        } else {
-            for (const Node& node : left_.nodes()) {
-                const NodeId r = result_.matching.toRight(node.id);
-                if (r != kInvalidNode) {
-                    work.emplace_back(node.id, r);
-                }
-            }
-        }
+        steps_ = 0;
+        std::deque<std::pair<NodeId, NodeId>> work = startingPairs();
 
         while (!work.empty()) {
             const auto [leftParent, rightParent] = work.front();
@@ -393,70 +379,155 @@ private:
                 result_.cancelled = true;
                 return;
             }
-
-            const auto& leftChildren = left_.node(leftParent).children;
-            const auto& rightChildren = right_.node(rightParent).children;
-
-            std::vector<NodeId> unmatchedLeft;
-            for (const NodeId c : leftChildren) {
-                if (!result_.matching.leftMatched(c)) {
-                    unmatchedLeft.push_back(c);
-                }
-            }
-            std::vector<NodeId> unmatchedRight;
-            for (const NodeId c : rightChildren) {
-                if (!result_.matching.rightMatched(c)) {
-                    unmatchedRight.push_back(c);
-                }
-            }
-
-            steps_ += static_cast<std::uint64_t>(unmatchedLeft.size()) * unmatchedRight.size();
-            if (steps_ > options_.maxSimilaritySteps) {
-                result_.quality = MatchQuality::SimilarityTrimmed;
+            if (!matchChildrenOf(leftParent, rightParent)) {
                 return;
             }
+            enqueueMatchedChildren(leftParent, work);
+        }
+    }
 
-            // Best pair first, so one strong match is not blocked by a weaker
-            // one that happened to be considered earlier.
-            struct Candidate {
-                double score;
-                NodeId left;
-                NodeId right;
-            };
-            std::vector<Candidate> candidates;
-            candidates.reserve(unmatchedLeft.size() * unmatchedRight.size());
-            for (const NodeId l : unmatchedLeft) {
-                for (const NodeId r : unmatchedRight) {
-                    const double score = similarity(l, r);
-                    if (score >= options_.minSimilarity) {
-                        candidates.push_back(Candidate{score, l, r});
-                    }
+    /// \brief One possible pairing and how good it looks.
+    struct Candidate {
+        double score;   ///< How alike the two nodes are, from zero to one.
+        NodeId left;    ///< The candidate in the left tree.
+        NodeId right;   ///< The candidate in the right tree.
+    };
+
+    /// \brief Chooses where the top-down walk begins.
+    ///
+    /// \returns The parent pairs to start from.
+    ///
+    /// \remarks The root pair when there is one. Otherwise every pair an
+    ///          earlier pass established is its own starting point, because a
+    ///          document whose root changed still has matched subtrees inside
+    ///          it and abandoning them would throw away real work.
+    [[nodiscard]] std::deque<std::pair<NodeId, NodeId>> startingPairs() const {
+        std::deque<std::pair<NodeId, NodeId>> work;
+        if (result_.matching.toRight(left_.root()) == right_.root()) {
+            work.emplace_back(left_.root(), right_.root());
+            return work;
+        }
+        for (const Node& node : left_.nodes()) {
+            const NodeId partner = result_.matching.toRight(node.id);
+            if (partner != kInvalidNode) {
+                work.emplace_back(node.id, partner);
+            }
+        }
+        return work;
+    }
+
+    /// \brief Collects the left children that nothing has claimed.
+    ///
+    /// \param parent The parent whose children to look at.
+    ///
+    /// \returns The unmatched children, in document order.
+    ///
+    /// \remarks Written out once per side rather than taking a flag. The two
+    ///          are seven lines each and say which side they mean in their name,
+    ///          which a boolean argument at the call site would not.
+    [[nodiscard]] std::vector<NodeId> unmatchedLeftChildren(NodeId parent) const {
+        std::vector<NodeId> unmatched;
+        for (const NodeId child : left_.node(parent).children) {
+            if (!result_.matching.leftMatched(child)) {
+                unmatched.push_back(child);
+            }
+        }
+        return unmatched;
+    }
+
+    /// \brief Collects the right children that nothing has claimed.
+    ///
+    /// \param parent The parent whose children to look at.
+    ///
+    /// \returns The unmatched children, in document order.
+    [[nodiscard]] std::vector<NodeId> unmatchedRightChildren(NodeId parent) const {
+        std::vector<NodeId> unmatched;
+        for (const NodeId child : right_.node(parent).children) {
+            if (!result_.matching.rightMatched(child)) {
+                unmatched.push_back(child);
+            }
+        }
+        return unmatched;
+    }
+
+    /// \brief Scores every unclaimed pairing under one matched parent pair.
+    ///
+    /// \param unmatchedLeft Candidates from the left tree.
+    /// \param unmatchedRight Candidates from the right tree.
+    ///
+    /// \returns The pairings worth considering, best first.
+    ///
+    /// \remarks Sorted so that one strong match is never blocked by a weaker
+    ///          one that happened to be considered first. Ties break on node id
+    ///          so that a run produces the same answer every time.
+    [[nodiscard]] std::vector<Candidate> scoreCandidates(
+        const std::vector<NodeId>& unmatchedLeft,
+        const std::vector<NodeId>& unmatchedRight) {
+        std::vector<Candidate> candidates;
+        candidates.reserve(unmatchedLeft.size() * unmatchedRight.size());
+        for (const NodeId l : unmatchedLeft) {
+            for (const NodeId r : unmatchedRight) {
+                const double score = similarity(l, r);
+                if (score >= options_.minSimilarity) {
+                    candidates.push_back(Candidate{score, l, r});
                 }
             }
-            std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {
-                if (a.score != b.score) {
-                    return a.score > b.score;
-                }
-                return a.left != b.left ? a.left < b.left : a.right < b.right;
-            });
+        }
 
-            for (const auto& candidate : candidates) {
-                if (result_.matching.leftMatched(candidate.left) ||
-                    result_.matching.rightMatched(candidate.right)) {
-                    continue;
-                }
-                if (result_.matching.pair(candidate.left, candidate.right)) {
-                    ++result_.anchoredBySimilarity;
-                }
+        std::sort(candidates.begin(), candidates.end(),
+                  [](const Candidate& a, const Candidate& b) {
+                      if (a.score != b.score) {
+                          return a.score > b.score;
+                      }
+                      return a.left != b.left ? a.left < b.left : a.right < b.right;
+                  });
+        return candidates;
+    }
+
+    /// \brief Pairs up the unmatched children of one matched parent pair.
+    ///
+    /// \param leftParent The parent in the left tree.
+    /// \param rightParent Its counterpart in the right tree.
+    ///
+    /// \returns `false` when the step budget ran out, which ends the pass.
+    ///
+    /// \remarks Comparing only candidates under one parent pair is what keeps
+    ///          this from comparing every node against every other node.
+    [[nodiscard]] bool matchChildrenOf(NodeId leftParent, NodeId rightParent) {
+        const std::vector<NodeId> unmatchedLeft = unmatchedLeftChildren(leftParent);
+        const std::vector<NodeId> unmatchedRight = unmatchedRightChildren(rightParent);
+
+        steps_ += static_cast<std::uint64_t>(unmatchedLeft.size()) * unmatchedRight.size();
+        if (steps_ > options_.maxSimilaritySteps) {
+            result_.quality = MatchQuality::SimilarityTrimmed;
+            return false;
+        }
+
+        for (const Candidate& candidate : scoreCandidates(unmatchedLeft, unmatchedRight)) {
+            if (result_.matching.leftMatched(candidate.left) ||
+                result_.matching.rightMatched(candidate.right)) {
+                continue;
             }
+            if (result_.matching.pair(candidate.left, candidate.right)) {
+                ++result_.anchoredBySimilarity;
+            }
+        }
+        return true;
+    }
 
-            // Descend into every matched child pair, including ones an earlier
-            // pass established.
-            for (const NodeId c : leftChildren) {
-                const NodeId r = result_.matching.toRight(c);
-                if (r != kInvalidNode) {
-                    work.emplace_back(c, r);
-                }
+    /// \brief Queues every matched child of one node for its own turn.
+    ///
+    /// \param leftParent The parent whose children to descend into.
+    /// \param work The queue to add to.
+    ///
+    /// \remarks Includes pairs an earlier pass established, because their
+    ///          children may still be unmatched.
+    void enqueueMatchedChildren(NodeId leftParent,
+                                std::deque<std::pair<NodeId, NodeId>>& work) const {
+        for (const NodeId child : left_.node(leftParent).children) {
+            const NodeId partner = result_.matching.toRight(child);
+            if (partner != kInvalidNode) {
+                work.emplace_back(child, partner);
             }
         }
     }

@@ -206,6 +206,14 @@ public:
         return true;
     }
 
+    GraphDirection graphDirection() const override {
+        // A behaviour tree is deep and narrow: a selector with a handful of
+        // sequences under it, each a chain of leaves. Read top down that is a
+        // tall column nobody can see at once, and left to right it reads like
+        // the execution order it describes.
+        return GraphDirection::LeftToRight;
+    }
+
 private:
     /// \brief Adds one element as a node, with its attributes as properties.
     ///

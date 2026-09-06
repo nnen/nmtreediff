@@ -4,6 +4,7 @@
 #include "ui/app_window.h"
 
 #include "ui/screenshot.h"
+#include "ui/welcome.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -28,6 +29,13 @@ constexpr const char* kTextViewTitle = "Text view";
 /// \brief Window title of the node view panel.
 constexpr const char* kNodeViewTitle = "Node view";
 
+/// \brief Window title of the pane shown before a comparison is open.
+///
+/// \remarks A window of its own rather than the text view wearing a
+///          different face, because the tab strip names what a tab holds and a
+///          welcome pane labelled "Text view" tells the reader something untrue.
+constexpr const char* kWelcomeTitle = "Welcome";
+
 /// \brief Window title of the details panel.
 constexpr const char* kDetailsTitle = "Details";
 
@@ -42,6 +50,48 @@ constexpr const char* kStatusTitle = "Status";
 ///          computing, so folding it into the budget would hide every real stall
 ///          smaller than it.
 constexpr unsigned kSettledFrame = 60;
+
+/// \brief How much larger than its natural size the interface text is drawn.
+///
+/// \remarks Dear ImGui's built-in font is 13 pixels tall, which is small on
+///          the high-resolution displays this tool is read on all day. The node
+///          view's layout is measured in the same unit, so the same factor is
+///          applied to its metrics and the cards grow with the text they hold.
+constexpr float kFontScale = 1.5f;
+
+/// \brief Builds the node view's layout sizes for the interface's text size.
+///
+/// \param scale How much larger than its natural size the text is drawn.
+///
+/// \returns The default sizes, every one of them scaled.
+///
+/// \remarks Layout units are character cells, so every size scales together
+///          and the elision width stays the same number of characters.
+LayoutMetrics scaledMetrics(float scale) {
+    LayoutMetrics metrics;
+    metrics.characterWidth *= scale;
+    metrics.lineHeight *= scale;
+    metrics.padding *= scale;
+    metrics.minimumWidth *= scale;
+    metrics.maximumWidth *= scale;
+    metrics.siblingGap *= scale;
+    metrics.levelGap *= scale;
+    return metrics;
+}
+
+/// \brief Builds the request that opens the files named on the command line.
+///
+/// \param options The parsed command line.
+/// \param direction The reader's standing choice of graph direction.
+///
+/// \returns The request, laid out at the size the interface draws text in.
+SessionRequest makeRequest(const Options& options, GraphDirection direction) {
+    SessionRequest request{options.leftPath, options.rightPath, options.leftLabel,
+                           options.rightLabel, options.format};
+    request.layoutMetrics = scaledMetrics(kFontScale);
+    request.graphDirection = direction;
+    return request;
+}
 
 /// \brief Prints a GLFW error to the standard error stream.
 ///
@@ -96,6 +146,7 @@ bool AppWindow::open() {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
     ImGui::StyleColorsDark();
+    ImGui::GetStyle().FontScaleMain = kFontScale;
     ImGui_ImplGlfw_InitForOpenGL(window_, true);
     ImGui_ImplOpenGL3_Init("#version 330");
 
@@ -115,8 +166,7 @@ int AppWindow::run() {
     // Queued before the first frame so the read happens on a worker while the
     // window is already up and drawing.
     if (options_.hasInputs()) {
-        session_.open(SessionRequest{options_.leftPath, options_.rightPath, options_.leftLabel,
-                                     options_.rightLabel, options_.format});
+        session_.open(makeRequest(options_, graphDirection_));
     }
 
     // Vertical sync pins the frame rate to the display, which would make a
@@ -236,15 +286,21 @@ void AppWindow::buildFrame() {
         }
     }
 
-    drawTextView(current);
-    drawNodeView(current);
-    drawDetails(current);
+    collectPickedFile();
+
+    if (options_.hasInputs()) {
+        drawTextView(current);
+        drawNodeView(current);
+        drawDetails(current);
+    } else {
+        drawWelcomePane();
+    }
     drawStatusBar(current);
 
     // Focusing a window requires it to exist, and the panels are only created
     // by the calls above. Doing this after the first frame has built them is
     // what makes --view actually pick the tab that opens.
-    if (!initialViewFocused_ && framesPresented_ > 0) {
+    if (!initialViewFocused_ && framesPresented_ > 0 && options_.hasInputs()) {
         ImGui::SetWindowFocus(view_ == InitialView::Node ? kNodeViewTitle : kTextViewTitle);
         initialViewFocused_ = true;
     }
@@ -256,9 +312,15 @@ void AppWindow::drawMenuBar() {
     }
 
     if (ImGui::BeginMenu("File")) {
+        if (ImGui::MenuItem("Open left...", nullptr, false, !picker_.busy())) {
+            askForFile(PickerTarget::Left);
+        }
+        if (ImGui::MenuItem("Open right...", nullptr, false, !picker_.busy())) {
+            askForFile(PickerTarget::Right);
+        }
+        ImGui::Separator();
         if (ImGui::MenuItem("Reload", "Ctrl+R", false, options_.hasInputs())) {
-            session_.open(SessionRequest{options_.leftPath, options_.rightPath, options_.leftLabel,
-                                         options_.rightLabel, options_.format});
+            session_.open(makeRequest(options_, graphDirection_));
         }
         ImGui::Separator();
         if (ImGui::MenuItem("Exit", "Alt+F4")) {
@@ -276,10 +338,104 @@ void AppWindow::drawMenuBar() {
             view_ = InitialView::Node;
             ImGui::SetWindowFocus(kNodeViewTitle);
         }
+
+        ImGui::Separator();
+        drawDirectionMenu();
         ImGui::EndMenu();
     }
 
     ImGui::EndMainMenuBar();
+}
+
+void AppWindow::askForFile(PickerTarget target) {
+    // Opening where the other side already sits saves the reader navigating to
+    // the same directory twice, which is where both versions usually live.
+    const std::filesystem::path& other =
+        target == PickerTarget::Left ? options_.rightPath : options_.leftPath;
+    pickerError_.clear();
+    picker_.open(target, other.empty() ? std::filesystem::path{} : other.parent_path());
+}
+
+void AppWindow::collectPickedFile() {
+    switch (picker_.poll()) {
+        case PickerOutcome::Chosen:
+            break;
+        case PickerOutcome::Failed:
+            pickerError_ = picker_.error();
+            return;
+        case PickerOutcome::None:
+        case PickerOutcome::Pending:
+        case PickerOutcome::Cancelled:
+            return;
+    }
+
+    // A label stands in for the path, so it has to follow the path that changed
+    // rather than keeping whatever the command line said about the old one.
+    const std::filesystem::path chosen = picker_.chosen();
+    if (picker_.target() == PickerTarget::Left) {
+        options_.leftPath = chosen;
+        options_.leftLabel = chosen.string();
+    } else {
+        options_.rightPath = chosen;
+        options_.rightLabel = chosen.string();
+    }
+
+    // Two files is a comparison. One is still an invitation.
+    if (options_.hasInputs()) {
+        session_.open(makeRequest(options_, graphDirection_));
+    }
+}
+
+void AppWindow::drawWelcomePane() {
+    if (!ImGui::Begin(kWelcomeTitle)) {
+        ImGui::End();
+        return;
+    }
+
+    WelcomeState state;
+    state.leftPath = options_.leftPath;
+    state.rightPath = options_.rightPath;
+    state.picking = picker_.busy();
+    state.error = pickerError_;
+
+    switch (drawWelcome(state)) {
+        case WelcomeChoice::Left:
+            askForFile(PickerTarget::Left);
+            break;
+        case WelcomeChoice::Right:
+            askForFile(PickerTarget::Right);
+            break;
+        case WelcomeChoice::None:
+            break;
+    }
+
+    ImGui::End();
+}
+
+void AppWindow::drawDirectionMenu() {
+    if (!ImGui::BeginMenu("Graph direction")) {
+        return;
+    }
+
+    // Positions live in the layout, so a change is a new layout job rather than
+    // a different way of drawing the one already published.
+    const bool topDown = graphDirection_ == GraphDirection::TopDown;
+    if (ImGui::MenuItem("Top down", nullptr, topDown) && !topDown) {
+        setGraphDirection(GraphDirection::TopDown);
+    }
+    if (ImGui::MenuItem("Left to right", nullptr, !topDown) && topDown) {
+        setGraphDirection(GraphDirection::LeftToRight);
+    }
+
+    ImGui::TextDisabled("A format may choose for itself.");
+    ImGui::EndMenu();
+}
+
+void AppWindow::setGraphDirection(GraphDirection direction) {
+    graphDirection_ = direction;
+    if (options_.hasInputs()) {
+        session_.open(makeRequest(options_, graphDirection_));
+    }
 }
 
 void AppWindow::layoutDockSpaceOnce() {
@@ -304,6 +460,7 @@ void AppWindow::layoutDockSpaceOnce() {
     const ImGuiID bottom = ImGui::DockBuilderSplitNode(main, ImGuiDir_Down, 0.16f, nullptr, &main);
     const ImGuiID right = ImGui::DockBuilderSplitNode(main, ImGuiDir_Right, 0.26f, nullptr, &main);
 
+    ImGui::DockBuilderDockWindow(kWelcomeTitle, main);
     ImGui::DockBuilderDockWindow(kTextViewTitle, main);
     ImGui::DockBuilderDockWindow(kNodeViewTitle, main);
     ImGui::DockBuilderDockWindow(kDetailsTitle, right);
@@ -391,9 +548,9 @@ void AppWindow::drawDetails(const DiffSnapshot& snapshot) {
     ImGui::Separator();
     ImGui::Spacing();
 
-    // An outline of the parsed tree, coloured by change status. The node view
-    // that draws this as a graph arrives at M4. The right side is shown because
-    // that is the version being reviewed.
+    // An outline of the parsed tree, coloured by change status, standing
+    // alongside the node view rather than replacing it. The right side is shown
+    // because that is the version being reviewed.
     if (ImGui::BeginChild("outline")) {
         drawTreeOutline(*snapshot.rightTree, *snapshot.provider, snapshot.rightTree->root(),
                         snapshot.treeDiff.get(), Side::Right);

@@ -5,17 +5,8 @@ A lightweight GUI tool for diffing tree-shaped data. It shows the same diff two
 ways, as text and as a node graph, and it runs from the command line so it can
 serve as the diff tool for Perforce or another version control system.
 
-**Status: usable. Milestones M0 to M6 have landed.** Both views work and share
-a selection. The text view aligns the two files and picks out the changed words
-within a rewritten line. The node view draws both trees as one graph coloured
-by what happened to each node, with unchanged subtrees collapsed and a ghost
-edge showing where a moved node came from. Clicking in either view selects in
-the other. XML and JSON are both built in and are told apart by extension or,
-failing that, by a look at the first bytes. A format of your own is a C++ class
-and one line in a list, documented in [docs/PROVIDERS.md](docs/PROVIDERS.md).
-The headless report lists the changes for scripting.
-
-Missing so far: everything under Roadmap below.
+**[USAGE.md](USAGE.md) is the user guide.** Start there if you want to use the
+tool rather than work on it.
 
 Why
 ---
@@ -46,14 +37,30 @@ What it does
 - **Stays responsive.** Parsing, matching, and layout run off the frame loop,
   publish results in stages, and can be cancelled. A large file does not freeze
   the window.
+- **Runs without a window.** A headless mode writes a text or JSON report and
+  can set its exit status from the result, for scripts and build jobs.
+- **Opens on its own.** Launch it with no arguments and choose both files in
+  the window, or pass them on the command line the way a version control system
+  does. The node graph runs top down or left to right, and a format may choose
+  the direction that suits its own shape.
+
+What it does not do yet
+-----------------------
+
+- The text view is side by side only. There is no unified view and no
+  option to ignore formatting differences.
+- Configuration is a small file of extension-to-format mappings. It is not a
+  scripting language, and format providers are C++ classes compiled into the
+  program.
+- There is no release to download and no installer. Build it from source.
+- Nothing has been verified against a real Perforce or Git client yet.
 
 Stack
 -----
 
 C++20 with Dear ImGui on GLFW and OpenGL 3.3, built with CMake. Dependencies
 are fetched and pinned by exact git ref, so you need only CMake, a generator
-and a compiler. pugixml for XML, simdjson for JSON, Catch2 for tests. See the
-implementation plan for why each was chosen.
+and a compiler. pugixml for XML, simdjson for JSON, Catch2 for tests.
 
 Building
 --------
@@ -63,85 +70,48 @@ pinned by the build, so nothing else has to be installed. On Windows the
 Microsoft toolchain is the tested one; Clang needs version 19 or newer to
 match the Microsoft standard library it compiles against.
 
-```
+```bash
 cmake -S . -B build
+```
+
+```bash
 cmake --build build --config RelWithDebInfo
 ```
 
 Run the tests:
 
-```
+```bash
 ctest --test-dir build -C RelWithDebInfo --output-on-failure
 ```
 
 Build the API reference, which needs Doxygen on the path:
 
-```
+```bash
 cmake --build build --target docs
 ```
 
-Compare two files:
+Then compare two files:
 
-```
+```bash
 build/bin/RelWithDebInfo/nmxmldiff testdata/sample/tree_before.xml testdata/sample/tree_after.xml
 ```
 
-Add `--headless --report json --exit-code` to run without a window, which is
-also how a script or a continuous integration check would use it.
-
-The format comes from the extension, or from the first bytes when the extension
-is unfamiliar, so a JSON pair needs nothing extra:
-
-```
-build/bin/RelWithDebInfo/nmxmldiff testdata/sample/level_before.json testdata/sample/level_after.json
-```
-
-Pass `--format` to override that, and `--list-formats` to see what this build
-reads:
-
-```
-build/bin/RelWithDebInfo/nmxmldiff --list-formats
-```
-
-The behaviour tree in `testdata/sample` shows what a format that knows its own
-schema buys. Read by its own provider it is four nodes titled by behaviour;
-read as generic XML with `--format xml` it is eight, half of them called
-`property`.
-
-If your studio's asset files use their own suffixes, point them at a provider
-in a configuration file rather than rebuilding:
-
-```
-build/bin/RelWithDebInfo/nmxmldiff --config testdata/sample/providers.conf --list-formats
-```
-
-Open straight into the node view:
-
-```
-build/bin/RelWithDebInfo/nmxmldiff --view node testdata/sample/tree_before.xml testdata/sample/tree_after.xml
-```
+[USAGE.md](USAGE.md) covers the rest: the two views, choosing a format, the
+configuration file, and the headless reports.
 
 Repository contents
 -------------------
 
 | File | What it is |
 | --- | --- |
+| [USAGE.md](USAGE.md) | The user guide. How to run the tool and what everything in it does. |
 | [REQUIREMENTS.md](REQUIREMENTS.md) | What the tool has to do. The source of truth. |
-| [Doxyfile](Doxyfile) | Configuration for the API reference. Undocumented code is an error, so the `docs` target fails rather than quietly producing a thinner reference. |
-| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Architecture, data model, provider interface, matching algorithm, milestones, and open questions. |
+| [CODE_GUIDELINES.md](CODE_GUIDELINES.md) | How the code is written: documentation, comments, constants and function length. |
+| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Architecture, data model, provider interface and matching algorithm, with the reasoning behind each choice. |
 | [docs/PROVIDERS.md](docs/PROVIDERS.md) | How to teach the tool a format of your own. Carries the provider interface version, which is 1. |
-| [testdata/sample/providers.conf](testdata/sample/providers.conf) | A sample configuration pointing file extensions at providers. |
-
-Roadmap
--------
-
-Milestones M0 through M6 are done: a skeleton with a job system, a text diff,
-the data model with a generic XML provider, the diff engine, the node view, a
-generic JSON provider, and custom formats with a worked example. A shippable
-release follows at M7: a portable archive, dependency attribution, and one-page
-setup documents for Perforce and Git verified against real clients. A Lua bridge
-for writing format providers without a compiler, and three-way merge, are
-deliberately out of initial scope but the architecture keeps both open.
+| [Doxyfile](Doxyfile) | Configuration for the API reference. Undocumented code is an error, so the `docs` target fails rather than quietly producing a thinner reference. |
+| [testdata/sample/providers.conf](testdata/sample/providers.conf) | A sample configuration pointing file extensions at formats. |
+| [testdata/golden/](testdata/golden/) | The corpus of comparisons whose expected output the tests check against. |
 
 Licence
 -------

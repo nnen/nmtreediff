@@ -72,17 +72,37 @@ TEST_CASE("no arguments opens an empty window rather than exiting", "[cli]") {
     CHECK_FALSE(none.options->hasInputs());
 }
 
-TEST_CASE("one path alone is refused", "[cli]") {
-    // Half a pair is a mistake rather than a deliberate empty start.
+TEST_CASE("one path alone starts the window with that side chosen", "[cli]") {
+    // Half a pair used to be refused. Now that files can be chosen in the
+    // window, it is a starting point: the given side is kept and the other is
+    // asked for.
     const auto one = parseArguments({"only.xml"});
-    CHECK_FALSE(one.shouldRun());
-    CHECK(one.exitCode != 0);
+    REQUIRE(one.shouldRun());
+    CHECK(one.exitCode == 0);
+    CHECK_FALSE(one.options->hasInputs());
+    CHECK(one.options->leftPath == "only.xml");
+    CHECK(one.options->rightPath.empty());
+}
+
+TEST_CASE("a label is not invented for a path that was not given", "[cli]") {
+    // A label stands in for a path. Defaulting it from an empty path would put
+    // an empty title on a side nobody has chosen yet.
+    const auto one = parseArguments({"only.xml"});
+    REQUIRE(one.shouldRun());
+    CHECK(one.options->leftLabel == "only.xml");
+    CHECK(one.options->rightLabel.empty());
 }
 
 TEST_CASE("headless still requires both paths", "[cli]") {
-    const auto parsed = parseArguments({"--headless"});
-    CHECK_FALSE(parsed.shouldRun());
-    CHECK(parsed.exitCode != 0);
+    // Headless has nobody to ask, so the rule that relaxed for the window
+    // cannot relax here.
+    const auto neither = parseArguments({"--headless"});
+    CHECK_FALSE(neither.shouldRun());
+    CHECK(neither.exitCode != 0);
+
+    const auto one = parseArguments({"--headless", "only.xml"});
+    CHECK_FALSE(one.shouldRun());
+    CHECK(one.exitCode != 0);
 }
 
 TEST_CASE("an unknown view is refused rather than guessed", "[cli]") {

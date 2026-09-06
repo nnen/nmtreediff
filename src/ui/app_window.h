@@ -12,9 +12,11 @@
 #include "app/cli.h"
 #include "core/provider.h"
 #include "core/session.h"
+#include "ui/file_picker.h"
 #include "ui/node_view.h"
 #include "ui/selection.h"
 #include "ui/text_view.h"
+#include "ui/welcome.h"
 
 struct GLFWwindow;
 
@@ -67,6 +69,21 @@ private:
                          const DiffModel* diff, Side side);
     void layoutDockSpaceOnce();
 
+    /// \brief Draws the pane shown until both files are chosen.
+    void drawWelcomePane();
+
+    /// \brief Collects an answer from the file dialog, if one arrived.
+    ///
+    /// \remarks Called once a frame. Choosing the second of the two files is
+    ///          what starts a comparison, so this is where a session begins when
+    ///          the tool was launched with no arguments.
+    void collectPickedFile();
+
+    /// \brief Opens the dialog for one side.
+    ///
+    /// \param target Which side to choose a file for.
+    void askForFile(PickerTarget target);
+
     /// \brief Reads the framebuffer back and saves it.
     ///
     /// \param width Framebuffer width in pixels.
@@ -75,6 +92,10 @@ private:
 
     Options options_;
     Session session_;
+    FilePicker picker_;
+
+    /// \brief Why the last file dialog failed, or empty.
+    std::string pickerError_;
     TextView textView_;
     NodeView nodeView_;
 
@@ -95,6 +116,21 @@ private:
     unsigned framesPresented_ = 0;
 
     InitialView view_ = InitialView::Text;
+
+    /// \brief Draws the graph direction submenu.
+    void drawDirectionMenu();
+
+    /// \brief Changes the standing direction and lays the graph out again.
+    ///
+    /// \param direction The direction to adopt.
+    void setGraphDirection(GraphDirection direction);
+
+    /// \brief The reader's standing choice of graph direction.
+    ///
+    /// \remarks Only a default. A format that names a direction of its own
+    ///          overrides it, so the menu shows which way the reader asked for
+    ///          rather than which way the graph on screen actually runs.
+    GraphDirection graphDirection_ = GraphDirection::TopDown;
 };
 
 }  // namespace nmxd

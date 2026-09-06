@@ -48,7 +48,8 @@ public:
     void collapseUnchanged(const DiffSnapshot& snapshot);
 
 private:
-    void drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot, Selection& selection);
+    void drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot,
+                    Selection& selection);
     void drawMinimap(const TreeLayout& layout);
     void centreOn(const TreeLayout& layout, LayoutId id);
     void followSelection(const TreeLayout& layout, const Selection& selection);

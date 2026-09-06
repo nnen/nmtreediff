@@ -41,7 +41,7 @@ into the node's property list.
 </behaviortree>
 ```
 
-Read as generic XML that file is five nodes, three of which are called
+Read as generic XML that file is five nodes, two of which are called
 `property` and tell a reviewer nothing. Read by its own provider it is three,
 titled Sequence and MoveTo, and a changed speed is reported as a property of
 the behaviour it belongs to rather than as an edit to an anonymous element.

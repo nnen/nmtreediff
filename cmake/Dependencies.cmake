@@ -96,6 +96,23 @@ if(NMXD_BUILD_GUI)
     add_library(imgui::imgui ALIAS imgui)
 endif()
 
+# --------------------------------------------- nativefiledialog-extended -----
+# Dear ImGui has no file dialog, and a diff tool that cannot open a file from
+# inside its own window is not one a person can launch. A native dialog is what
+# an artist expects: recent places, a typed network path, and the shell's own
+# sorting. Writing one per platform is three backends and a COM apartment; this
+# is one small MIT dependency with a CMake build.
+if(NMXD_BUILD_GUI)
+    FetchContent_Declare(
+        nfd
+        GIT_REPOSITORY https://github.com/btzy/nativefiledialog-extended.git
+        GIT_TAG        86d5f2005fe1c00747348a12070fec493ea2407e  # v1.2.1
+        GIT_SHALLOW    TRUE
+    )
+    set(NFD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(nfd)
+endif()
+
 # --------------------------------------------------------------- Catch2 -----
 if(NMXD_BUILD_TESTS)
     FetchContent_Declare(

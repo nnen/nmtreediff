@@ -16,14 +16,16 @@ add_library(nmxd::cli ALIAS nmxd_cli)
 if(NMXD_BUILD_GUI)
     add_library(nmxd_ui STATIC
         ${CMAKE_SOURCE_DIR}/src/ui/app_window.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/file_picker.cpp
         ${CMAKE_SOURCE_DIR}/src/ui/node_view.cpp
         ${CMAKE_SOURCE_DIR}/src/ui/screenshot.cpp
         ${CMAKE_SOURCE_DIR}/src/ui/text_view.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/welcome.cpp
     )
     target_include_directories(nmxd_ui PUBLIC ${CMAKE_SOURCE_DIR}/src)
     target_link_libraries(nmxd_ui
         PUBLIC nmxd::core nmxd::cli
-        PRIVATE imgui::imgui nmxd_warnings
+        PRIVATE imgui::imgui nfd::nfd nmxd_warnings
     )
     add_library(nmxd::ui ALIAS nmxd_ui)
 endif()

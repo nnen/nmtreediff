@@ -172,7 +172,9 @@ void Session::runOpen(const SessionRequest& request, std::stop_token token, Gene
     }
 
     auto layout = std::make_shared<TreeLayout>(
-        buildLayout(*result.leftTree, *result.rightTree, *treeDiff, *provider, token));
+        buildLayout(*result.leftTree, *result.rightTree, *treeDiff, *provider, token,
+                    request.layoutMetrics,
+                    resolveDirection(*provider, request.graphDirection)));
     if (token.stop_requested() || layout->cancelled) {
         return;
     }

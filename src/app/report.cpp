@@ -56,6 +56,93 @@ std::string jsonEscape(std::string_view text) {
 
 }  // namespace
 
+namespace {
+
+/// \brief Writes the machine-readable report.
+///
+/// \param out Where to write.
+/// \param snapshot The finished comparison.
+/// \param identical Whether the two sides matched.
+///
+/// \remarks Split from the text report because the two share only the
+///          numbers they quote. One function emitting both was long enough that
+///          the shape of either was hard to see.
+void writeJsonReport(std::ostream& out, const DiffSnapshot& snapshot, bool identical) {
+    const TextDiff& text = *snapshot.text;
+    out << "{\n";
+    out << "  \"status\": \"ok\",\n";
+    out << "  \"comparison\": \"lines\",\n";
+    out << "  \"identical\": " << (identical ? "true" : "false") << ",\n";
+    out << "  \"quality\": \"" << jsonEscape(describe(text.quality)) << "\",\n";
+    out << "  \"added\": " << text.addedRows << ",\n";
+    out << "  \"deleted\": " << text.deletedRows << ",\n";
+    out << "  \"modified\": " << text.modifiedRows << ",\n";
+    out << "  \"unchanged\": " << text.equalRows << ",\n";
+    out << "  \"changeBlocks\": " << text.changeBlocks.size() << ",\n";
+    if (snapshot.provider != nullptr && snapshot.leftTree && snapshot.rightTree) {
+        out << "  \"format\": \"" << jsonEscape(snapshot.provider->name()) << "\",\n";
+        out << "  \"leftNodes\": " << snapshot.leftTree->size() << ",\n";
+        out << "  \"rightNodes\": " << snapshot.rightTree->size() << ",\n";
+    }
+    if (snapshot.treeDiff != nullptr) {
+        const DiffModel& tree = *snapshot.treeDiff;
+        out << "  \"tree\": {\n";
+        out << "    \"quality\": \"" << jsonEscape(describe(tree.quality)) << "\",\n";
+        out << "    \"added\": " << tree.added << ",\n";
+        out << "    \"deleted\": " << tree.deleted << ",\n";
+        out << "    \"modified\": " << tree.modified << ",\n";
+        out << "    \"moved\": " << tree.moved << ",\n";
+        out << "    \"unchanged\": " << tree.unchanged << "\n";
+        out << "  },\n";
+    }
+    out << "  \"elapsedMillis\": " << snapshot.elapsedMillis << ",\n";
+    out << "  \"left\": { \"label\": \"" << jsonEscape(snapshot.left->label())
+        << "\", \"bytes\": " << snapshot.left->size()
+        << ", \"lines\": " << snapshot.left->lineCount() << " },\n";
+    out << "  \"right\": { \"label\": \"" << jsonEscape(snapshot.right->label())
+        << "\", \"bytes\": " << snapshot.right->size()
+        << ", \"lines\": " << snapshot.right->lineCount() << " }\n";
+    out << "}\n";
+}
+
+/// \brief Writes the report meant for a person.
+///
+/// \param out Where to write.
+/// \param snapshot The finished comparison.
+/// \param identical Whether the two sides matched.
+void writeTextReport(std::ostream& out, const DiffSnapshot& snapshot, bool identical) {
+    const TextDiff& text = *snapshot.text;
+    out << snapshot.left->label() << ": " << snapshot.left->size() << " bytes, "
+        << snapshot.left->lineCount() << " lines\n";
+    out << snapshot.right->label() << ": " << snapshot.right->size() << " bytes, "
+        << snapshot.right->lineCount() << " lines\n";
+    if (identical) {
+        out << "identical\n";
+    } else {
+        out << "+" << text.addedRows << " -" << text.deletedRows << " ~" << text.modifiedRows
+            << " across " << text.changeBlocks.size() << " change"
+            << (text.changeBlocks.size() == 1 ? "" : "s") << "\n";
+    }
+    if (snapshot.provider != nullptr && snapshot.leftTree && snapshot.rightTree) {
+        out << "format " << snapshot.provider->name() << ": " << snapshot.leftTree->size()
+            << " and " << snapshot.rightTree->size() << " nodes\n";
+    }
+    if (snapshot.treeDiff != nullptr) {
+        const DiffModel& tree = *snapshot.treeDiff;
+        out << "nodes: +" << tree.added << " -" << tree.deleted << " ~" << tree.modified << " >"
+            << tree.moved << "\n";
+        if (tree.quality != MatchQuality::Full) {
+            out << "warning: " << describe(tree.quality) << "\n";
+        }
+        out << serializeChanges(*snapshot.leftTree, *snapshot.rightTree, tree);
+    }
+    if (text.quality != TextDiffQuality::Full) {
+        out << "warning: " << describe(text.quality) << "\n";
+    }
+}
+
+}  // namespace
+
 int writeReport(std::ostream& out, const DiffSnapshot& snapshot, const Options& options) {
     if (snapshot.stage == Stage::Failed || !snapshot.hasSources()) {
         const std::string message =
@@ -83,70 +170,10 @@ int writeReport(std::ostream& out, const DiffSnapshot& snapshot, const Options& 
     const bool identical = text.identical();
 
     if (options.report == ReportFormat::Json) {
-        out << "{\n";
-        out << "  \"status\": \"ok\",\n";
-        out << "  \"comparison\": \"lines\",\n";
-        out << "  \"identical\": " << (identical ? "true" : "false") << ",\n";
-        out << "  \"quality\": \"" << jsonEscape(describe(text.quality)) << "\",\n";
-        out << "  \"added\": " << text.addedRows << ",\n";
-        out << "  \"deleted\": " << text.deletedRows << ",\n";
-        out << "  \"modified\": " << text.modifiedRows << ",\n";
-        out << "  \"unchanged\": " << text.equalRows << ",\n";
-        out << "  \"changeBlocks\": " << text.changeBlocks.size() << ",\n";
-        if (snapshot.provider != nullptr && snapshot.leftTree && snapshot.rightTree) {
-            out << "  \"format\": \"" << jsonEscape(snapshot.provider->name()) << "\",\n";
-            out << "  \"leftNodes\": " << snapshot.leftTree->size() << ",\n";
-            out << "  \"rightNodes\": " << snapshot.rightTree->size() << ",\n";
-        }
-        if (snapshot.treeDiff != nullptr) {
-            const DiffModel& tree = *snapshot.treeDiff;
-            out << "  \"tree\": {\n";
-            out << "    \"quality\": \"" << jsonEscape(describe(tree.quality)) << "\",\n";
-            out << "    \"added\": " << tree.added << ",\n";
-            out << "    \"deleted\": " << tree.deleted << ",\n";
-            out << "    \"modified\": " << tree.modified << ",\n";
-            out << "    \"moved\": " << tree.moved << ",\n";
-            out << "    \"unchanged\": " << tree.unchanged << "\n";
-            out << "  },\n";
-        }
-        out << "  \"elapsedMillis\": " << snapshot.elapsedMillis << ",\n";
-        out << "  \"left\": { \"label\": \"" << jsonEscape(snapshot.left->label())
-            << "\", \"bytes\": " << snapshot.left->size()
-            << ", \"lines\": " << snapshot.left->lineCount() << " },\n";
-        out << "  \"right\": { \"label\": \"" << jsonEscape(snapshot.right->label())
-            << "\", \"bytes\": " << snapshot.right->size()
-            << ", \"lines\": " << snapshot.right->lineCount() << " }\n";
-        out << "}\n";
+        writeJsonReport(out, snapshot, identical);
     } else {
-        out << snapshot.left->label() << ": " << snapshot.left->size() << " bytes, "
-            << snapshot.left->lineCount() << " lines\n";
-        out << snapshot.right->label() << ": " << snapshot.right->size() << " bytes, "
-            << snapshot.right->lineCount() << " lines\n";
-        if (identical) {
-            out << "identical\n";
-        } else {
-            out << "+" << text.addedRows << " -" << text.deletedRows << " ~" << text.modifiedRows
-                << " across " << text.changeBlocks.size() << " change"
-                << (text.changeBlocks.size() == 1 ? "" : "s") << "\n";
-        }
-        if (snapshot.provider != nullptr && snapshot.leftTree && snapshot.rightTree) {
-            out << "format " << snapshot.provider->name() << ": " << snapshot.leftTree->size()
-                << " and " << snapshot.rightTree->size() << " nodes\n";
-        }
-        if (snapshot.treeDiff != nullptr) {
-            const DiffModel& tree = *snapshot.treeDiff;
-            out << "nodes: +" << tree.added << " -" << tree.deleted << " ~" << tree.modified << " >"
-                << tree.moved << "\n";
-            if (tree.quality != MatchQuality::Full) {
-                out << "warning: " << describe(tree.quality) << "\n";
-            }
-            out << serializeChanges(*snapshot.leftTree, *snapshot.rightTree, tree);
-        }
-        if (text.quality != TextDiffQuality::Full) {
-            out << "warning: " << describe(text.quality) << "\n";
-        }
+        writeTextReport(out, snapshot, identical);
     }
-
     if (options.useExitCode) {
         return identical ? 0 : 1;
     }

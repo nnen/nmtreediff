@@ -4,7 +4,9 @@
 #include "core/layout_tree.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <unordered_map>
+#include <vector>
 
 namespace nmxd {
 
@@ -45,9 +47,12 @@ public:
     /// \param model The classified diff.
     /// \param provider The format provider.
     /// \param metrics The sizes to lay out in.
+    /// \param direction Which way the graph runs.
     LayoutBuilder(const Tree& left, const Tree& right, const DiffModel& model,
-                  const IFormatProvider& provider, const LayoutMetrics& metrics)
-        : left_(left), right_(right), model_(model), provider_(provider), metrics_(metrics) {}
+                  const IFormatProvider& provider, const LayoutMetrics& metrics,
+                  GraphDirection direction)
+        : left_(left), right_(right), model_(model), provider_(provider), metrics_(metrics),
+          direction_(direction) {}
 
     /// \brief Builds and positions the union.
     ///
@@ -286,40 +291,152 @@ private:
         return false;
     }
 
+    /// \brief Reports whether the graph runs left to right.
+    ///
+    /// \returns `true` when depth advances along x and breadth along y.
+    [[nodiscard]] bool horizontal() const { return direction_ == GraphDirection::LeftToRight; }
+
+    /// \brief Returns how much of the breadth axis a card occupies.
+    ///
+    /// \param card The card to measure.
+    ///
+    /// \returns The card's size along the axis siblings are laid out on.
+    [[nodiscard]] float breadthOf(const LayoutNode& card) const {
+        return horizontal() ? card.height : card.width;
+    }
+
+    /// \brief Returns how much of the depth axis a card occupies.
+    ///
+    /// \param card The card to measure.
+    ///
+    /// \returns The card's size along the axis that grows with depth.
+    [[nodiscard]] float depthOf(const LayoutNode& card) const {
+        return horizontal() ? card.width : card.height;
+    }
+
+    /// \brief Writes a breadth and depth position back as x and y.
+    ///
+    /// \param card The card to place.
+    /// \param breadth Position along the sibling axis.
+    /// \param depth Position along the axis that grows with depth.
+    void setPosition(LayoutNode& card, float breadth, float depth) const {
+        if (horizontal()) {
+            card.x = depth;
+            card.y = breadth;
+        } else {
+            card.x = breadth;
+            card.y = depth;
+        }
+    }
+
+    /// \brief Gives every card the breadth its whole subtree needs.
+    ///
+    /// \returns The subtree breadth of each card, indexed by card id.
+    ///
+    /// \remarks Runs backwards, so a card's children are already measured
+    ///          when it is reached. Parents before children in the card order is
+    ///          what makes that true.
+    [[nodiscard]] std::vector<float> measureSubtrees() const {
+        std::vector<float> breadth(layout_.nodes.size(), 0.0f);
+        for (std::size_t i = layout_.nodes.size(); i-- > 0;) {
+            breadth[i] = std::max(breadthOf(layout_.nodes[i]), childrenBreadth(i, breadth));
+        }
+        return breadth;
+    }
+
+    /// \brief Adds up what one card's children occupy, gaps included.
+    ///
+    /// \param id The parent card.
+    /// \param subtreeBreadth Breadth of every subtree, indexed by card id.
+    ///
+    /// \returns The total breadth of the children laid side by side.
+    [[nodiscard]] float childrenBreadth(std::size_t id,
+                                        const std::vector<float>& subtreeBreadth) const {
+        const std::vector<LayoutId>& children = layout_.nodes[id].children;
+        float total = 0.0f;
+        for (std::size_t c = 0; c < children.size(); ++c) {
+            if (c > 0) {
+                total += metrics_.siblingGap;
+            }
+            total += subtreeBreadth[children[c]];
+        }
+        return total;
+    }
+
+    /// \brief Returns how deep each card sits, counted in levels.
+    ///
+    /// \returns The level of each card, indexed by card id. A root is zero.
+    [[nodiscard]] std::vector<std::uint32_t> measureLevels() const {
+        std::vector<std::uint32_t> level(layout_.nodes.size(), 0);
+        for (std::size_t i = 0; i < layout_.nodes.size(); ++i) {
+            const LayoutId parent = layout_.nodes[i].parent;
+            if (parent != kInvalidLayout) {
+                level[i] = level[parent] + 1;
+            }
+        }
+        return level;
+    }
+
+    /// \brief Works out where each level begins on the depth axis.
+    ///
+    /// \param level The level of each card, indexed by card id.
+    ///
+    /// \returns The depth offset of each level, indexed by level.
+    ///
+    /// \remarks A level begins where the deepest card of the level before it
+    ///          ended, so cards of one level line up. Advancing by each card's
+    ///          own size instead would leave a ragged edge, which reads as
+    ///          disorder rather than as depth, and is worst left to right where
+    ///          card widths vary most.
+    [[nodiscard]] std::vector<float> measureLevelOffsets(
+        const std::vector<std::uint32_t>& level) const {
+        if (level.empty()) {
+            return {};
+        }
+
+        const std::uint32_t deepest = *std::max_element(level.begin(), level.end());
+        std::vector<float> extent(deepest + 1, 0.0f);
+        for (std::size_t i = 0; i < layout_.nodes.size(); ++i) {
+            extent[level[i]] = std::max(extent[level[i]], depthOf(layout_.nodes[i]));
+        }
+
+        std::vector<float> offset(deepest + 1, 0.0f);
+        for (std::uint32_t d = 1; d <= deepest; ++d) {
+            offset[d] = offset[d - 1] + extent[d - 1] + metrics_.levelGap;
+        }
+        return offset;
+    }
+
     /// \brief Assigns every card a position.
     ///
-    /// \remarks Two passes. The first, backwards, gives each subtree a width.
-    ///          The second, forwards, places each subtree inside the span its
-    ///          parent allotted it. Both are linear.
+    /// \remarks Measure the breadth of every subtree, work out where each
+    ///          level starts, then place the roots one after another. Roots are
+    ///          stacked along the breadth axis, so a wholesale replacement shows
+    ///          both documents beside each other rather than on top of each
+    ///          other.
     void position() {
         if (layout_.nodes.empty()) {
             return;
         }
 
-        std::vector<float> subtreeWidth(layout_.nodes.size(), 0.0f);
-        for (std::size_t i = layout_.nodes.size(); i-- > 0;) {
-            const LayoutNode& card = layout_.nodes[i];
-            float childrenWidth = 0.0f;
-            for (std::size_t c = 0; c < card.children.size(); ++c) {
-                if (c > 0) {
-                    childrenWidth += metrics_.siblingGap;
-                }
-                childrenWidth += subtreeWidth[card.children[c]];
-            }
-            subtreeWidth[i] = std::max(card.width, childrenWidth);
-        }
+        const std::vector<float> subtreeBreadth = measureSubtrees();
+        const std::vector<std::uint32_t> level = measureLevels();
+        const std::vector<float> levelOffset = measureLevelOffsets(level);
 
-        // Roots are stacked left to right, so a wholesale replacement shows both
-        // documents side by side rather than on top of each other.
         float rootCursor = 0.0f;
         for (std::size_t i = 0; i < layout_.nodes.size(); ++i) {
             if (layout_.nodes[i].parent != kInvalidLayout) {
                 continue;
             }
-            place(static_cast<LayoutId>(i), rootCursor, 0.0f, subtreeWidth);
-            rootCursor += subtreeWidth[i] + metrics_.siblingGap * 2.0f;
+            place(static_cast<LayoutId>(i), rootCursor, 0, subtreeBreadth, level, levelOffset);
+            rootCursor += subtreeBreadth[i] + metrics_.siblingGap * 2.0f;
         }
 
+        measureExtent();
+    }
+
+    /// \brief Records how large the finished drawing is.
+    void measureExtent() {
         float maxX = 0.0f;
         float maxY = 0.0f;
         for (const LayoutNode& card : layout_.nodes) {
@@ -333,31 +450,28 @@ private:
     /// \brief Places one card and everything below it.
     ///
     /// \param id The card to place.
-    /// \param left Left edge of the span allotted to this subtree.
-    /// \param top Top edge of this depth.
-    /// \param subtreeWidth Width of every subtree, indexed by card id.
-    void place(LayoutId id, float left, float top, const std::vector<float>& subtreeWidth) {
+    /// \param breadth Start of the span allotted to this subtree.
+    /// \param depth The level this card sits at.
+    /// \param subtreeBreadth Breadth of every subtree, indexed by card id.
+    /// \param level The level of each card, indexed by card id.
+    /// \param levelOffset Where each level begins, indexed by level.
+    void place(LayoutId id, float breadth, std::uint32_t depth,
+               const std::vector<float>& subtreeBreadth,
+               const std::vector<std::uint32_t>& level, const std::vector<float>& levelOffset) {
+        // The card sits centred in the span its parent allotted it.
         LayoutNode& card = layout_.nodes[id];
-        card.y = top;
-        card.x = left + (subtreeWidth[id] - card.width) * 0.5f;
+        setPosition(card, breadth + (subtreeBreadth[id] - breadthOf(card)) * 0.5f,
+                    levelOffset[depth]);
 
-        const float childTop = top + card.height + metrics_.levelGap;
-        float cursor = left;
-        // Children fill the parent's span from the left, so a parent with one
-        // child sits directly above it.
-        float childrenWidth = 0.0f;
-        for (std::size_t c = 0; c < card.children.size(); ++c) {
-            if (c > 0) {
-                childrenWidth += metrics_.siblingGap;
-            }
-            childrenWidth += subtreeWidth[card.children[c]];
-        }
-        cursor = left + (subtreeWidth[id] - childrenWidth) * 0.5f;
+        // Children fill that same span from its start, so a parent with one
+        // child lines up exactly with it.
+        const float total = childrenBreadth(id, subtreeBreadth);
+        float cursor = breadth + (subtreeBreadth[id] - total) * 0.5f;
 
         const std::vector<LayoutId> children = card.children;
         for (const LayoutId child : children) {
-            place(child, cursor, childTop, subtreeWidth);
-            cursor += subtreeWidth[child] + metrics_.siblingGap;
+            place(child, cursor, depth + 1, subtreeBreadth, level, levelOffset);
+            cursor += subtreeBreadth[child] + metrics_.siblingGap;
         }
     }
 
@@ -366,6 +480,7 @@ private:
     const DiffModel& model_;
     const IFormatProvider& provider_;
     LayoutMetrics metrics_;
+    GraphDirection direction_;
     TreeLayout layout_;
     std::unordered_map<std::uint64_t, LayoutId> index_;
 };
@@ -383,9 +498,12 @@ LayoutId TreeLayout::find(Side side, NodeId node) const {
 
 TreeLayout buildLayout(const Tree& left, const Tree& right, const DiffModel& model,
                        const IFormatProvider& provider, std::stop_token token,
-                       LayoutMetrics metrics) {
-    LayoutBuilder builder(left, right, model, provider, metrics);
-    return builder.build(token);
+                       LayoutMetrics metrics, GraphDirection direction) {
+    LayoutBuilder builder(left, right, model, provider, metrics, direction);
+    TreeLayout layout = builder.build(token);
+    layout.metrics = metrics;
+    layout.direction = direction;
+    return layout;
 }
 
 NodeId findNodeAt(const Tree& tree, std::uint32_t offset) {

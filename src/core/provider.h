@@ -55,6 +55,18 @@ struct NodeStyle {
     std::string icon;
 };
 
+/// \brief Which way a node graph runs.
+///
+/// \remarks Top down suits a wide, shallow tree. Left to right suits a deep
+///          one, which is the shape a behaviour tree usually has. The choice is
+///          the reader's, so a provider that has no opinion says so rather than
+///          overruling it.
+enum class GraphDirection {
+    Inherit,      ///< No opinion; use whatever the reader chose.
+    TopDown,      ///< Children below their parent.
+    LeftToRight,  ///< Children to the right of their parent.
+};
+
 /// \brief How the matcher decides two nodes are the same node.
 struct IdentityKey {
     /// \brief Whether this key may be matched across arbitrary distance.
@@ -216,6 +228,17 @@ public:
         return true;
     }
 
+    /// \brief Returns the direction this format's graph reads best in.
+    ///
+    /// \returns A direction, or GraphDirection::Inherit to accept the
+    ///          reader's choice.
+    ///
+    /// \remarks Returning Inherit is not the same as returning TopDown. A
+    ///          provider with no opinion must not overrule a reader who has one,
+    ///          so the default answers Inherit and only a provider that really
+    ///          knows its shape names a direction.
+    [[nodiscard]] virtual GraphDirection graphDirection() const { return GraphDirection::Inherit; }
+
     /// \brief Writes a tree back out in this format.
     ///
     /// \param tree The tree to serialise.
@@ -231,6 +254,19 @@ public:
         return fail(SerializeError::NotSupported);
     }
 };
+
+/// \brief Settles which direction a graph is drawn in.
+///
+/// \param provider The provider whose opinion to ask.
+/// \param fallback What to use when the provider has none.
+///
+/// \returns The provider's direction, or \p fallback when it returns
+///          GraphDirection::Inherit.
+///
+/// \remarks Resolved once, where both answers are known, so that nothing
+///          further down has to remember which of the two wins.
+[[nodiscard]] GraphDirection resolveDirection(const IFormatProvider& provider,
+                                              GraphDirection fallback);
 
 /// \brief Ranks a name against a fixed leading order.
 ///

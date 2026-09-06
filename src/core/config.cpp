@@ -60,6 +60,89 @@ const char* describe(ConfigError error) noexcept {
     return "unknown error";
 }
 
+namespace {
+
+/// \brief Cuts one line off the front of the text.
+///
+/// \param text The whole configuration.
+/// \param position Where to start, advanced past the line and its break.
+///
+/// \returns The line, without its trailing newline.
+[[nodiscard]] std::string_view takeLine(std::string_view text, std::size_t& position) {
+    const std::size_t breakAt = text.find('\n', position);
+    const std::string_view line = text.substr(
+        position, breakAt == std::string_view::npos ? std::string_view::npos : breakAt - position);
+    position = breakAt == std::string_view::npos ? text.size() + 1 : breakAt + 1;
+    return line;
+}
+
+/// \brief Strips a comment and the surrounding blanks from one line.
+///
+/// \param line The raw line.
+///
+/// \returns What is left to read, which may be empty.
+///
+/// \remarks A comment runs to the end of the line. Nothing in a key or a
+///          provider name can contain a hash, so there is no quoting to get
+///          wrong.
+[[nodiscard]] std::string_view stripComment(std::string_view line) {
+    if (const std::size_t hash = line.find('#'); hash != std::string_view::npos) {
+        line = line.substr(0, hash);
+    }
+    return trim(line);
+}
+
+/// \brief Reads one meaningful line into the configuration.
+///
+/// \param line The line, already stripped of comments and blanks.
+/// \param lineNumber Which line this is, for any problem reported.
+/// \param config The configuration being built.
+/// \param problems Where to record anything wrong with the line.
+///
+/// \remarks Every problem is recorded and the line skipped, rather than the
+///          first one ending the parse. Someone fixing a configuration should
+///          see the whole list rather than one mistake per run.
+void applyLine(std::string_view line, std::uint32_t lineNumber, ProviderConfig& config,
+               std::vector<ConfigProblem>& problems) {
+    const std::size_t equals = line.find('=');
+    if (equals == std::string_view::npos) {
+        problems.push_back(
+            ConfigProblem{lineNumber, "expected a line of the form \"key = value\""});
+        return;
+    }
+
+    const std::string_view key = trim(line.substr(0, equals));
+    const std::string_view value = trim(line.substr(equals + 1));
+    if (key.empty()) {
+        problems.push_back(ConfigProblem{lineNumber, "the key is missing"});
+        return;
+    }
+    if (value.empty()) {
+        problems.push_back(
+            ConfigProblem{lineNumber, "\"" + std::string(key) + "\" has no value"});
+        return;
+    }
+
+    if (key == kFallbackKey) {
+        config.fallback = value;
+        return;
+    }
+    if (key.front() == '.') {
+        if (key.size() == 1) {
+            problems.push_back(ConfigProblem{lineNumber, "\".\" is not an extension"});
+            return;
+        }
+        config.extensions.emplace_back(lower(key), std::string(value));
+        return;
+    }
+
+    problems.push_back(ConfigProblem{
+        lineNumber, "\"" + std::string(key) +
+                        "\" is neither an extension, which starts with a dot, nor \"fallback\""});
+}
+
+}  // namespace
+
 ProviderConfig parseProviderConfig(std::string_view text, std::vector<ConfigProblem>& problems) {
     ProviderConfig config;
 
@@ -67,57 +150,10 @@ ProviderConfig parseProviderConfig(std::string_view text, std::vector<ConfigProb
     std::size_t position = 0;
     while (position <= text.size()) {
         ++lineNumber;
-        const std::size_t breakAt = text.find('\n', position);
-        std::string_view line =
-            text.substr(position, breakAt == std::string_view::npos ? std::string_view::npos
-                                                                    : breakAt - position);
-        position = breakAt == std::string_view::npos ? text.size() + 1 : breakAt + 1;
-
-        // A comment runs to the end of the line. Nothing in a key or a provider
-        // name can contain a hash, so there is no quoting to get wrong.
-        if (const std::size_t hash = line.find('#'); hash != std::string_view::npos) {
-            line = line.substr(0, hash);
+        const std::string_view line = stripComment(takeLine(text, position));
+        if (!line.empty()) {
+            applyLine(line, lineNumber, config, problems);
         }
-        line = trim(line);
-        if (line.empty()) {
-            continue;
-        }
-
-        const std::size_t equals = line.find('=');
-        if (equals == std::string_view::npos) {
-            problems.push_back(
-                ConfigProblem{lineNumber, "expected a line of the form \"key = value\""});
-            continue;
-        }
-
-        const std::string_view key = trim(line.substr(0, equals));
-        const std::string_view value = trim(line.substr(equals + 1));
-        if (key.empty()) {
-            problems.push_back(ConfigProblem{lineNumber, "the key is missing"});
-            continue;
-        }
-        if (value.empty()) {
-            problems.push_back(ConfigProblem{lineNumber,
-                                             "\"" + std::string(key) + "\" has no value"});
-            continue;
-        }
-
-        if (key == kFallbackKey) {
-            config.fallback = value;
-            continue;
-        }
-        if (key.front() == '.') {
-            if (key.size() == 1) {
-                problems.push_back(ConfigProblem{lineNumber, "\".\" is not an extension"});
-                continue;
-            }
-            config.extensions.emplace_back(lower(key), std::string(value));
-            continue;
-        }
-
-        problems.push_back(ConfigProblem{
-            lineNumber, "\"" + std::string(key) +
-                            "\" is neither an extension, which starts with a dot, nor \"fallback\""});
     }
 
     return config;

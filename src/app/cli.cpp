@@ -68,10 +68,11 @@ ParseResult parseInto(CLI::App& app, std::vector<std::string> reversedArgs) {
         return ParseResult{std::move(options), 0};
     }
 
-    const bool onlyOneGiven = options.leftPath.empty() != options.rightPath.empty();
-    if (onlyOneGiven || (options.headless && !options.hasInputs())) {
-        std::cerr << "nmxmldiff: two files are required"
-                  << (options.headless ? " in headless mode" : "") << '\n'
+    // Headless has nobody to ask, so it still needs both. With a window, one
+    // path or none is a starting point rather than a mistake: the missing side
+    // is chosen in the window.
+    if (options.headless && !options.hasInputs()) {
+        std::cerr << "nmxmldiff: two files are required in headless mode\n"
                   << "usage: nmxmldiff [options] <left> <right>\n";
         return ParseResult{std::nullopt, 2};
     }
@@ -79,10 +80,10 @@ ParseResult parseInto(CLI::App& app, std::vector<std::string> reversedArgs) {
     options.view = (viewName == "node") ? InitialView::Node : InitialView::Text;
     options.report = (reportName == "json") ? ReportFormat::Json : ReportFormat::Text;
 
-    if (options.leftLabel.empty()) {
+    if (options.leftLabel.empty() && !options.leftPath.empty()) {
         options.leftLabel = options.leftPath.string();
     }
-    if (options.rightLabel.empty()) {
+    if (options.rightLabel.empty() && !options.rightPath.empty()) {
         options.rightLabel = options.rightPath.string();
     }
 
