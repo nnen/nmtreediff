@@ -4,6 +4,7 @@
 /// \brief The node view: both trees drawn as one graph, coloured by change.
 
 #include <cstdint>
+#include <optional>
 #include <unordered_set>
 
 #include "core/snapshot.h"
@@ -47,10 +48,49 @@ public:
     /// \param snapshot The snapshot being displayed.
     void collapseUnchanged(const DiffSnapshot& snapshot);
 
+    /// \brief Frames the whole graph on the next drawn frame.
+    void fit();
+
+    /// \brief Collects a graph direction asked for from the context menu.
+    ///
+    /// \returns The direction the reader chose, or nothing when they have not
+    ///          chosen one since the last call.
+    ///
+    /// \remarks Direction belongs to the window, which owns the session the
+    ///          layout is rebuilt from, so the view asks rather than acts. Polled
+    ///          once a frame, the same way the file dialog's answer is.
+    [[nodiscard]] std::optional<GraphDirection> takeDirectionRequest();
+
 private:
     void drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot,
                     Selection& selection);
     void drawMinimap(const TreeLayout& layout);
+
+    /// \brief Draws the canvas context menu, if it is open.
+    ///
+    /// \param layout The layout being drawn.
+    /// \param snapshot The comparison being shown.
+    void drawContextMenu(const TreeLayout& layout, const DiffSnapshot& snapshot);
+
+    /// \brief Draws the part of the context menu about one card.
+    ///
+    /// \param layout The layout being drawn.
+    void drawCardMenuItems(const TreeLayout& layout);
+
+    /// \brief Draws the graph direction items of the context menu.
+    ///
+    /// \param layout The layout being drawn, for the direction in force.
+    /// \param snapshot The comparison, for whether the format decides.
+    void drawDirectionMenuItems(const TreeLayout& layout, const DiffSnapshot& snapshot);
+
+    /// \brief Hides or reveals one card's children.
+    ///
+    /// \param layout The layout being drawn.
+    /// \param id The card to toggle.
+    ///
+    /// \remarks A card with no children is left alone: collapsing it would
+    ///          hide nothing and leave a chip claiming otherwise.
+    void toggleCollapse(const TreeLayout& layout, LayoutId id);
     void centreOn(const TreeLayout& layout, LayoutId id);
     void followSelection(const TreeLayout& layout, const Selection& selection);
     [[nodiscard]] bool hiddenByCollapse(const TreeLayout& layout, LayoutId id) const;
@@ -62,6 +102,16 @@ private:
     std::uint64_t layoutStamp_ = 0;  // which layout the pan and zoom belong to
 
     LayoutId hovered_ = kInvalidLayout;
+
+    /// \brief The card the context menu was opened on, or kInvalidLayout.
+    ///
+    /// \remarks Remembered at the click rather than read while the menu is
+    ///          drawn, because by then the pointer has moved onto the menu and
+    ///          no card is under it.
+    LayoutId menuTarget_ = kInvalidLayout;
+
+    /// \brief A direction asked for from the menu, until it is collected.
+    std::optional<GraphDirection> directionRequest_;
     std::int64_t currentChange_ = -1;
     std::uint64_t followedRevision_ = 0;
 

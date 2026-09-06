@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <string>
 
 #include <imgui.h>
 
@@ -143,6 +144,9 @@ struct CardPaint {
 /// \remarks Text is the expensive part of drawing a card, and below this scale
 ///          it is illegible anyway.
 constexpr float kTextZoomThreshold = 0.55f;
+
+/// \brief Identifier of the canvas context menu popup.
+constexpr const char* kContextMenuId = "nodeContextMenu";
 
 /// \brief Size of the minimap along its longest edge, in pixels.
 constexpr float kMinimapSize = 150.0f;
@@ -322,11 +326,13 @@ void NodeView::draw(const DiffSnapshot& snapshot, Selection& selection) {
         framed_ = false;
         collapsed_.clear();
         currentChange_ = -1;
+        // A card id from the old layout names a different card in this one.
+        menuTarget_ = kInvalidLayout;
         collapseUnchanged(snapshot);
     }
 
     if (ImGui::SmallButton("Fit")) {
-        framed_ = false;
+        fit();
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Expand all")) {
@@ -337,7 +343,8 @@ void NodeView::draw(const DiffSnapshot& snapshot, Selection& selection) {
         collapseUnchanged(snapshot);
     }
     ImGui::SameLine();
-    ImGui::TextDisabled("%zu nodes  |  drag to pan, wheel to zoom", layout.size());
+    ImGui::TextDisabled("%zu nodes  |  drag to pan, wheel to zoom, right-click for more",
+                        layout.size());
 
     drawCanvas(layout, snapshot, selection);
 }
@@ -478,15 +485,21 @@ void NodeView::drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot
         selection.clear();
         followedRevision_ = selection.revision;
     }
-    if (hovered && ImGui::IsItemClicked(ImGuiMouseButton_Right) && hovered_ != kInvalidLayout) {
-        if (collapsed_.count(hovered_) != 0) {
-            collapsed_.erase(hovered_);
-        } else if (!layout.nodes[hovered_].children.empty()) {
-            collapsed_.insert(hovered_);
-        }
+    // Double click is the usual way to open and close a node in a tree, and it
+    // costs nothing: the first click of the pair has already selected the card.
+    if (hovered && hovered_ != kInvalidLayout &&
+        ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        toggleCollapse(layout, hovered_);
+    }
+
+    // The card under the pointer is remembered now, while there still is one.
+    if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+        menuTarget_ = hovered_;
+        ImGui::OpenPopup(kContextMenuId);
     }
 
     draw->PopClipRect();
+    drawContextMenu(layout, snapshot);
     drawMinimap(layout);
 
     if (hovered_ != kInvalidLayout) {
@@ -505,6 +518,95 @@ void NodeView::drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot
         }
         ImGui::EndTooltip();
     }
+}
+
+void NodeView::toggleCollapse(const TreeLayout& layout, LayoutId id) {
+    if (id == kInvalidLayout) {
+        return;
+    }
+    if (collapsed_.count(id) != 0) {
+        collapsed_.erase(id);
+    } else if (!layout.nodes[id].children.empty()) {
+        collapsed_.insert(id);
+    }
+}
+
+void NodeView::fit() { framed_ = false; }
+
+std::optional<GraphDirection> NodeView::takeDirectionRequest() {
+    const std::optional<GraphDirection> request = directionRequest_;
+    directionRequest_.reset();
+    return request;
+}
+
+void NodeView::drawCardMenuItems(const TreeLayout& layout) {
+    if (menuTarget_ == kInvalidLayout || menuTarget_ >= layout.size()) {
+        return;
+    }
+
+    const LayoutNode& card = layout.nodes[menuTarget_];
+    const bool collapsed = collapsed_.count(menuTarget_) != 0;
+
+    // Named after the card, so the menu says which node it is about rather than
+    // leaving the reader to remember what was under the pointer.
+    const std::string label =
+        (collapsed ? "Expand " : "Collapse ") + (card.title.empty() ? "node" : card.title);
+    if (ImGui::MenuItem(label.c_str(), nullptr, false, collapsed || !card.children.empty())) {
+        toggleCollapse(layout, menuTarget_);
+    }
+    ImGui::Separator();
+}
+
+void NodeView::drawDirectionMenuItems(const TreeLayout& layout, const DiffSnapshot& snapshot) {
+    if (!ImGui::BeginMenu("Graph direction")) {
+        return;
+    }
+
+    // A format that names a direction of its own wins over the reader's choice,
+    // so offering the choice here would be offering something that does not
+    // happen. The items are shown disabled with the reason, rather than hidden,
+    // because a missing menu entry explains nothing.
+    const bool formatDecides =
+        snapshot.provider != nullptr && snapshot.provider->graphDirection() != GraphDirection::Inherit;
+    const bool topDown = layout.direction == GraphDirection::TopDown;
+
+    ImGui::BeginDisabled(formatDecides);
+    if (ImGui::MenuItem("Top down", nullptr, topDown) && !topDown) {
+        directionRequest_ = GraphDirection::TopDown;
+    }
+    if (ImGui::MenuItem("Left to right", nullptr, !topDown) && topDown) {
+        directionRequest_ = GraphDirection::LeftToRight;
+    }
+    ImGui::EndDisabled();
+
+    if (formatDecides) {
+        ImGui::TextDisabled("Chosen by %.*s.",
+                            static_cast<int>(snapshot.provider->displayName().size()),
+                            snapshot.provider->displayName().data());
+    }
+    ImGui::EndMenu();
+}
+
+void NodeView::drawContextMenu(const TreeLayout& layout, const DiffSnapshot& snapshot) {
+    if (!ImGui::BeginPopup(kContextMenuId)) {
+        return;
+    }
+
+    drawCardMenuItems(layout);
+
+    if (ImGui::MenuItem("Collapse unchanged")) {
+        collapseUnchanged(snapshot);
+    }
+    if (ImGui::MenuItem("Expand all")) {
+        expandAll();
+    }
+    ImGui::Separator();
+    if (ImGui::MenuItem("Fit to view")) {
+        fit();
+    }
+    drawDirectionMenuItems(layout, snapshot);
+
+    ImGui::EndPopup();
 }
 
 void NodeView::drawMinimap(const TreeLayout& layout) {

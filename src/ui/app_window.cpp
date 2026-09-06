@@ -511,6 +511,12 @@ void AppWindow::drawNodeView(const DiffSnapshot& snapshot) {
 
     nodeView_.draw(snapshot, selection_);
     ImGui::End();
+
+    // The view asks rather than acts, because changing direction rebuilds the
+    // layout and the session that owns it lives here.
+    if (const auto asked = nodeView_.takeDirectionRequest()) {
+        setGraphDirection(*asked);
+    }
 }
 
 void AppWindow::drawDetails(const DiffSnapshot& snapshot) {

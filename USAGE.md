@@ -94,17 +94,22 @@ Both documents are drawn as a single graph, coloured by what happened to each
 node: added, deleted, modified, moved, or unchanged.
 
 - **Drag** to pan and use the **wheel** to zoom.
-- **Fit** frames the whole graph. **Expand all** opens every collapsed group.
-  **Collapse unchanged** hides the subtrees with nothing to report, each one
+- **Double-click** a node to collapse or expand it. A collapsed node is
   replaced by a chip saying how many nodes it stands for.
+- **Right-click** for a menu: collapse or expand the node under the pointer,
+  collapse everything unchanged, expand everything, fit the graph to the
+  window, or change the direction. Right-clicking empty canvas gives the same
+  menu without the item for a single node.
+- **Fit** frames the whole graph. **Expand all** opens every collapsed group.
+  **Collapse unchanged** hides the subtrees with nothing to report.
 - A **dashed edge** traces a node that moved, running from where it used to be
   to where it is now.
 - The **minimap** in the corner shows the whole graph with the visible area
   marked on it.
 
 The graph runs **top down** by default, which suits a wide, shallow tree.
-**View, Graph direction** switches it to **left to right**, which suits a deep
-one. A format may choose for itself: behaviour trees are drawn left to right
+**View, Graph direction**, or the same item in the right-click menu, switches it
+to **left to right**, which suits a deep one. A format may choose for itself: behaviour trees are drawn left to right
 whatever the menu says, because a behaviour tree is deep and narrow and reading
 it left to right matches the execution order it describes. Changing the
 direction lays the graph out again, which is why the graph blinks.
