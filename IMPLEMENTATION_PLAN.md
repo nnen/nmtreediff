@@ -164,6 +164,7 @@ struct Property {
     std::string name;
     std::string value;
     SourceSpan  span;
+    std::vector<Property> children;   // M9: a property may hold properties
 };
 
 struct Node {
@@ -182,6 +183,21 @@ struct Node {
 Every node keeps its source span. That single field is what lets a click in the
 node view scroll the text view, and a click in the text view select a node.
 Retrofitting it later would touch every provider.
+
+**Properties nest, from M9.** R7.7 asks for it, and the reason is that a game
+asset format does not restrict itself to flat name and value pairs: a transform,
+a colour, a bounding box are each one thing with parts, and flattening them into
+`transform.position.x` would turn one changed number into a changed string with
+a made-up name. A nested property keeps the shape the file had.
+
+That is the one data model change still ahead, and it reaches further than it
+looks: hashing walks properties, matching compares them as a set, the details
+panel lists them, and the change list names them. Each of those has to decide
+what it means for a property with parts. The plan is that a property's hash
+covers its children, that two properties differ when their subtrees differ, and
+that the change list names the outermost property that changed rather than a
+path to a leaf. All three keep the existing behaviour exactly when nothing
+nests, which is what makes the change safe to land against the golden corpus.
 
 6. The format provider interface
 --------------------------------
@@ -241,6 +257,23 @@ public:
     }
 };
 ```
+
+**Nothing a provider does not recognise may be dropped, from M9.** R7.8 settles
+what was an open question: everything that is not a node is a property. A
+provider used to have three answers about an element, the third being to walk
+through it and keep nothing of it, and that third answer is what made it
+possible to lose content by accident. It is gone. An element is a node or it is
+a property, and a property may have parts, so there is nowhere for content to
+fall out of the tree.
+
+One case needs deciding rather than assuming: an element that is not a node but
+contains nodes, such as a `<children>` wrapper. Two readings are available. The
+wrapper becomes a property and everything under it becomes property content,
+which is simple and loses the nodes inside. Or the wrapper becomes a property
+recording its own name and attributes while the nodes under it attach to the
+nearest ancestor node, which keeps both and is what the walk-through case was
+useful for. The second is the one to build, because the first reintroduces the
+problem R7.8 exists to remove.
 
 **Graph direction is the version-1 promise being tested.** R12 asks for a
 top-down or left-to-right node graph, a global default with a per-format
@@ -661,7 +694,7 @@ nmxmldiff [options] <left> <right>
 
 Both paths are optional (R10). With neither, the window opens on a welcome pane
 offering the file picker; with one, it opens with that side chosen and asks for
-the other. A list of recent pairs belongs on that pane and is left to M9, which
+the other. A list of recent pairs belongs on that pane and is left to M11, which
 is where anything the tool writes back out is dealt with. Headless mode still
 requires two paths, because there is nobody there to answer.
 
@@ -688,8 +721,8 @@ systems differ:
 The wrapper is worth removing. An option that reads Git's seven-argument shape
 directly would turn the Git setup into two commands with nothing to install
 alongside them, and it is a small piece of argument handling rather than a
-feature. M9 should decide whether to add it while it is writing those documents
-against real clients.
+feature. M11 should decide whether to add it while it is writing those
+documents against real clients.
 
 Subversion gets the same treatment, documented rather than special-cased.
 
@@ -711,8 +744,10 @@ submissions, and it is also how the end-to-end tests run.
 | M6 &check; | Custom formats | Sample behavior-tree provider, format override, provider config, versioned provider documentation | Done. A `<node>` follows its GUID from one branch of the tree to another and is reported as one move, and survives a change of `type` that no structural heuristic could. docs/PROVIDERS.md carries interface version 1 |
 | M7 &check; | Standing on its own | File picker and a welcome pane, graph direction in the layout with a per-format override and a View menu default, a pass over the existing code against CODE_GUIDELINES.md | Done. The window opens with no arguments and both files are chosen in it; the behaviour tree draws itself left to right without being asked, and the interface version stayed at 1 |
 | M8 &check; | Formats without a compiler | Lua configuration from the home directory and the command line, retiring the M6 reader, the Lua provider bridge, the sample behaviour tree reimplemented in script, the graph direction and exit key settings | Done. The scripted behaviour tree produces the same tree and the same change list as the compiled one, and `kProviderInterfaceVersion` stayed at 1 |
-| M9 | Ship | Headless report, exit codes, a portable archive built in continuous integration from a tag and attached to a GitHub release, MIT licence and attribution for bundled dependencies, per-extension Perforce and Git setup docs verified against real clients, possibly a Git seven-argument mode, settings persistence | A technical artist can unzip it and configure it without help |
-| M10 | Later | Three-way merge, further game asset formats | Out of initial scope |
+| M9 | Properties with parts | Nested properties in the data model, hashing, matching and both views; the rule that anything not a node becomes a property; a way for a format to take both an element's attributes and its child elements as properties; the scripted surface and the golden corpus updated to match | A format can represent a transform or a colour as one property with parts, and no provider can drop an element it does not recognise |
+| M10 | Keys | Every action named, every shortcut settable from a configuration script, more than one binding allowed per action, the menus showing whatever is bound | A reader rebinds next-change to two keys of their own and the menu says so |
+| M11 | Ship | Headless report, exit codes, a portable archive built in continuous integration from a tag and attached to a GitHub release, MIT licence and attribution for bundled dependencies, per-extension Perforce and Git setup docs verified against real clients, possibly a Git seven-argument mode, settings persistence | A technical artist can unzip it and configure it without help |
+| M12 | Later | Three-way merge, further game asset formats | Out of initial scope |
 
 M0 through M4 were the critical path. JSON sat at M5, deliberately ahead of the
 milestone that publishes the provider interface as a documented surface: it was
@@ -827,6 +862,33 @@ than through longjmp, which would step over the destructors of everything the
 bridge holds while a callback is running. That is worth knowing before anyone
 tries to swap in a system Lua, which would be built as C.
 
+M9 and M10 cover the requirements added after M8. They are two milestones
+because they share nothing: one is a change to the data model that every
+provider and both views are built on, and the other is a table of key bindings.
+
+**M9 is the last data model change.** Nested properties reach into hashing,
+matching, the details panel and the change list, and each of those has to decide
+what a property with parts means. It goes before shipping for the ordinary
+reason: the tree is what every provider is written against, and changing it
+after a release means changing it under people who have written providers.
+
+It also settles the open question about how much a provider may drop, and
+settles it more firmly than the question asked. The question was whether the
+interface should make dropping content harder to do by accident. R7.8 answers
+that it should be impossible: an element is a node or a property, and there is
+no third answer. What the milestone has to get right is the wrapper case above,
+where an element that is not a node contains nodes.
+
+**M10 is small but not trivial**, because R16 asks for more than one binding per
+action, which means a key table rather than a setting per key. The exit key
+that M8 added becomes one row in it. Doing this before shipping matters more
+than its size suggests: a keyboard map is the kind of thing people build habits
+around, and changing it afterwards costs more than building it now.
+
+**R11.3 was already satisfied**, which was checked rather than assumed: one
+script may declare as many providers as it likes, because each declaration is
+an ordinary call and nothing about the reader is limited to one.
+
 12. Testing
 -----------
 
@@ -877,8 +939,9 @@ library is what makes that acceptable.
   Pin an exact commit in the manifest and upgrade deliberately.
 - **Risk: round-tripping for merge.** Serialization is declared but
   unimplemented. If preserving original formatting in merged output matters,
-  the tree must retain more source detail than it does now. Decide before M10,
-  not during it.
+  the tree must retain more source detail than it does now. M9 moves the model
+  in that direction by giving properties parts, but does not settle it. Decide
+  before M12, not during it.
 - **Settled: JSON spans.** Node spans are what link the two views, and most
   JSON libraries expose no byte offsets at all. simdjson was chosen for that one
   capability and it delivered: a container's extent comes from the parser's
@@ -920,15 +983,17 @@ library is what makes that acceptable.
   a real pipeline. Picking one concrete format gives the performance work a
   realistic corpus instead of synthetic trees, and decides who can try the tool
   on day one.
-- **Open: how much a sample provider should drop.** The behavior-tree provider
-  walks through an element it does not recognise and keeps nothing of it, which
-  is fine for a worked example and wrong for a studio provider: a diff tool that
-  silently drops content is the one thing a reviewer cannot forgive. Whether the
-  interface should make that harder to do by accident is worth deciding before
-  anyone writes a provider against it in earnest.
+- **Settled: how much a provider may drop.** Nothing. R7.8 makes everything that
+  is not a node a property, so the walk-through answer that let content fall out
+  of a tree is gone at M9. The question had been whether to make dropping harder
+  to do by accident; the answer is that it stops being possible. What remains is
+  a design decision inside M9, not an open question about the interface: an
+  element that is not a node but contains nodes has to keep both, which means
+  recording the wrapper as a property while its nodes attach to the nearest
+  ancestor node.
 - **Settled: release channel.** A tagged archive on GitHub, or on something
   that works the way GitHub does. That decides more than where a file sits. It
-  means a release is a git tag rather than a build someone ran, so M9 builds the
+  means a release is a git tag rather than a build someone ran, so M11 builds the
   archive in continuous integration from the tag and attaches it; it means the
   setup documents can name a download URL that does not change; and it means the
   attribution for the bundled dependencies ships in the archive rather than
