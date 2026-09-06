@@ -156,11 +156,19 @@ the extension is unfamiliar. Override that when it guesses wrong:
 nmxmldiff --format xml odd_suffix.dat other.dat
 ```
 
-The behaviour tree in `testdata/sample` shows why a format that knows its own
-schema is worth having. Read by its own provider it is four nodes, titled by
+There are two behaviour trees in `testdata/sample`. The small one, `tree_before`
+and `tree_after`, shows why a format that knows its own schema is worth having. Read by its own provider it is four nodes, titled by
 what each one does. Read as generic XML with `--format xml` it is eight, half
 of them called `property`, and a changed speed reads as an edit to an anonymous
 element rather than as a property of the behaviour it belongs to.
+
+The larger pair, `guard_before.bt` and `guard_after.bt`, is a guard's brain
+twenty-six nodes deep in places. It is there to try the node view on something
+that does not fit on screen at once, and it contains one of every kind of
+change: an edited property, an added one, a node inserted, a node deleted, a
+node moved to a new parent, and a node whose type changed. That last one still
+matches, because the format anchors on the identifier rather than on the shape
+of the tree.
 
 Pointing your own extensions at a format
 ----------------------------------------

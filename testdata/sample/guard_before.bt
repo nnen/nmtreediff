@@ -1,0 +1,88 @@
+<behaviortree version="2">
+  <node id="g0001" type="Selector" name="Guard brain">
+    <property name="interruptible" value="true"/>
+
+    <node id="g0100" type="Sequence" name="Under attack">
+      <property name="priority" value="0"/>
+      <node id="g0110" type="Condition" name="Sees enemy">
+        <property name="sense" value="sight"/>
+        <property name="range" value="18.0"/>
+      </node>
+      <node id="g0120" type="Selector" name="Fight or flee">
+        <node id="g0121" type="Sequence" name="Engage">
+          <node id="g0122" type="Condition" name="Healthy enough">
+            <property name="health_above" value="0.35"/>
+          </node>
+          <node id="g0123" type="Sequence" name="Close in">
+            <node id="g0124" type="MoveTo" name="Approach">
+              <property name="target" value="enemy"/>
+              <property name="speed" value="3.2"/>
+              <property name="stop_within" value="6.0"/>
+            </node>
+            <node id="g0125" type="Wait" name="Steady aim">
+              <property name="seconds" value="0.4"/>
+            </node>
+          </node>
+          <node id="g0126" type="AimAt" name="Track target">
+            <property name="target" value="enemy"/>
+            <property name="tolerance" value="2.5"/>
+          </node>
+          <node id="g0127" type="Fire" name="Burst">
+            <property name="rounds" value="3"/>
+            <property name="cooldown" value="0.8"/>
+          </node>
+        </node>
+        <node id="g0130" type="Sequence" name="Retreat">
+          <node id="g0131" type="PlaySound" name="Call for help">
+            <property name="cue" value="guard_help_01"/>
+          </node>
+          <node id="g0132" type="MoveTo" name="Fall back">
+            <property name="target" value="cover_nearest"/>
+            <property name="speed" value="4.0"/>
+          </node>
+        </node>
+      </node>
+    </node>
+
+    <node id="g0200" type="Sequence" name="Investigate">
+      <property name="priority" value="1"/>
+      <node id="g0210" type="Condition" name="Heard noise">
+        <property name="sense" value="hearing"/>
+        <property name="range" value="25.0"/>
+      </node>
+      <node id="g0220" type="MoveTo" name="Go to noise">
+        <property name="target" value="last_noise"/>
+        <property name="speed" value="2.0"/>
+      </node>
+      <node id="g0230" type="Wait" name="Listen">
+        <property name="seconds" value="3.0"/>
+      </node>
+      <node id="g0240" type="LookAround" name="Scan">
+        <property name="sweep" value="180"/>
+      </node>
+    </node>
+
+    <node id="g0300" type="Sequence" name="Patrol">
+      <property name="priority" value="2"/>
+      <property name="loop" value="true"/>
+      <node id="g0310" type="MoveTo" name="Waypoint A">
+        <property name="waypoint" value="patrol_01"/>
+        <property name="speed" value="1.4"/>
+      </node>
+      <node id="g0320" type="Wait" name="Pause at A">
+        <property name="seconds" value="2.0"/>
+      </node>
+      <node id="g0330" type="MoveTo" name="Waypoint B">
+        <property name="waypoint" value="patrol_02"/>
+        <property name="speed" value="1.4"/>
+      </node>
+      <node id="g0340" type="Wait" name="Pause at B">
+        <property name="seconds" value="2.0"/>
+      </node>
+    </node>
+
+    <node id="g0400" type="Idle" name="Stand easy">
+      <property name="priority" value="3"/>
+    </node>
+  </node>
+</behaviortree>
