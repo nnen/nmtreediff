@@ -293,9 +293,12 @@ void AppWindow::buildFrame() {
     static const DiffSnapshot kEmpty;
     const DiffSnapshot& current = snapshot ? *snapshot : kEmpty;
 
-    // Escape closes the window. Nothing here is ever unsaved, so there is
-    // nothing to lose by leaving, and a diff a version control system opened is
-    // something you want to dismiss rather than file away.
+    // Escape closes the window, which is what a version control diff tool is
+    // expected to do: a review is a run of files opened one after another, and
+    // dismissing each with one key is what makes going through a large
+    // changelist bearable. Confirming would ask the same question dozens of
+    // times in a row. M8 makes the key configurable, for anyone whose habits
+    // this fights with.
     //
     // A menu or a context menu takes it first, because closing what is open is
     // what Escape means everywhere else, and quitting instead would punish

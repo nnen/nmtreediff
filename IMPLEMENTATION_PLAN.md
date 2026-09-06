@@ -300,7 +300,17 @@ formats {
 
 fallback "xml"
 graph_direction "left_to_right"
+exit_key "escape"
 ```
+
+**The exit key is settable because it is a habit, not a preference.** Escape
+closes the window with no confirmation, which is what other version control diff
+tools do: reviewing a changelist is a run of files opened one after another, and
+dismissing each with one key is what makes a long list bearable. Confirming
+would ask the same question dozens of times in a row. But someone whose muscle
+memory says Escape means "undo what I just typed" will lose a window to it, so
+the key is a setting and `none` is one of its values. `--exit-key` overrides it
+for one run, the way `--format` overrides a resolved format.
 
 Three files are read, each overriding what came before, so the most specific
 statement wins:
@@ -642,6 +652,7 @@ nmxmldiff [options] <left> <right>
   --left-label, --right-label titles a VCS wants shown
   --view text|node            initial view
   --config <file>             a configuration script, read after the found ones
+  --exit-key <name>|none      which key closes the window, default escape
   --list-formats              what this build reads, and what it resolves
   --headless                  no window
   --report text|json
@@ -677,7 +688,7 @@ submissions, and it is also how the end-to-end tests run.
 | M5 &check; | JSON | Generic JSON provider on simdjson, spans from source locations, ordered arrays and unordered object members, sniffing between the two built-ins | Done, and no interface change was needed: the provider is a new file, one line in the registry and one in the build. A 100k-node JSON pair parses in 113 ms a pair and matches in 80 ms, against 84 ms for the XML case of the same size |
 | M6 &check; | Custom formats | Sample behavior-tree provider, format override, provider config, versioned provider documentation | Done. A `<node>` follows its GUID from one branch of the tree to another and is reported as one move, and survives a change of `type` that no structural heuristic could. docs/PROVIDERS.md carries interface version 1 |
 | M7 &check; | Standing on its own | File picker and a welcome pane, graph direction in the layout with a per-format override and a View menu default, a pass over the existing code against CODE_GUIDELINES.md | Done. The window opens with no arguments and both files are chosen in it; the behaviour tree draws itself left to right without being asked, and the interface version stayed at 1 |
-| M8 | Formats without a compiler | Lua configuration from the home directory and the command line, retiring the M6 reader, the Lua provider bridge, the sample behaviour tree reimplemented in script, the graph direction setting | A format is added by writing a script and naming it in a config file, with no compiler involved, and the scripted behaviour tree reproduces the golden output of the C++ one exactly |
+| M8 | Formats without a compiler | Lua configuration from the home directory and the command line, retiring the M6 reader, the Lua provider bridge, the sample behaviour tree reimplemented in script, the graph direction and exit key settings | A format is added by writing a script and naming it in a config file, with no compiler involved, and the scripted behaviour tree reproduces the golden output of the C++ one exactly |
 | M9 | Ship | Headless report, exit codes, a portable archive built in continuous integration from a tag and attached to a GitHub release, MIT licence and attribution for bundled dependencies, one-page Perforce and Git setup docs verified against real clients, settings persistence | A technical artist can unzip it and configure it without help |
 | M10 | Later | Three-way merge, further game asset formats | Out of initial scope |
 

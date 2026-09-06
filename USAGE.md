@@ -69,8 +69,11 @@ nmxmldiff --left-label "tree.xml #14" --right-label "tree.xml #15" old.xml new.x
 The two views
 -------------
 
-**Escape** closes the tool from anywhere. Nothing is ever unsaved, so there is
-nothing to lose by leaving. If a menu is open, Escape closes that first.
+**Escape** closes the tool from anywhere, with no confirmation. That is
+deliberate, and it is what other version control diff tools do: reviewing a
+changelist means opening one file after another, and dismissing each with a
+single key is what makes a long list bearable. If a menu is open, Escape closes
+that first.
 
 Switch with **Ctrl+1** for text and **Ctrl+2** for the node view, or from the
 View menu. Both views show the same comparison and share one selection, so a
