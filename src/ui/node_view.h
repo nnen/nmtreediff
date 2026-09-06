@@ -92,6 +92,19 @@ private:
     ///          hide nothing and leave a chip claiming otherwise.
     void toggleCollapse(const TreeLayout& layout, LayoutId id);
     void centreOn(const TreeLayout& layout, LayoutId id);
+
+    /// \brief Moves the pan a frame's worth towards where it is headed.
+    ///
+    /// \remarks Called once a frame. Does nothing when the pan is already
+    ///          where it should be, which is the usual case.
+    void advanceGlide();
+
+    /// \brief Stops any glide and leaves the pan where it stands.
+    ///
+    /// \remarks Called when the reader takes hold of the view. A glide that
+    ///          kept running under a drag would fight the hand doing the
+    ///          dragging.
+    void cancelGlide();
     void followSelection(const TreeLayout& layout, const DiffSnapshot& snapshot,
                          const Selection& selection);
 
@@ -118,6 +131,17 @@ private:
     float zoom_ = 1.0f;
     float panX_ = 0.0f;
     float panY_ = 0.0f;
+
+    /// \brief Where the pan is heading, when it is gliding somewhere.
+    ///
+    /// \remarks Stepping from change to change moves the view a long way at
+    ///          once, and a jump gives the reader no idea whether the next
+    ///          change is a sibling or halfway across the document. Gliding
+    ///          costs nothing and carries that.
+    float glideX_ = 0.0f;
+    float glideY_ = 0.0f;
+    /// \brief Whether the pan is currently heading somewhere.
+    bool gliding_ = false;
     bool framed_ = false;         // whether the first fit-to-view has happened
     std::uint64_t layoutStamp_ = 0;  // which layout the pan and zoom belong to
 

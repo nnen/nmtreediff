@@ -145,6 +145,21 @@ struct CardPaint {
 ///          it is illegible anyway.
 constexpr float kTextZoomThreshold = 0.55f;
 
+/// \brief How sharply the view settles when it glides, per second.
+///
+/// \remarks Used as an exponential decay rather than a fixed step, so the
+///          glide takes the same time whatever the frame rate: vertical sync is
+///          off during a timing run and on the rest of the time, and a movement
+///          that ran at frame speed would be a blur in one and a crawl in the
+///          other.
+constexpr float kGlideRate = 14.0f;
+
+/// \brief How close in pixels counts as arrived.
+///
+/// \remarks Exponential decay never quite reaches its target, so without a
+///          floor the view would creep for ever and never be still.
+constexpr float kGlideSettled = 0.5f;
+
 /// \brief Identifier of the canvas context menu popup.
 constexpr const char* kContextMenuId = "nodeContextMenu";
 
@@ -377,8 +392,10 @@ void NodeView::drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot
         // than clinging to the top of a mostly empty one.
         panY_ = std::max(24.0f, (size.y - layout.height * zoom_) * 0.5f);
         framed_ = true;
+        cancelGlide();
     }
 
+    advanceGlide();
     followSelection(layout, snapshot, selection);
 
     ImGui::InvisibleButton("canvas", size,
@@ -387,11 +404,13 @@ void NodeView::drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot
     const ImGuiIO& io = ImGui::GetIO();
 
     if (hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+        cancelGlide();
         panX_ += io.MouseDelta.x;
         panY_ += io.MouseDelta.y;
     }
     if (hovered && io.MouseWheel != 0.0f) {
         // Zoom about the cursor, so the thing under the pointer stays under it.
+        cancelGlide();
         const float previous = zoom_;
         zoom_ = std::clamp(zoom_ * std::pow(1.12f, io.MouseWheel), 0.05f, 3.0f);
         const float localX = io.MousePos.x - origin.x;
@@ -703,9 +722,47 @@ void NodeView::centreOn(const TreeLayout& layout, LayoutId id) {
         return;
     }
     const LayoutNode& card = layout.nodes[id];
-    panX_ = canvasWidth_ * 0.5f - (card.x + card.width * 0.5f) * zoom_;
-    panY_ = canvasHeight_ * 0.5f - (card.y + card.height * 0.5f) * zoom_;
-    framed_ = true;
+    glideX_ = canvasWidth_ * 0.5f - (card.x + card.width * 0.5f) * zoom_;
+    glideY_ = canvasHeight_ * 0.5f - (card.y + card.height * 0.5f) * zoom_;
+
+    // The first framing of a layout has nowhere to travel from, so it arrives
+    // rather than glides. Animating it would look like the tool was still
+    // loading.
+    if (!framed_) {
+        panX_ = glideX_;
+        panY_ = glideY_;
+        framed_ = true;
+        gliding_ = false;
+        return;
+    }
+    gliding_ = true;
+}
+
+void NodeView::cancelGlide() {
+    gliding_ = false;
+    glideX_ = panX_;
+    glideY_ = panY_;
+}
+
+void NodeView::advanceGlide() {
+    if (!gliding_) {
+        return;
+    }
+
+    const float dx = glideX_ - panX_;
+    const float dy = glideY_ - panY_;
+    if (std::abs(dx) < kGlideSettled && std::abs(dy) < kGlideSettled) {
+        panX_ = glideX_;
+        panY_ = glideY_;
+        gliding_ = false;
+        return;
+    }
+
+    // Exponential decay towards the destination: fast while there is a long way
+    // to go, slow as it arrives, and the same duration whatever the frame rate.
+    const float step = 1.0f - std::exp(-kGlideRate * ImGui::GetIO().DeltaTime);
+    panX_ += dx * step;
+    panY_ += dy * step;
 }
 
 void NodeView::followSelection(const TreeLayout& layout, const DiffSnapshot& snapshot,

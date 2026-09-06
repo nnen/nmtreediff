@@ -87,7 +87,9 @@ follows whichever view you are looking at.
 In the node view, **n** and **b** do the same thing without a modifier. They
 walk the tree depth first, so a change deep inside a branch comes before the
 next branch begins, and they carry on from whatever is selected rather than
-from wherever you last stopped.
+from wherever you last stopped. The view glides to each one rather than
+jumping, so you can see whether the next change was next door or halfway
+across the document. Dragging or zooming stops the glide at once.
 
 ### The text view
 
