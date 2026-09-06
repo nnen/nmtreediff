@@ -92,7 +92,27 @@ private:
     ///          hide nothing and leave a chip claiming otherwise.
     void toggleCollapse(const TreeLayout& layout, LayoutId id);
     void centreOn(const TreeLayout& layout, LayoutId id);
-    void followSelection(const TreeLayout& layout, const Selection& selection);
+    void followSelection(const TreeLayout& layout, const DiffSnapshot& snapshot,
+                         const Selection& selection);
+
+    /// \brief Handles the keys the node view answers to.
+    ///
+    /// \param snapshot The comparison being shown.
+    /// \param selection The selection to move.
+    ///
+    /// \remarks Only while the node view has the keyboard, so that the same
+    ///          letters mean whatever the focused view says they mean.
+    void handleKeys(const DiffSnapshot& snapshot, Selection& selection);
+
+    /// \brief Points the change cursor at whatever is selected.
+    ///
+    /// \param snapshot The comparison being shown.
+    /// \param selection The current selection.
+    ///
+    /// \remarks Without this, clicking a node and then asking for the next
+    ///          change would carry on from wherever the cursor had been left,
+    ///          which is not next from anywhere the reader is looking.
+    void syncChangeCursor(const DiffSnapshot& snapshot, const Selection& selection);
     [[nodiscard]] bool hiddenByCollapse(const TreeLayout& layout, LayoutId id) const;
 
     float zoom_ = 1.0f;

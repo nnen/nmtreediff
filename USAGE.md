@@ -74,9 +74,14 @@ View menu. Both views show the same comparison and share one selection, so a
 node picked in one is the node selected in the other. **Ctrl+R** reloads both
 files from disk.
 
-**F8** goes to the next change and **Shift+F8** to the previous one. Changed
-lines and changed nodes are two different lists, so this follows whichever view
-you are looking at.
+**F8** goes to the next change and **Shift+F8** to the previous one, from
+anywhere. Changed lines and changed nodes are two different lists, so this
+follows whichever view you are looking at.
+
+In the node view, **n** and **b** do the same thing without a modifier. They
+walk the tree depth first, so a change deep inside a branch comes before the
+next branch begins, and they carry on from whatever is selected rather than
+from wherever you last stopped.
 
 ### The text view
 

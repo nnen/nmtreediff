@@ -346,6 +346,7 @@ void NodeView::draw(const DiffSnapshot& snapshot, Selection& selection) {
     ImGui::TextDisabled("%zu nodes  |  drag to pan, wheel to zoom, right-click for more",
                         layout.size());
 
+    handleKeys(snapshot, selection);
     drawCanvas(layout, snapshot, selection);
 }
 
@@ -378,7 +379,7 @@ void NodeView::drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot
         framed_ = true;
     }
 
-    followSelection(layout, selection);
+    followSelection(layout, snapshot, selection);
 
     ImGui::InvisibleButton("canvas", size,
                            ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
@@ -707,11 +708,16 @@ void NodeView::centreOn(const TreeLayout& layout, LayoutId id) {
     framed_ = true;
 }
 
-void NodeView::followSelection(const TreeLayout& layout, const Selection& selection) {
+void NodeView::followSelection(const TreeLayout& layout, const DiffSnapshot& snapshot,
+                               const Selection& selection) {
     if (!selection.active() || selection.revision == followedRevision_) {
         return;
     }
     followedRevision_ = selection.revision;
+
+    // The selection moved from somewhere else, so the change cursor has to
+    // catch up or the next step would carry on from where it last was.
+    syncChangeCursor(snapshot, selection);
 
     const LayoutId id = layout.find(selection.side, selection.node);
     if (id == kInvalidLayout) {
@@ -723,6 +729,42 @@ void NodeView::followSelection(const TreeLayout& layout, const Selection& select
         collapsed_.erase(at);
     }
     centreOn(layout, id);
+}
+
+void NodeView::syncChangeCursor(const DiffSnapshot& snapshot, const Selection& selection) {
+    if (!snapshot.treeDiff || !selection.active()) {
+        return;
+    }
+
+    const auto& changes = snapshot.treeDiff->changes;
+    for (std::size_t i = 0; i < changes.size(); ++i) {
+        const Change& change = changes[i];
+        const NodeId at = selection.side == Side::Left ? change.left : change.right;
+        if (at == selection.node) {
+            currentChange_ = static_cast<std::int64_t>(i);
+            return;
+        }
+    }
+
+    // An unchanged node is not in the list at all. Stepping on from the change
+    // before it is closer to what the reader means by "next" than carrying on
+    // from wherever the cursor was left.
+    currentChange_ = -1;
+}
+
+void NodeView::handleKeys(const DiffSnapshot& snapshot, Selection& selection) {
+    // Only when this view has the keyboard. The text view walks its own list of
+    // changed lines, and one letter meaning two things at once would be worse
+    // than it meaning nothing here.
+    if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+        return;
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_N, false)) {
+        goToNextChange(snapshot, selection);
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_B, false)) {
+        goToPreviousChange(snapshot, selection);
+    }
 }
 
 void NodeView::goToNextChange(const DiffSnapshot& snapshot, Selection& selection) {
