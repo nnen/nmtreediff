@@ -293,6 +293,19 @@ void AppWindow::buildFrame() {
     static const DiffSnapshot kEmpty;
     const DiffSnapshot& current = snapshot ? *snapshot : kEmpty;
 
+    // Escape closes the window. Nothing here is ever unsaved, so there is
+    // nothing to lose by leaving, and a diff a version control system opened is
+    // something you want to dismiss rather than file away.
+    //
+    // A menu or a context menu takes it first, because closing what is open is
+    // what Escape means everywhere else, and quitting instead would punish
+    // someone for opening a menu by mistake.
+    const bool popupOpen =
+        ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+    if (!popupOpen && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        requestClose_ = true;
+    }
+
     // Change navigation is bound globally rather than to a focused widget, so
     // it works wherever the caret happens to be.
     if (ImGui::IsKeyPressed(ImGuiKey_F8, false)) {
@@ -349,7 +362,7 @@ void AppWindow::drawMenuBar() {
             session_.open(makeRequest(options_, graphDirection_));
         }
         ImGui::Separator();
-        if (ImGui::MenuItem("Exit", "Alt+F4")) {
+        if (ImGui::MenuItem("Exit", "Esc")) {
             requestClose_ = true;
         }
         ImGui::EndMenu();

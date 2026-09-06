@@ -69,6 +69,9 @@ nmxmldiff --left-label "tree.xml #14" --right-label "tree.xml #15" old.xml new.x
 The two views
 -------------
 
+**Escape** closes the tool from anywhere. Nothing is ever unsaved, so there is
+nothing to lose by leaving. If a menu is open, Escape closes that first.
+
 Switch with **Ctrl+1** for text and **Ctrl+2** for the node view, or from the
 View menu. Both views show the same comparison and share one selection, so a
 node picked in one is the node selected in the other. **Ctrl+R** reloads both
