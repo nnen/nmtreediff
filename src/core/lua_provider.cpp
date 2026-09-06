@@ -320,20 +320,11 @@ private:
         ///          standing on its own: a name and a value pair in the file
         ///          become one property of the node above.
         ///
-        ///          Anything else keeps its own shape. An element with several
-        ///          attributes becomes one property named after the element,
-        ///          holding a part per attribute, which is what R7.7 asked for:
-        ///          a transform stays one thing with parts rather than becoming
-        ///          a handful of loose names.
+        ///          Attributes only, deliberately. The walk carries on into
+        ///          this element's children straight after, so recording them
+        ///          here as well would represent everything inside it twice.
         void fold(NodeId id, NodeId owner) {
             const Node& source = generic_.node(id);
-
-            const Property* named = source.findProperty("name");
-            const Property* valued = source.findProperty("value");
-            if (named != nullptr && valued != nullptr) {
-                shaped_.addProperty(owner, named->value, valued->value, source.span);
-                return;
-            }
 
             Property folded;
             folded.name = source.kind;
@@ -391,8 +382,80 @@ private:
                 return;
             }
 
+            // An element the script folds in is content: everything inside it
+            // describes the node above, so it nests and the walk stops here.
+            if (ask(kFoldIntoParent, id, false)) {
+                shaped_.addProperty(owner, deepProperty(id, propertyName(id)));
+                return;
+            }
+
+            // Anything else keeps its own name and attributes and is walked
+            // into, so a wrapper neither disappears nor swallows the nodes it
+            // holds. Only its attributes are recorded here, because the walk is
+            // about to visit its children on their own account.
             fold(id, owner);
             collectChildren(id, owner, token);
+        }
+
+        /// \brief Chooses what a folded element's property is called.
+        ///
+        /// \param id The generic node being folded.
+        ///
+        /// \returns The value of its `name` attribute where it has one, and
+        ///          the element's own name otherwise.
+        ///
+        /// \remarks A format that writes `<property name="speed" .../>` means
+        ///          the property to be called speed. One that writes
+        ///          `<transform .../>` means it to be called transform.
+        [[nodiscard]] std::string propertyName(NodeId id) const {
+            const Node& source = generic_.node(id);
+            if (const Property* named = source.findProperty("name");
+                named != nullptr && !named->value.empty()) {
+                return named->value;
+            }
+            return source.kind;
+        }
+
+        /// \brief Turns an element and everything inside it into a property.
+        ///
+        /// \param id The generic node to represent.
+        /// \param name What to call the resulting property.
+        ///
+        /// \returns The property, with a part per attribute and per child.
+        ///
+        /// \remarks Recursive, because a property's content can be elements
+        ///          and nothing may be dropped. A record rather than a sequence:
+        ///          these parts are named, so their order carries nothing.
+        [[nodiscard]] Property deepProperty(NodeId id, std::string name) const {
+            const Node& source = generic_.node(id);
+
+            Property property;
+            property.name = std::move(name);
+            property.span = source.span;
+
+            for (const Property& attribute : source.properties) {
+                // The name and value attributes are the element's own
+                // bookkeeping rather than part of what it describes.
+                if (attribute.name == "name" || attribute.name == "value") {
+                    continue;
+                }
+                property.children.push_back(attribute);
+            }
+            for (const NodeId child : source.children) {
+                property.children.push_back(deepProperty(child, generic_.node(child).kind));
+            }
+
+            if (property.children.empty()) {
+                if (const Property* valued = source.findProperty("value"); valued != nullptr) {
+                    property.value = valued->value;
+                }
+                return property;
+            }
+            if (property.children.size() == 1 && !property.children.front().hasParts()) {
+                property.value = property.children.front().value;
+                property.children.clear();
+            }
+            return property;
         }
 
         const Tree& generic_;

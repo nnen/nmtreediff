@@ -55,7 +55,12 @@
         <property name="range" value="25.0"/>
       </node>
       <node id="g0220" type="MoveTo" name="Go to noise">
-        <property name="target" value="last_noise"/>
+        <property name="position">
+          <entityPosition>
+            <target />
+          </entityPosition>
+        </property>
+        <!-- <property name="target" value="last_noise"/> -->
         <property name="speed" value="2.0"/>
       </node>
       <node id="g0230" type="Wait" name="Listen">

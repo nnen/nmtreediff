@@ -1,0 +1,9 @@
+<behaviortree version="2">
+  <node id="s1" type="Sequence" name="Patrol">
+    <children policy="all" retries="2">
+      <node id="w1" type="Wait" name="Pause">
+        <property name="seconds" value="1.0"/>
+      </node>
+    </children>
+  </node>
+</behaviortree>

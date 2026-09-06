@@ -970,6 +970,22 @@ provider too, not only the bridge. It had the same walk-through path, and the
 sample provider being the worked example is exactly why it should not be the one
 place the rule is broken.
 
+It had a second hole, found by someone editing the sample rather than by any
+test. A `<property>` element whose content is elements rather than a value was
+read as text, found nothing there, and lost everything inside it. The fixed
+version distinguishes the two cases by who visits the children: a folded
+element's content is read once, there and nowhere else, so it nests; an element
+the format does not recognise is walked into separately, so only its attributes
+are recorded and recording its children as well would represent them twice. The
+bridge makes the same distinction through `fold_into_parent`.
+
+The corpus had no case that reached a property with parts at all, which is why
+neither hole showed up in it. Three cases now do: a nested property whose change
+is reported at the outermost name, a wrapper element whose own attribute changed
+while the node inside it stayed put, and a JSON pair with a tag list and a
+matrix. Those are the cases the milestone turns on, and they were the last thing
+it was missing.
+
 12. Testing
 -----------
 

@@ -1,0 +1,10 @@
+<behaviortree version="2">
+  <node id="m1" type="MoveTo" name="Approach">
+    <property name="speed" value="2.0"/>
+    <property name="position">
+      <entityPosition>
+        <target name="enemy" offset="1.5"/>
+      </entityPosition>
+    </property>
+  </node>
+</behaviortree>
