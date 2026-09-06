@@ -49,7 +49,7 @@ constexpr float kCardRounding = 3.0f;
 constexpr float kQuietEdgeWidth = 1.0f;
 
 /// \brief How much thicker a changed card's outline is than a quiet one's.
-constexpr float kLoudEdgeFactor = 3.0f;
+constexpr float kLoudEdgeFactor = 5.0f;
 
 /// \brief Outline thickness of a card that changed, so it reads first.
 ///
@@ -60,12 +60,16 @@ constexpr float kLoudEdgeWidth = kQuietEdgeWidth * kLoudEdgeFactor;
 constexpr float kAccentStripeWidth = 3.0f;
 /// \brief Outline thickness drawn around a hovered card.
 constexpr float kHoverEdgeWidth = 1.5f;
-/// \brief Outline thickness drawn around the selected card.
-constexpr float kSelectionEdgeWidth = 2.0f;
-/// \brief How far outside a card its selection outline sits, in pixels.
-constexpr float kSelectionInset = 2.0f;
-/// \brief Corner radius of that selection outline.
-constexpr float kSelectionRounding = 4.0f;
+/// \brief How much thicker the selection halo is than a quiet outline.
+constexpr float kSelectionEdgeFactor = 20.0f;
+
+/// \brief Thickness of the halo drawn behind the selected card.
+///
+/// \remarks Drawn before the card rather than over it, so the card's own
+///          border and colour sit on top and the halo shows only as a ring
+///          around the outside. A band this heavy over the card would bury the
+///          one thing the card exists to say, which is what happened to it.
+constexpr float kSelectionEdgeWidth = kQuietEdgeWidth * kSelectionEdgeFactor;
 /// \brief Half the width of a collapsed card's chip, used to centre it.
 constexpr float kChipHalfWidth = 10.0f;
 /// \brief Gap between a card and the chip below it.
@@ -259,6 +263,14 @@ void drawCardText(ImDrawList* draw, const TreeLayout& layout, const LayoutNode& 
         return false;
     }
 
+    // The selection halo first, so everything the card draws for itself lands on
+    // top of it. Half its width falls inside the card and is covered by the
+    // fill, which is what leaves a clean ring outside.
+    if (paint.selected) {
+        draw->AddRect(topLeft, bottomRight, kSelectionColour, kCardRounding, 0,
+                      kSelectionEdgeWidth);
+    }
+
     // The card itself: a fill, an outline that thickens when something changed,
     // and a stripe in the provider's own colour so two node kinds stay
     // distinguishable even when both are unchanged.
@@ -271,16 +283,12 @@ void drawCardText(ImDrawList* draw, const TreeLayout& layout, const LayoutNode& 
     draw->AddRectFilled(topLeft, ImVec2(topLeft.x + kAccentStripeWidth * paint.zoom, bottomRight.y),
                         IM_COL32(card.accent.r, card.accent.g, card.accent.b, 255), kCardRounding);
 
-    // Hover and selection, drawn over the card so neither is hidden by it.
+    // Hover is drawn over the card, unlike the selection halo underneath it,
+    // because it is a light hint rather than a standing mark.
     const bool hovered = paint.hoverable && ImGui::IsMouseHoveringRect(topLeft, bottomRight);
     if (hovered) {
         draw->AddRect(topLeft, bottomRight, withAlpha(kSelectionColour, kHoverAlpha), kCardRounding,
                       0, kHoverEdgeWidth);
-    }
-    if (paint.selected) {
-        draw->AddRect(ImVec2(topLeft.x - kSelectionInset, topLeft.y - kSelectionInset),
-                      ImVec2(bottomRight.x + kSelectionInset, bottomRight.y + kSelectionInset),
-                      kSelectionColour, kSelectionRounding, 0, kSelectionEdgeWidth);
     }
 
     if (paint.withText) {
