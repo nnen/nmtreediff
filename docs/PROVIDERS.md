@@ -8,12 +8,11 @@ counts as a node, which two nodes are the same node across two versions of a
 file, and how a node is titled and coloured. Everything above it, the matcher,
 both views and the reports, works the same whatever you decide.
 
-This document is the contract. Version 2 will keep working: changes to the
-interface are additive, so a new method arrives with a default implementation
-and nothing already declared changes shape or meaning. The number in the
-heading goes up only when that promise is broken, which would be a decision
-rather than an accident. `nmxmldiff --list-formats` prints the version the
-build in front of you implements.
+This document describes the interface as it is today. The tool is work in
+progress and no first version has been published, so nothing here is promised
+to stay as it is. The number in the heading identifies the shape of the
+interface a build implements, and `nmxmldiff --list-formats` prints the one
+the build in front of you has.
 
 Two ways to write one
 ---------------------

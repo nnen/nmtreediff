@@ -20,14 +20,12 @@ namespace nmxd {
 /// \brief The version of the format provider interface this build publishes.
 ///
 /// \remarks This is the studio-facing surface, in both languages: this
-///          interface and the scripted form built on it. A provider written
-///          against version 2 keeps working in every later version 2 build,
-///          because changes to the interface are additive: a new method
-///          arrives with a default implementation, and nothing already
-///          declared changes shape or meaning. The number goes up only when
-///          that promise is broken, which is a decision rather than an
-///          accident. Version 2 is where the scripted form became the enter
-///          and exit callbacks of IShaper; the C++ interface did not change.
+///          interface and the scripted form built on it. The number identifies
+///          the shape of that surface in a given build, so a provider or a
+///          script can be matched to the build it was written against. It went
+///          to 2 when the scripted form became the enter and exit callbacks of
+///          IShaper. No first version has been published, and nothing about
+///          this surface is promised to stay as it is until one is.
 ///
 ///          Documented in docs/PROVIDERS.md, which carries the same number.
 inline constexpr int kProviderInterfaceVersion = 2;
