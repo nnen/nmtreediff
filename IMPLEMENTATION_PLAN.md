@@ -9,6 +9,33 @@ and a node view of the same diff, starts instantly, never blocks its own frame
 loop, and runs from the command line as a Perforce diff tool. It is aimed at
 becoming the default way game studios diff asset files.
 
+Contents
+--------
+
+1. [Three constraints that shape everything](#1-three-constraints-that-shape-everything)
+2. [What the ambition changes](#2-what-the-ambition-changes)
+3. [Guiding decisions](#3-guiding-decisions)
+4. [Pipeline and module layout](#4-pipeline-and-module-layout)
+5. [Data model](#5-data-model)
+6. [The format provider interface](#6-the-format-provider-interface)
+   - [The configuration file](#the-configuration-file)
+   - [Why configuration is not searched for](#why-configuration-is-not-searched-for)
+   - [Providers written in script](#providers-written-in-script)
+   - [The built-in providers](#the-built-in-providers)
+7. [Matching, in four passes](#7-matching-in-four-passes)
+   - [Size guard, and admitting to it](#size-guard-and-admitting-to-it)
+8. [Staying responsive](#8-staying-responsive)
+   - [Budgets](#budgets)
+9. [The two views](#9-the-two-views)
+   - [Text view](#text-view)
+   - [Node view](#node-view)
+10. [Command line and version control](#10-command-line-and-version-control)
+11. [Milestones](#11-milestones)
+12. [Testing](#12-testing)
+13. [Risks and open questions](#13-risks-and-open-questions)
+14. [Field review, and what it filed](#14-field-review-and-what-it-filed)
+    - [Second pass: an engineering review](#second-pass-an-engineering-review)
+
 1. Three constraints that shape everything
 ------------------------------------------
 
@@ -1114,3 +1141,137 @@ library is what makes that acceptable.
   living on a page somewhere. There is no installer and no auto-update: a studio
   unzips a directory, which is also what makes it easy to keep two versions
   side by side.
+- **Risk: the presentation is behind the engine.** The first outside reading of
+  the tool found the matching correct and fast on real-sized files and the node
+  view unreadable on them, which is the more dangerous way round: a reader
+  judges what is drawn. Section 14 carries the findings and their priorities,
+  and five of them are marked as owed before M11 rather than in it.
+- **Risk: the engine is trusted more than it has earned.** A second reading, by
+  an engineer running the binary against constructed inputs rather than
+  samples, found that the tool can report no change where one exists, can die
+  without a message, and takes its headless verdict from the line diff instead
+  of the tree diff. Those are in section 14 as F15 to F17, and they matter more
+  than anything in the first pass: a tool that draws badly is abandoned, and a
+  tool that under-reports is believed. Nine findings in total are now owed
+  before M11.
+
+14. Field review, and what it filed
+-----------------------------------
+
+A senior designer read the tool the way a studio would, against files a studio
+actually has rather than the samples: a five thousand entry localization table,
+the same table after a tool re-sorted it, a Tiled map with a CSV tile blob, and
+an eleven megabyte weapon table of two hundred thousand rows. The engine came
+out well and the presentation did not, which is worth stating plainly because
+the plan has spent its attention on the half that is already good.
+
+What held: matching is correct and fast, attribute order and entity spelling
+and empty-tag form are all correctly not a change, and a scripted provider for
+an unfamiliar format took nine lines of Lua and worked first time. The eleven
+megabyte pair with one edited row found the row and nothing else in 1.24
+seconds. That is the adoption path in section 2 doing its job.
+
+What did not hold is everything between a correct diff and a reader seeing it.
+Two findings change scope rather than adding polish, and they are the first two
+rows below. The rest are defects with a known cause.
+
+| # | Finding | Priority | Lands in |
+| --- | --- | --- | --- |
+| F1 | Node cards drop their text below a zoom of 0.55, and fitting a twenty-six node tree already lands under it, so the node view opens on unlabelled boxes. `kTextZoomThreshold` in `src/ui/node_view.cpp`. | P0 | Before M11 |
+| F2 | A wide, flat document degenerates: fifteen thousand nodes draw as a one pixel smear and the minimap with it. Most studio XML is a table, not a tree. Collapsing unchanged subtrees should be the default when changes are sparse against the node count. | P0 | Before M11 |
+| F3 | Sibling order cannot be declared unordered from a script. `childrenOrdered()` is on the C++ interface and not on the Lua surface, so a re-sorted string table reports 4860 moves and the fix needs a compiler. This contradicts the claim that a studio format needs no compiler. | P0 | Before M11 |
+| F4 | There is no search or filter in either view. Finding one entry in a five thousand row table means scrolling to it. | P0 | Before M11 |
+| F5 | The JSON report carries counts only. The text report lists every changed node and the machine-readable one does not, so automation gets strictly less than a person does. `src/app/report.cpp`. USAGE.md calls it "a machine-readable version of the same thing", which is not true today. | P0 | Before M11 |
+| F6 | Report paths are positional, so a changed string reads as `/StringTable/Entry[501]` even when the provider supplies both an identity and a title. That makes headless output near useless in a review comment. | P1 | M11 |
+| F7 | UTF-16 is refused outright, and older exporters still write it. | P1 | M11 |
+| F8 | A pair whose format changed between revisions reports "the document is not well formed" without naming the format it tried, because the format is resolved from one side and applied to both. | P1 | M11 |
+| F9 | An unrecognised command-line option exits 109, the CLI11 default, rather than the documented 2. | P1 | M11 |
+| F10 | Nothing can be copied to the clipboard: not a path, not a value, not a node. | P1 | M11 |
+| F11 | Diff colours are hard coded with no on-screen legend, and added against deleted is carried by red against green alone. | P1 | M11 |
+| F12 | Comments are dropped from the node tree while the text view still counts them, so an edited comment prints a node summary of "identical" beside four changed lines. Decide which of the two is wrong rather than leaving them to disagree. | P2 | M12 |
+| F13 | Duplicate identity keys are handled without a crash and without a warning. A copy-pasted GUID is a real authoring bug the tool is in a position to name. | P2 | M12 |
+| F14 | Escape closes with no confirmation. Right for reading a changelist, surprising on a first launch that was not started by a version control system. | P2 | M10 |
+
+F1 through F5 are grouped as P0 because each one alone is enough for a reader
+to conclude the tool does not work on their files, and four of the five are
+about the node view, which is the thing the tool is for. They belong before
+M11 rather than in it: shipping an archive that a technical artist can unzip is
+worth nothing if what they see when they open it is a field of blank
+rectangles.
+
+F3 is the one that costs more than it looks. Putting `childrenOrdered` on the
+scripted surface is small, but it is the first entry that is a property of a
+node rather than a property of the format, so the bridge has to ask the script
+per node and keep the answer with the tree the way `is_node` already does. That
+is the established cost model rather than a new one, which is why this is a
+defect and not a design question.
+
+F2 has a decision inside it. Collapsing unchanged subtrees by default is a
+change to what the tool shows without being asked, and section 2 says a diff
+tool that quietly under-reports loses trust permanently. The distinction that
+makes it safe is that a collapsed subtree is still counted and still reachable,
+and the chip says how many nodes it stands for. Anything that hides a change
+rather than a body of unchanged nodes is out.
+
+
+### Second pass: an engineering review
+
+The first review read the tool the way a designer would and found the engine
+good and the presentation bad. A second review read the code the way a
+principal engineer at the studio adopting it would, and ran the shipped binary
+against constructed inputs rather than against samples. It reached the opposite
+conclusion in one respect that matters: the engine is not as sound as the first
+pass concluded, because a correct matching is not the same thing as a correct
+report of what it found. Every finding below was reproduced against the built
+binary rather than inferred from reading.
+
+What held, again: the passes are correct and fast on the shapes they were
+designed for, the matching is a matching rather than an edit script so merge
+stays open, the provider interface carries no GUI type and no template, the
+union tree with ghost edges is the right visual model for a move, and hashing
+walks the arena backwards so it has no recursion to overflow. All 184
+registered tests pass.
+
+What did not hold is that the tool can silently report no change where a change
+exists, can die without a message, and answers the one question automation asks
+using the wrong half of its own output.
+
+| # | Finding | Priority | Lands in |
+| --- | --- | --- | --- |
+| F15 | A change to a property whose name is already present is reported as identical. `changedPropertyNames()` in `src/core/diff.cpp` puts the right-hand properties in a map keyed by name and probes the left with `findProperty()`, and both collapse duplicates. Adding a second `<property name="cooldown">` to a `<node>` yields no node change at all; removing it is caught, so the miss is asymmetric. The content hash is correct, so the pair never matches by hash: it anchors by strong identity and is then classified as unchanged. Every format that folds repeated child elements into properties is exposed, which is the shape R7.9 exists for. Properties have to compare as a multiset, matched by name and then greedily by value. | P0 | Before M11 |
+| F16 | A document nested about six thousand levels deep crashes the process with no message and no usable exit status. Parsing, `pairIdenticalSubtree()`, `addSubtree()`, `walkPair()` and the layout's own `addSubtree()` all recurse on document depth, while `computeHashes()` deliberately does not. Either convert those walks to explicit stacks or refuse past a declared depth with a real `ParseError`. Generated data reaches this and hand-authored data does not, which is why no sample caught it. | P0 | Before M11 |
+| F17 | `--exit-code` and the `identical` field are taken from the line diff, not the tree diff. `writeReport()` in `src/app/report.cpp` computes `identical` from `TextDiff::identical()`, so the whitespace-only golden pair prints `identical` for the tree and still exits 1. A submit trigger wired to this gets exactly the answer the tool exists to correct. The tree verdict must decide whenever a provider resolved, with the line verdict as the fallback. The JSON report already admits the problem by reporting `"comparison": "lines"`, but honesty is not the behaviour a build job needs. | P0 | Before M11 |
+| F18 | The similarity step budget aborts the pass for the whole document rather than for the subtree that overspent it. `matchChildrenOf()` returning false ends `matchBySimilarity()` outright, so one wide container degrades the matching everywhere else in the file. Four thousand JSON entities with renumbered identifiers, 850 KB a side, take about 4.9 seconds and come back with the guard tripped. That is a re-export, not a pathological input. Budget per parent pair and let the rest of the tree finish clean. | P0 | Before M11 |
+| F19 | The budget tests never run. They carry Catch2's hidden `[.slow]` tag, so `catch_discover_tests` does not register them and `ctest` lists none of them. The numbers in section 8 are documented and unenforced, which is how F18 survived. Register them as their own labelled suite, and let continuous integration run them on a schedule if they are too slow for every commit. | P1 | Before M11 |
+| F20 | Weak identity keys are computed and discarded. `identity()` is read in exactly one place, `anchorByIdentity()`, which skips anything not marked strong. Generic XML builds a key from the element name and its `id` attribute on every node and nothing ever reads it. Either consume a weak key as a tiebreaker inside `similarity()` or take it off the interface, because a provider author writing against section 6 will reasonably expect it to do something. | P1 | M11 |
+| F21 | A script sees a flattened view of a node: its element name and a name-to-value table, rebuilt for each of the five questions asked per node. It cannot see children, parent context, or the nested and array parts that R7.7 and R7.10 added to the model, and duplicate names collapse in that table the same way F15 collapses them. A format definition that needs to look one level down, which most real schemas do, cannot be written in Lua today. This is the same class of gap as F3 and should be fixed alongside it. | P1 | M11 |
+| F22 | Provider scripts run with `io`, `os` and `package` open, reasoned in `src/core/lua_state.cpp` as the trust a shell gives a startup file. A studio rollout inverts that assumption: the shared provider script lands in the depot, every engineer's configuration points at it, and it then executes on every workstation and build agent on every diff, twice per diff because `loadShape()` re-runs the whole script once per side. Sandbox provider scripts to base, string, table and math, and keep the full set for the top-level user configuration only. Section 6 should say which of the two a given file is. | P1 | M11 |
+| F23 | Text content is dropped from any element that also has element children. `GenericXmlProvider::build()` folds `#text` on a leaf only, so an edit inside `<text>Hello <b>world</b></text>` is invisible in the node view. This is the same disagreement as F12 one level down, and the two should be decided together: R7.8 says everything that is not a node is a property, and mixed content is currently neither. | P2 | M12 |
+| F24 | Paths given on the command line are decoded through the active code page, because `main()` takes narrow `argv` and the Microsoft toolchain converts it with the ACP. A workspace under a name outside that code page cannot be opened at all. Take `wmain()` on Windows and carry a `std::filesystem::path` from there. | P2 | M12 |
+| F25 | `nodePath()` names a deep node by its full ancestry, so one changed node in a deeply nested document prints a path thousands of segments long and the change list becomes unreadable. F6 already replaces positional paths with provider identity, and that fix should cap or elide depth as well. | P2 | M12 |
+
+F15, F16 and F17 are the three that block putting this in front of the team,
+and they are of a kind the first review could not have found: each needs an
+input a designer would not think to construct, and two of them stay invisible
+unless the tool's answer is compared against the truth rather than against its
+own other answer. F15 is the worst of the three by some distance. A diff tool
+that is slow is annoying and a diff tool that crashes gets reported; a diff
+tool that says nothing changed is believed.
+
+F17 deserves stating in the terms section 2 uses. The adoption argument is that
+a reformat is not a change, headless mode is where a studio cashes that
+argument in, and headless mode currently answers with the line diff. The tool
+disagrees with itself inside eight lines of its own output. Fixing it is small.
+Leaving it is the difference between a tool a build engineer wires in and one
+they read the output of once and give up on.
+
+F18 and F19 belong together and in that order. The budget going unenforced is
+why a five second case reached a review at all, and re-registering the tests
+before fixing the abort would only mean the suite fails.
+
+F20, F21 and F22 are the studio-facing surface rather than the engine, and they
+are what the second format author will hit in their first week. F21 in
+particular is the same finding as F3 seen from another side: the scripted
+surface was built to carry the sample behaviour tree and has not been widened
+since the data model grew properties with parts. Widening it once, deliberately,
+is cheaper than answering it one function at a time.
