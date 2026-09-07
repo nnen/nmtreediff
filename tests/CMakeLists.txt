@@ -15,6 +15,7 @@ add_executable(nmxd_tests
     test_lua_provider.cpp
     test_result.cpp
     test_session.cpp
+    test_shape.cpp
     test_source.cpp
     test_textdiff.cpp
     test_tree.cpp

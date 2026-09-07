@@ -4,20 +4,25 @@
 #include "core/lua_provider.h"
 
 #include <algorithm>
+#include <any>
 #include <cstdint>
+#include <memory>
+#include <stdexcept>
+#include <utility>
+#include <vector>
 
 #include <sol/sol.hpp>
 
 #include "core/hash.h"
 #include "core/lua_state.h"
 #include "core/registry.h"
+#include "core/shape.h"
+#include "core/tree_shape.h"
+#include "formats/xml_shape.h"
 
 namespace nmxd {
 
 namespace {
-
-/// \brief How many nodes are shaped between cancellation checks.
-constexpr std::size_t kCancelCheckInterval = 1024;
 
 /// \brief Score returned when the file's extension is one the script claimed.
 ///
@@ -25,6 +30,11 @@ constexpr std::size_t kCancelCheckInterval = 1024;
 ///          format that wants to win over the format it is built on says so by
 ///          claiming the extension, not by outbidding it.
 constexpr int kExtensionScore = 90;
+
+/// \brief The function a script writes to be told an element has started.
+constexpr const char* kEnter = "enter";
+/// \brief The function a script writes to be told an element has ended.
+constexpr const char* kExit = "exit";
 
 /// \brief The function a script writes to say what counts as a node.
 constexpr const char* kIsNode = "is_node";
@@ -40,29 +50,751 @@ constexpr const char* kTitle = "title";
 /// \brief The word a script returns to mean an identity may travel.
 constexpr const char* kStrongWord = "strong";
 
-/// \brief Turns a node into the table a script sees.
-///
-/// \param tree The tree being shaped.
-/// \param id The node to describe.
-/// \param lua The interpreter to build the table in.
-///
-/// \returns A table holding the node's name and its properties by name.
-///
-/// \remarks Built once per node while the document is open, which is the whole
-///          cost model: a script is asked a question once per node, never once
-///          per node per frame.
-[[nodiscard]] sol::table describeNode(const Tree& tree, NodeId id, sol::state& lua) {
-    const Node& node = tree.node(id);
-    sol::table element = lua.create_table();
-    element["name"] = node.kind;
+/// \brief The attribute a folded element is named after, when it has one.
+constexpr const char* kNameAttribute = "name";
+/// \brief The attribute a folded element takes its value from.
+constexpr const char* kValueAttribute = "value";
 
-    sol::table attributes = lua.create_table();
-    for (const Property& property : node.properties) {
-        attributes[property.name] = property.value;
+/// \brief Names of the usertypes a script sees.
+///
+/// \remarks Prefixed so that a script cannot mistake them for something it
+///          declared, and so that an error message names what it is about.
+constexpr const char* kElementType = "nmxd.Element";
+constexpr const char* kItemsType = "nmxd.Items";
+constexpr const char* kBuilderType = "nmxd.Builder";
+constexpr const char* kNodeType = "nmxd.Node";
+constexpr const char* kPropertyType = "nmxd.Property";
+constexpr const char* kFrameType = "nmxd.Frame";
+
+/// \brief Reads a string out of a protected call's result.
+///
+/// \param result The result.
+/// \param index Which return value to read.
+///
+/// \returns The string, or nothing when that return value is not one.
+[[nodiscard]] sol::optional<std::string> stringAt(const sol::protected_function_result& result,
+                                                  int index) {
+    if (!result.valid() || result.return_count() <= index ||
+        result.get_type(index) != sol::type::string) {
+        return sol::nullopt;
     }
-    element["attr"] = attributes;
-    return element;
+    return result.get<std::string>(index);
 }
+
+// ------------------------------------------------------- the compatible form
+
+/// \brief The five-question form, written as a shaper.
+///
+/// \remarks The form a script wrote against version 1: `is_node`,
+///          `fold_into_parent`, `kind`, `identity` and `title`, each handed
+///          a table with the element's name and attributes. It is kept as
+///          the short way to say the common thing, and it is kept exact:
+///          the tests hold it against the compiled behaviour-tree provider.
+///
+///          The two yes-or-no questions are asked at enter, because they
+///          decide how everything below is read, and the three naming
+///          questions at exit, where the element's text is known too.
+class LegacyScriptShaper final : public IShaper {
+public:
+    /// \brief Prepares to shape with a script's table of functions.
+    ///
+    /// \param lua The interpreter the script is loaded in.
+    /// \param shape The script's table.
+    LegacyScriptShaper(sol::state& lua, sol::table shape) : lua_(lua), shape_(std::move(shape)) {}
+
+    void enter(Element& element, EnterControl& control) override {
+        (void)control;
+        Answers answers;
+        if (element.parent() == nullptr) {
+            // The document's own root is always a node. A script decides what
+            // is inside a document, not whether there is one.
+            answers.isNode = true;
+        } else if (!insideFold(element)) {
+            // Under a folded element nothing is asked: everything there is
+            // part of the property, whatever the script would have said.
+            answers.isNode = ask(kIsNode, element, true);
+            answers.fold = !answers.isNode && ask(kFoldIntoParent, element, false);
+        }
+        element.data() = answers;
+    }
+
+    void exit(Element& element, Builder& out) override {
+        if (insideFold(element)) {
+            out.property(deepProperty(element, std::string(element.name())));
+            return;
+        }
+
+        const Answers answers = answersOf(element);
+        if (answers.isNode) {
+            shapeNode(element, out);
+            return;
+        }
+        if (answers.fold) {
+            out.property(deepProperty(element, propertyName(element)));
+            return;
+        }
+
+        // Anything else keeps its own name and attributes, and whatever it
+        // holds goes up to the node above, so a wrapper neither disappears
+        // nor swallows the nodes it holds.
+        out.property(shallowProperty(element));
+        out.forward(element.takeItems());
+    }
+
+private:
+    /// \brief What the script said about an element at enter.
+    struct Answers {
+        bool isNode = false;  ///< Whether the element is a node of its own.
+        bool fold = false;    ///< Whether it folds into the node above.
+    };
+
+    /// \brief Reads the answers stored on an element.
+    ///
+    /// \param element The element.
+    ///
+    /// \returns The answers, or none when nothing was stored.
+    [[nodiscard]] static Answers answersOf(const Element& element) {
+        const Answers* answers = std::any_cast<Answers>(&element.data());
+        return answers == nullptr ? Answers{} : *answers;
+    }
+
+    /// \brief Reports whether an element sits inside a folded element.
+    ///
+    /// \param element The element.
+    ///
+    /// \returns `true` when any ancestor folds into its parent.
+    [[nodiscard]] static bool insideFold(const Element& element) {
+        for (const Element* above = element.parent(); above != nullptr; above = above->parent()) {
+            if (answersOf(*above).fold) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// \brief Turns an element into the table a script sees.
+    ///
+    /// \param element The element.
+    ///
+    /// \returns A table holding the element's name and its attributes by
+    ///          name, with its text under kTextProperty once it is closed.
+    [[nodiscard]] sol::table describe(const Element& element) {
+        sol::table table = lua_.create_table();
+        table["name"] = std::string(element.name());
+
+        sol::table attributes = lua_.create_table();
+        for (const Property& attribute : element.attributes()) {
+            attributes[attribute.name] = attribute.value;
+        }
+        if (!element.text().empty()) {
+            attributes[std::string(kTextProperty)] = std::string(element.text());
+        }
+        table["attr"] = attributes;
+        return table;
+    }
+
+    /// \brief Calls one of the script's functions, if it wrote one.
+    ///
+    /// \param function The name of the function.
+    /// \param element The element to describe to it.
+    ///
+    /// \returns The result, or nothing when the script did not supply the
+    ///          function.
+    [[nodiscard]] sol::optional<sol::protected_function_result> call(const char* function,
+                                                                     const Element& element) {
+        const sol::optional<sol::protected_function> callable = shape_[function];
+        if (!callable) {
+            return sol::nullopt;
+        }
+        return (*callable)(describe(element));
+    }
+
+    /// \brief Asks the script a yes-or-no question about an element.
+    ///
+    /// \param function The name of the function to call.
+    /// \param element The element to ask about.
+    /// \param whenAbsent What to answer when the script did not supply one.
+    ///
+    /// \returns The script's answer, or \p whenAbsent.
+    [[nodiscard]] bool ask(const char* function, const Element& element, bool whenAbsent) {
+        const auto result = call(function, element);
+        if (!result || !result->valid() || result->get_type() == sol::type::nil) {
+            return whenAbsent;
+        }
+        return result->get<bool>();
+    }
+
+    /// \brief Turns an element the script called a node into one.
+    ///
+    /// \param element The element, whose items are consumed.
+    /// \param out Where to emit it.
+    void shapeNode(Element& element, Builder& out) {
+        std::string kind(element.name());
+        if (const auto result = call(kKind, element)) {
+            if (const auto named = stringAt(*result, 0)) {
+                kind = *named;
+            }
+        }
+
+        NodeBuilder node = out.node(std::move(kind), element).attributes(element).text(element);
+
+        if (const auto result = call(kIdentity, element)) {
+            if (const auto identity = stringAt(*result, 0)) {
+                // A second return value naming strength, so the common case
+                // stays one line and the strong case is deliberate.
+                const auto strength = stringAt(*result, 1);
+                node.identity(*identity, strength && *strength == kStrongWord);
+            }
+        }
+        if (const auto result = call(kTitle, element)) {
+            if (const auto title = stringAt(*result, 0)) {
+                node.title(*title, stringAt(*result, 1).value_or(std::string{}));
+            }
+        }
+
+        node.adopt(element.takeItems());
+    }
+
+    /// \brief Chooses what a folded element's property is called.
+    ///
+    /// \param element The element being folded.
+    ///
+    /// \returns The value of its `name` attribute where it has one, and the
+    ///          element's own name otherwise.
+    ///
+    /// \remarks A format that writes `<property name="speed" .../>` means
+    ///          the property to be called speed. One that writes
+    ///          `<transform .../>` means it to be called transform.
+    [[nodiscard]] static std::string propertyName(const Element& element) {
+        const std::string_view named = element.attributeValue(kNameAttribute);
+        return std::string(named.empty() ? element.name() : named);
+    }
+
+    /// \brief Turns an element and everything inside it into a property.
+    ///
+    /// \param element The element, whose items are consumed.
+    /// \param name What to call the resulting property.
+    ///
+    /// \returns The property, with a part per attribute, the text, and each
+    ///          element inside, which were turned into parts as they closed.
+    ///
+    /// \remarks A record rather than a sequence: these parts are named, so
+    ///          their order carries nothing.
+    [[nodiscard]] static Property deepProperty(Element& element, std::string name) {
+        Property property;
+        property.name = std::move(name);
+        property.span = element.span();
+
+        for (const Property& attribute : element.attributes()) {
+            // The name and value attributes are the element's own bookkeeping
+            // rather than part of what it describes.
+            if (attribute.name == kNameAttribute || attribute.name == kValueAttribute) {
+                continue;
+            }
+            property.children.push_back(attribute);
+        }
+        if (!element.text().empty()) {
+            Property text;
+            text.name = std::string(kTextProperty);
+            text.value = std::string(element.text());
+            text.span = element.textSpan();
+            property.children.push_back(std::move(text));
+        }
+        for (Item& item : element.takeItems()) {
+            if (!item.isNode()) {
+                property.children.push_back(std::move(item.property()));
+            }
+        }
+
+        if (property.children.empty()) {
+            property.value = std::string(element.attributeValue(kValueAttribute));
+        } else if (property.children.size() == 1 && !property.children.front().hasParts()) {
+            // One attribute and nothing else is a value, not a record.
+            property.value = property.children.front().value;
+            property.children.clear();
+        }
+        return property;
+    }
+
+    /// \brief Keeps an element that is neither a node nor folded.
+    ///
+    /// \param element The element.
+    ///
+    /// \returns A property named after the element, holding its attributes
+    ///          and text as parts, or as its value when there is one of them.
+    ///
+    /// \remarks Attributes only, deliberately. Whatever the element holds is
+    ///          forwarded on its own account, so recording it here as well
+    ///          would represent everything inside it twice.
+    [[nodiscard]] static Property shallowProperty(const Element& element) {
+        Property folded;
+        folded.name = std::string(element.name());
+        folded.span = element.span();
+        for (const Property& attribute : element.attributes()) {
+            folded.children.push_back(attribute);
+        }
+        if (!element.text().empty()) {
+            Property text;
+            text.name = std::string(kTextProperty);
+            text.value = std::string(element.text());
+            text.span = element.textSpan();
+            folded.children.push_back(std::move(text));
+        }
+        if (folded.children.size() == 1) {
+            folded.value = folded.children.front().value;
+            folded.children.clear();
+        }
+        return folded;
+    }
+
+    sol::state& lua_;
+    sol::table shape_;
+};
+
+// ------------------------------------------------------------ the new form
+
+/// \brief What every handle a script holds points back to.
+///
+/// \remarks One per parse. A handle carries a pointer to this and enough to
+///          check that what it names is still there, because a script may
+///          keep a handle longer than the callback that made it, and touching
+///          a closed element has to be an error rather than a crash.
+struct ScriptContext {
+    sol::state* lua = nullptr;         ///< The interpreter.
+    ShapeSession* session = nullptr;   ///< The session driving the shaper.
+    Builder* builder = nullptr;        ///< The builder of the exit in progress.
+    EnterControl* control = nullptr;   ///< The control of the enter in progress.
+    std::uint64_t epoch = 0;           ///< Counts callbacks, to date handles.
+};
+
+/// \brief A script's view of one open element.
+struct ElementHandle {
+    ScriptContext* context = nullptr;
+    std::uint32_t depth = 0;
+    std::uint64_t serial = 0;
+
+    /// \brief Resolves the element.
+    ///
+    /// \returns The element.
+    ///
+    /// \remarks Throws when the element is no longer open, which sol2 turns
+    ///          into a Lua error at the point of use.
+    [[nodiscard]] Element& element() const {
+        Element* found = context->session->frameAt(depth, serial);
+        if (found == nullptr) {
+            throw std::runtime_error("this element is no longer open");
+        }
+        return *found;
+    }
+};
+
+/// \brief Makes a handle for an element.
+///
+/// \param context The context the handle belongs to.
+/// \param element The element.
+///
+/// \returns The handle.
+[[nodiscard]] ElementHandle handleFor(ScriptContext& context, const Element& element) {
+    return ElementHandle{&context, element.depth(), element.serial()};
+}
+
+/// \brief A script's view of the items made inside one element.
+struct ItemsHandle {
+    ElementHandle owner;
+
+    /// \brief Resolves the items.
+    ///
+    /// \returns The owning element's items.
+    [[nodiscard]] Items& items() const { return owner.element().items(); }
+};
+
+/// \brief A script's view of the builder handed to exit.
+struct BuilderHandle {
+    ScriptContext* context = nullptr;
+    std::uint64_t epoch = 0;
+
+    /// \brief Resolves the builder.
+    ///
+    /// \returns The builder.
+    ///
+    /// \remarks Throws once the exit it was made for has returned.
+    [[nodiscard]] Builder& builder() const {
+        if (context->builder == nullptr || context->epoch != epoch) {
+            throw std::runtime_error("the builder belongs to an exit that has finished");
+        }
+        return *context->builder;
+    }
+};
+
+/// \brief A script's handle on a node it emitted.
+struct NodeHandle {
+    ScriptContext* context = nullptr;
+    std::uint64_t epoch = 0;
+    NodeBuilder node;
+
+    /// \brief Resolves the node builder.
+    ///
+    /// \returns The builder.
+    ///
+    /// \remarks Throws once the exit it was made in has returned.
+    [[nodiscard]] NodeBuilder builder() const {
+        if (context->epoch != epoch) {
+            throw std::runtime_error("the node belongs to an exit that has finished");
+        }
+        return node;
+    }
+};
+
+/// \brief A script's handle on a property it emitted.
+struct PropertyHandle {
+    ScriptContext* context = nullptr;
+    std::uint64_t epoch = 0;
+    PropertyBuilder property;
+
+    /// \brief Resolves the property builder.
+    ///
+    /// \returns The builder.
+    ///
+    /// \remarks Throws once the exit it was made in has returned.
+    [[nodiscard]] PropertyBuilder builder() const {
+        if (context->epoch != epoch) {
+            throw std::runtime_error("the property belongs to an exit that has finished");
+        }
+        return property;
+    }
+};
+
+/// \brief A script's handle on the control handed to enter.
+struct FrameHandle {
+    ElementHandle owner;
+    std::uint64_t epoch = 0;
+
+    /// \brief Resolves the control.
+    ///
+    /// \returns The control.
+    ///
+    /// \remarks Throws once the enter it was made for has returned.
+    [[nodiscard]] EnterControl& control() const {
+        if (owner.context->control == nullptr || owner.context->epoch != epoch) {
+            throw std::runtime_error("the frame belongs to an enter that has finished");
+        }
+        return *owner.context->control;
+    }
+};
+
+/// \brief Reads an element handle out of an argument that may be nil.
+///
+/// \param argument What the script passed.
+///
+/// \returns The element, or `nullptr` for nil or anything else.
+[[nodiscard]] Element* elementArgument(const sol::object& argument) {
+    if (!argument.is<ElementHandle>()) {
+        return nullptr;
+    }
+    return &argument.as<ElementHandle>().element();
+}
+
+/// \brief Reads an items handle out of an argument.
+///
+/// \param argument What the script passed.
+///
+/// \returns The items.
+///
+/// \remarks Throws when the argument is not an items handle, so a script
+///          that passes the wrong thing hears about it.
+[[nodiscard]] Items& itemsArgument(const sol::object& argument) {
+    if (!argument.is<ItemsHandle>()) {
+        throw std::runtime_error("expected the items of an element");
+    }
+    return argument.as<ItemsHandle>().items();
+}
+
+/// \brief Reads a span out of an argument that may name an element.
+///
+/// \param argument What the script passed.
+///
+/// \returns The element's span, or an empty span for nil or anything else.
+[[nodiscard]] SourceSpan spanArgument(const sol::object& argument) {
+    const Element* from = elementArgument(argument);
+    return from == nullptr ? SourceSpan{} : from->span();
+}
+
+/// \brief Reads a list of attribute names to leave out.
+///
+/// \param names What the script passed after the element.
+///
+/// \returns The names, as strings a call can point at.
+[[nodiscard]] std::vector<std::string> namesArgument(const sol::variadic_args& names) {
+    std::vector<std::string> collected;
+    for (const auto& name : names) {
+        if (name.is<std::string>()) {
+            collected.push_back(name.as<std::string>());
+        }
+    }
+    return collected;
+}
+
+/// \brief Hands over an element's attributes with some left out.
+///
+/// \param source The element whose attributes to take.
+/// \param skip The names to leave out, as a script gave them.
+/// \param add Called with each attribute that is kept.
+template <class Add>
+void attributesExcept(const Element& source, const std::vector<std::string>& skip, Add&& add) {
+    for (const Property& attribute : source.attributes()) {
+        if (std::find(skip.begin(), skip.end(), attribute.name) == skip.end()) {
+            add(attribute);
+        }
+    }
+}
+
+/// \brief Returns the value a script stored on an element.
+///
+/// \param element The element.
+/// \param lua The interpreter, for nil.
+///
+/// \returns The value, or nil when nothing was stored.
+[[nodiscard]] sol::object dataOf(const Element& element, sol::state& lua) {
+    const sol::object* stored = std::any_cast<sol::object>(&element.data());
+    return stored == nullptr ? sol::make_object(lua, sol::lua_nil) : *stored;
+}
+
+/// \brief Builds, once, the table of an element's attributes.
+///
+/// \param element The element.
+/// \param lua The interpreter to build it in.
+///
+/// \returns The table, kept on the element so that a script reading it
+///          twice pays once.
+[[nodiscard]] sol::table attributeTable(Element& element, sol::state& lua) {
+    if (const sol::table* cached = std::any_cast<sol::table>(&element.cache())) {
+        return *cached;
+    }
+    sol::table table = lua.create_table();
+    for (const Property& attribute : element.attributes()) {
+        table[attribute.name] = attribute.value;
+    }
+    element.cache() = table;
+    return table;
+}
+
+/// \brief Installs the usertypes the new form uses into an interpreter.
+///
+/// \param lua The interpreter.
+///
+/// \remarks Every entry resolves its handle on each use, so a stale handle
+///          raises a Lua error naming the problem rather than reading memory
+///          that is no longer there.
+void installHandles(sol::state& lua) {
+    lua.new_usertype<ElementHandle>(
+        kElementType, sol::no_constructor,
+        "name", sol::property([](const ElementHandle& h) { return std::string(h.element().name()); }),
+        "text", sol::property([](const ElementHandle& h) { return std::string(h.element().text()); }),
+        "depth", sol::property([](const ElementHandle& h) { return h.element().depth(); }),
+        "index", sol::property([](const ElementHandle& h) { return h.element().index(); }),
+        "child_count", sol::property([](const ElementHandle& h) { return h.element().childCount(); }),
+        "closed", sol::property([](const ElementHandle& h) { return h.element().closed(); }),
+        "span", sol::property([](const ElementHandle& h) {
+            const SourceSpan span = h.element().span();
+            sol::table table = h.context->lua->create_table();
+            table["start"] = span.begin;
+            table["stop"] = span.end;
+            return table;
+        }),
+        "attr", sol::property([](const ElementHandle& h) {
+            return attributeTable(h.element(), *h.context->lua);
+        }),
+        "parent", sol::property([](const ElementHandle& h) -> sol::object {
+            const Element* parent = h.element().parent();
+            if (parent == nullptr) {
+                return sol::make_object(*h.context->lua, sol::lua_nil);
+            }
+            return sol::make_object(*h.context->lua, handleFor(*h.context, *parent));
+        }),
+        "items", sol::property([](const ElementHandle& h) { return ItemsHandle{h}; }),
+        "data", sol::property(
+            [](const ElementHandle& h) { return dataOf(h.element(), *h.context->lua); },
+            [](const ElementHandle& h, sol::object value) { h.element().data() = value; }),
+        "ancestor", [](const ElementHandle& h, const std::string& name) -> sol::object {
+            const Element* found = h.element().ancestor(name);
+            if (found == nullptr) {
+                return sol::make_object(*h.context->lua, sol::lua_nil);
+            }
+            return sol::make_object(*h.context->lua, handleFor(*h.context, *found));
+        });
+
+    lua.new_usertype<ItemsHandle>(
+        kItemsType, sol::no_constructor,
+        sol::meta_function::length, [](const ItemsHandle& h) { return h.items().size(); });
+
+    lua.new_usertype<NodeHandle>(
+        kNodeType, sol::no_constructor,
+        "attributes", [](NodeHandle& h, const ElementHandle& source, sol::variadic_args skip) {
+            NodeBuilder node = h.builder();
+            attributesExcept(source.element(), namesArgument(skip),
+                             [&node](const Property& attribute) { node.property(attribute); });
+            return h;
+        },
+        "text", [](NodeHandle& h, const ElementHandle& source) {
+            h.builder().text(source.element());
+            return h;
+        },
+        "property", [](NodeHandle& h, std::string name, std::string value, sol::object source) {
+            h.builder().property(std::move(name), std::move(value), spanArgument(source));
+            return h;
+        },
+        "adopt", [](NodeHandle& h, sol::object items) {
+            h.builder().adopt(std::move(itemsArgument(items)));
+            return h;
+        },
+        "kind", [](NodeHandle& h, std::string kind) {
+            h.builder().kind(std::move(kind));
+            return h;
+        },
+        "identity", [](NodeHandle& h, sol::object value, sol::optional<std::string> strength) {
+            if (value.is<std::string>()) {
+                h.builder().identity(value.as<std::string>(), strength && *strength == kStrongWord);
+            }
+            return h;
+        },
+        "title", [](NodeHandle& h, sol::object title, sol::optional<std::string> subtitle) {
+            if (title.is<std::string>()) {
+                h.builder().title(title.as<std::string>(), subtitle.value_or(std::string{}));
+            }
+            return h;
+        },
+        "ordered", [](NodeHandle& h, bool ordered) {
+            h.builder().orderedChildren(ordered);
+            return h;
+        });
+
+    lua.new_usertype<PropertyHandle>(
+        kPropertyType, sol::no_constructor,
+        "value", [](PropertyHandle& h, std::string value) {
+            h.builder().value(std::move(value));
+            return h;
+        },
+        "part", [](PropertyHandle& h, std::string name, sol::object value, sol::object source) {
+            h.builder().part(std::move(name),
+                             value.is<std::string>() ? value.as<std::string>() : std::string{},
+                             spanArgument(source));
+            return h;
+        },
+        "attributes", [](PropertyHandle& h, const ElementHandle& source, sol::variadic_args skip) {
+            PropertyBuilder property = h.builder();
+            attributesExcept(source.element(), namesArgument(skip),
+                             [&property](const Property& attribute) { property.part(attribute); });
+            return h;
+        },
+        "adopt", [](PropertyHandle& h, sol::object items) {
+            h.builder().adopt(std::move(itemsArgument(items)));
+            return h;
+        },
+        "ordered", [](PropertyHandle& h, bool ordered) {
+            h.builder().ordered(ordered);
+            return h;
+        },
+        "collapse", [](PropertyHandle& h) {
+            h.builder().collapse();
+            return h;
+        });
+
+    lua.new_usertype<BuilderHandle>(
+        kBuilderType, sol::no_constructor,
+        "node", [](const BuilderHandle& h, std::string kind, sol::object source) {
+            NodeBuilder node = h.builder().node(std::move(kind), spanArgument(source));
+            return NodeHandle{h.context, h.epoch, node};
+        },
+        "property", [](const BuilderHandle& h, std::string name, sol::object value,
+                       sol::object source) {
+            PropertyBuilder property = h.builder().property(
+                std::move(name), value.is<std::string>() ? value.as<std::string>() : std::string{},
+                spanArgument(source));
+            return PropertyHandle{h.context, h.epoch, property};
+        },
+        "forward", [](const BuilderHandle& h, sol::object items) {
+            h.builder().forward(std::move(itemsArgument(items)));
+        },
+        "default", [](const BuilderHandle& h, const ElementHandle& element) {
+            h.builder().defaultTreatment(element.element());
+        },
+        "drop", [](const BuilderHandle& h) { h.builder().drop(); });
+
+    lua.new_usertype<FrameHandle>(
+        kFrameType, sol::no_constructor,
+        "default", [](const FrameHandle& h) { h.control().useDefault(); },
+        "opaque", [](const FrameHandle& h) { h.control().opaque(); },
+        "data", sol::property(
+            [](const FrameHandle& h) {
+                return dataOf(h.owner.element(), *h.owner.context->lua);
+            },
+            [](const FrameHandle& h, sol::object value) { h.owner.element().data() = value; }));
+}
+
+/// \brief The enter-and-exit form, written as a shaper.
+///
+/// \remarks A script's `enter` is told an element has started and may leave
+///          a value for its descendants or take the subtree away. Its `exit`
+///          is told the element has ended, with the items made inside it,
+///          and says what it becomes through the builder. Either may be
+///          absent: no `enter` steers nothing, and no `exit` on an element
+///          gives it the default treatment.
+///
+///          An error raised inside either is read as no answer. Whatever
+///          `exit` emitted before the error stays, and what it did not adopt
+///          goes up as it always does.
+class ScriptShaper final : public IShaper {
+public:
+    /// \brief Prepares to shape with a script's table of functions.
+    ///
+    /// \param lua The interpreter the script is loaded in.
+    /// \param shape The script's table.
+    ScriptShaper(sol::state& lua, sol::table shape) : shape_(std::move(shape)) {
+        context_.lua = &lua;
+        enter_ = shape_[kEnter];
+        exit_ = shape_[kExit];
+    }
+
+    void attach(ShapeSession& session) override { context_.session = &session; }
+
+    void enter(Element& element, EnterControl& control) override {
+        if (!enter_) {
+            return;
+        }
+        ++context_.epoch;
+        context_.control = &control;
+        const ElementHandle handle = handleFor(context_, element);
+        (void)(*enter_)(handle, FrameHandle{handle, context_.epoch});
+        context_.control = nullptr;
+    }
+
+    void exit(Element& element, Builder& out) override {
+        if (!exit_) {
+            return;
+        }
+        ++context_.epoch;
+        context_.builder = &out;
+        (void)(*exit_)(handleFor(context_, element), BuilderHandle{&context_, context_.epoch});
+        context_.builder = nullptr;
+    }
+
+private:
+    ScriptContext context_;
+    sol::table shape_;
+    sol::optional<sol::protected_function> enter_;
+    sol::optional<sol::protected_function> exit_;
+};
+
+/// \brief Reports whether a script's table uses the enter-and-exit form.
+///
+/// \param shape The script's table.
+///
+/// \returns `true` when it defines `enter` or `exit`.
+[[nodiscard]] bool usesEventForm(const sol::table& shape) {
+    return shape[kEnter].valid() || shape[kExit].valid();
+}
+
+// ------------------------------------------------------------ the provider
 
 /// \brief A format whose shape is decided by a script.
 class ScriptedProvider final : public IFormatProvider {
@@ -103,28 +835,34 @@ public:
 
     Result<Tree, ParseError> parse(const SourceFile& source,
                                    std::stop_token token) const override {
-        // The base format reads the bytes. Everything below is shaping, which
-        // is the only part the script has an opinion about.
-        auto parsed = base_.parse(source, token);
-        if (!parsed.ok()) {
-            return fail(parsed.error());
-        }
-        const Tree generic = std::move(parsed).value();
-        if (generic.empty()) {
-            return fail(ParseError::Empty);
-        }
-
         // One interpreter per call, because this runs on a worker and a Lua
         // state is not thread safe. Two sides of a diff parse at once.
         LuaState state;
         state.watchForCancellation(token);
+        installHandles(state.get());
         sol::optional<sol::table> shape = loadShape(state.get());
         if (!shape) {
             return fail(ParseError::NotWellFormed);
         }
 
-        Shaper shaper(generic, state.get(), *shape, *this);
-        return shaper.run(token);
+        std::unique_ptr<IShaper> shaper;
+        if (usesEventForm(*shape)) {
+            shaper = std::make_unique<ScriptShaper>(state.get(), *shape);
+        } else {
+            shaper = std::make_unique<LegacyScriptShaper>(state.get(), *shape);
+        }
+
+        // XML has a walker of its own, so the script sees the elements as the
+        // parser meets them. Any other base reads the file first, and the
+        // script sees that reading's tree.
+        if (base_.name() == "xml") {
+            return shapeXmlDocument(source, *shaper, *this, token);
+        }
+        auto parsed = base_.parse(source, token);
+        if (!parsed.ok()) {
+            return fail(parsed.error());
+        }
+        return shapeTree(parsed.value(), source, *shaper, *this, token);
     }
 
     IdentityKey identity(const Tree& tree, NodeId id) const override {
@@ -135,6 +873,10 @@ public:
             return IdentityKey{};
         }
         return IdentityKey{annotation.strongIdentity, annotation.identity};
+    }
+
+    bool childrenOrdered(const Tree& tree, NodeId id) const override {
+        return !tree.annotation(id).childrenUnordered;
     }
 
     NodeStyle style(const Tree& tree, NodeId id) const override {
@@ -189,283 +931,6 @@ private:
         }
         return found;
     }
-
-    /// \brief Turns one generic tree into the tree the script describes.
-    class Shaper {
-    public:
-        /// \brief Prepares a shaping pass.
-        ///
-        /// \param generic The tree the base provider produced.
-        /// \param lua The interpreter the script is loaded in.
-        /// \param shape The script's table of functions.
-        /// \param provider The provider being run, for its name.
-        Shaper(const Tree& generic, sol::state& lua, const sol::table& shape,
-               const IFormatProvider& provider)
-            : generic_(generic), lua_(lua), shape_(shape), provider_(provider) {}
-
-        /// \brief Runs the pass.
-        ///
-        /// \param token Checked on a bounded interval.
-        ///
-        /// \returns The shaped tree, or a ParseError.
-        [[nodiscard]] Result<Tree, ParseError> run(const std::stop_token& token) {
-            shaped_.setFormatName(std::string(provider_.name()));
-
-            // The document's own root is always a node. A script decides what
-            // is inside a document, not whether there is one.
-            const NodeId root = generic_.root();
-            const NodeId placed = addNode(root, kInvalidNode);
-            collectChildren(root, placed, token);
-            if (cancelled_) {
-                return fail(ParseError::Cancelled);
-            }
-
-            shaped_.finalize();
-            computeHashes(shaped_, provider_, token);
-            if (token.stop_requested()) {
-                return fail(ParseError::Cancelled);
-            }
-            return std::move(shaped_);
-        }
-
-    private:
-        /// \brief Asks the script a yes-or-no question about a node.
-        ///
-        /// \param function The name of the function to call.
-        /// \param id The node to ask about.
-        /// \param whenAbsent What to answer when the script did not supply one.
-        ///
-        /// \returns The script's answer, or \p whenAbsent.
-        [[nodiscard]] bool ask(const char* function, NodeId id, bool whenAbsent) {
-            const sol::optional<sol::protected_function> callable = shape_[function];
-            if (!callable) {
-                return whenAbsent;
-            }
-            const sol::protected_function_result result = (*callable)(describeNode(generic_, id, lua_));
-            if (!result.valid() || result.get_type() == sol::type::nil) {
-                return whenAbsent;
-            }
-            return result.get<bool>();
-        }
-
-        /// \brief Adds one generic node to the shaped tree.
-        ///
-        /// \param id The generic node.
-        /// \param parent The shaped parent, or kInvalidNode for the root.
-        ///
-        /// \returns The shaped node's id.
-        NodeId addNode(NodeId id, NodeId parent) {
-            const Node& source = generic_.node(id);
-
-            std::string kind = source.kind;
-            const sol::optional<sol::protected_function> kindOf = shape_[kKind];
-            if (kindOf) {
-                const sol::protected_function_result result =
-                    (*kindOf)(describeNode(generic_, id, lua_));
-                if (result.valid() && result.get_type() == sol::type::string) {
-                    kind = result.get<std::string>();
-                }
-            }
-
-            const NodeId placed = shaped_.add(parent, kind, source.span);
-            for (const Property& property : source.properties) {
-                shaped_.addProperty(placed, property.name, property.value, property.span);
-            }
-            annotate(id, placed);
-            return placed;
-        }
-
-        /// \brief Records what the script says about one node.
-        ///
-        /// \param id The generic node.
-        /// \param placed The shaped node it became.
-        void annotate(NodeId id, NodeId placed) {
-            NodeAnnotation annotation;
-
-            const sol::optional<sol::protected_function> identityOf = shape_[kIdentity];
-            if (identityOf) {
-                const sol::protected_function_result result =
-                    (*identityOf)(describeNode(generic_, id, lua_));
-                if (result.valid() && result.get_type() == sol::type::string) {
-                    annotation.identity = result.get<std::string>(0);
-                    // A second return value naming strength, so the common case
-                    // stays one line and the strong case is deliberate.
-                    if (result.return_count() > 1 && result.get_type(1) == sol::type::string) {
-                        annotation.strongIdentity = result.get<std::string>(1) == kStrongWord;
-                    }
-                }
-            }
-
-            const sol::optional<sol::protected_function> titleOf = shape_[kTitle];
-            if (titleOf) {
-                const sol::protected_function_result result =
-                    (*titleOf)(describeNode(generic_, id, lua_));
-                if (result.valid() && result.get_type() == sol::type::string) {
-                    annotation.title = result.get<std::string>(0);
-                    if (result.return_count() > 1 && result.get_type(1) == sol::type::string) {
-                        annotation.subtitle = result.get<std::string>(1);
-                    }
-                }
-            }
-
-            shaped_.annotate(placed, std::move(annotation));
-        }
-
-        /// \brief Folds one generic node's properties into a shaped node.
-        ///
-        /// \param id The generic node being folded away.
-        /// \param owner The shaped node that takes its properties.
-        ///
-        /// \remarks A folded element usually describes its parent rather than
-        ///          standing on its own: a name and a value pair in the file
-        ///          become one property of the node above.
-        ///
-        ///          Attributes only, deliberately. The walk carries on into
-        ///          this element's children straight after, so recording them
-        ///          here as well would represent everything inside it twice.
-        void fold(NodeId id, NodeId owner) {
-            const Node& source = generic_.node(id);
-
-            Property folded;
-            folded.name = source.kind;
-            folded.span = source.span;
-            if (source.properties.size() == 1) {
-                // One attribute and nothing else is a value, not a record.
-                folded.value = source.properties.front().value;
-            } else {
-                folded.children = source.properties;
-            }
-            shaped_.addProperty(owner, std::move(folded));
-        }
-
-        /// \brief Walks a generic node's children into the shaped tree.
-        ///
-        /// \param id The generic node whose children to walk.
-        /// \param owner The shaped node they belong under.
-        /// \param token Checked on a bounded interval.
-        void collectChildren(NodeId id, NodeId owner, const std::stop_token& token) {
-            for (const NodeId child : generic_.node(id).children) {
-                if (cancelled_) {
-                    return;
-                }
-                if (++seen_ % kCancelCheckInterval == 0 && token.stop_requested()) {
-                    cancelled_ = true;
-                    return;
-                }
-                collectOne(child, owner, token);
-            }
-        }
-
-        /// \brief Decides what becomes of one generic node.
-        ///
-        /// \param id The generic node.
-        /// \param owner The shaped node it sits under.
-        /// \param token Checked on a bounded interval.
-        ///
-        /// \remarks Two answers, not three. An element is a node, or it is a
-        ///          property of the node above it. There used to be a third,
-        ///          walking through an element and keeping nothing of it, and
-        ///          that is what made it possible to lose content by accident.
-        ///          A diff tool that silently drops what it does not recognise
-        ///          is the one thing a reviewer cannot forgive, so it is gone.
-        ///
-        ///          An element that is not a node but contains nodes keeps
-        ///          both: its own name and attributes become a property, and
-        ///          the nodes inside it attach to the nearest ancestor node.
-        ///          Swallowing them into property content would be simpler and
-        ///          would lose them, which is the problem this rule exists to
-        ///          remove.
-        void collectOne(NodeId id, NodeId owner, const std::stop_token& token) {
-            if (ask(kIsNode, id, true)) {
-                const NodeId placed = addNode(id, owner);
-                collectChildren(id, placed, token);
-                return;
-            }
-
-            // An element the script folds in is content: everything inside it
-            // describes the node above, so it nests and the walk stops here.
-            if (ask(kFoldIntoParent, id, false)) {
-                shaped_.addProperty(owner, deepProperty(id, propertyName(id)));
-                return;
-            }
-
-            // Anything else keeps its own name and attributes and is walked
-            // into, so a wrapper neither disappears nor swallows the nodes it
-            // holds. Only its attributes are recorded here, because the walk is
-            // about to visit its children on their own account.
-            fold(id, owner);
-            collectChildren(id, owner, token);
-        }
-
-        /// \brief Chooses what a folded element's property is called.
-        ///
-        /// \param id The generic node being folded.
-        ///
-        /// \returns The value of its `name` attribute where it has one, and
-        ///          the element's own name otherwise.
-        ///
-        /// \remarks A format that writes `<property name="speed" .../>` means
-        ///          the property to be called speed. One that writes
-        ///          `<transform .../>` means it to be called transform.
-        [[nodiscard]] std::string propertyName(NodeId id) const {
-            const Node& source = generic_.node(id);
-            if (const Property* named = source.findProperty("name");
-                named != nullptr && !named->value.empty()) {
-                return named->value;
-            }
-            return source.kind;
-        }
-
-        /// \brief Turns an element and everything inside it into a property.
-        ///
-        /// \param id The generic node to represent.
-        /// \param name What to call the resulting property.
-        ///
-        /// \returns The property, with a part per attribute and per child.
-        ///
-        /// \remarks Recursive, because a property's content can be elements
-        ///          and nothing may be dropped. A record rather than a sequence:
-        ///          these parts are named, so their order carries nothing.
-        [[nodiscard]] Property deepProperty(NodeId id, std::string name) const {
-            const Node& source = generic_.node(id);
-
-            Property property;
-            property.name = std::move(name);
-            property.span = source.span;
-
-            for (const Property& attribute : source.properties) {
-                // The name and value attributes are the element's own
-                // bookkeeping rather than part of what it describes.
-                if (attribute.name == "name" || attribute.name == "value") {
-                    continue;
-                }
-                property.children.push_back(attribute);
-            }
-            for (const NodeId child : source.children) {
-                property.children.push_back(deepProperty(child, generic_.node(child).kind));
-            }
-
-            if (property.children.empty()) {
-                if (const Property* valued = source.findProperty("value"); valued != nullptr) {
-                    property.value = valued->value;
-                }
-                return property;
-            }
-            if (property.children.size() == 1 && !property.children.front().hasParts()) {
-                property.value = property.children.front().value;
-                property.children.clear();
-            }
-            return property;
-        }
-
-        const Tree& generic_;
-        sol::state& lua_;
-        const sol::table& shape_;
-        const IFormatProvider& provider_;
-        Tree shaped_;
-        std::size_t seen_ = 0;
-        bool cancelled_ = false;
-    };
 
     ScriptedProviderSpec spec_;
     const IFormatProvider& base_;

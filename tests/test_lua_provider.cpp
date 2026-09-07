@@ -224,3 +224,237 @@ TEST_CASE("a script that will not stop is cancelled", "[lua][slow]") {
     CHECK_FALSE(parsed.ok());
     CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() < 2000);
 }
+
+// ---------------------------------------------------------------------------
+// The enter-and-exit form.
+
+namespace {
+
+Tree parseText(const IFormatProvider& provider, const char* text, const char* name) {
+    auto parsed = provider.parse(SourceFile::fromMemory(text, name, name), {});
+    REQUIRE(parsed.ok());
+    return std::move(parsed).value();
+}
+
+}  // namespace
+
+TEST_CASE("the event form builds the same tree as the compiled provider", "[lua][events]") {
+    const auto registry = registryWithScript(readFile(samplePath("behaviortree_events.lua")));
+
+    const Tree compiled = parseWith(registry, "bt", "guard_before.bt");
+    const Tree scripted = parseWith(registry, "bt-events", "guard_before.bt");
+
+    REQUIRE(compiled.size() == scripted.size());
+    for (nmxd::NodeId id = 0; id < compiled.size(); ++id) {
+        INFO("node " << id);
+        const auto& left = compiled.node(id);
+        const auto& right = scripted.node(id);
+        CHECK(left.kind == right.kind);
+        CHECK(left.children.size() == right.children.size());
+        CHECK(left.span == right.span);
+
+        REQUIRE(left.properties.size() == right.properties.size());
+        for (std::size_t i = 0; i < left.properties.size(); ++i) {
+            CHECK(left.properties[i].name == right.properties[i].name);
+            CHECK(left.properties[i].value == right.properties[i].value);
+            CHECK(left.properties[i].span == right.properties[i].span);
+            CHECK(left.properties[i].children.size() == right.properties[i].children.size());
+        }
+    }
+}
+
+TEST_CASE("the event form reports the same changes", "[lua][events]") {
+    const auto registry = registryWithScript(readFile(samplePath("behaviortree_events.lua")));
+
+    const Tree compiledLeft = parseWith(registry, "bt", "guard_before.bt");
+    const Tree compiledRight = parseWith(registry, "bt", "guard_after.bt");
+    const Tree scriptedLeft = parseWith(registry, "bt-events", "guard_before.bt");
+    const Tree scriptedRight = parseWith(registry, "bt-events", "guard_after.bt");
+
+    const auto* compiled = registry.byName("bt");
+    const auto* scripted = registry.byName("bt-events");
+    REQUIRE(compiled != nullptr);
+    REQUIRE(scripted != nullptr);
+
+    const auto compiledDiff = nmxd::diffTrees(compiledLeft, compiledRight, *compiled);
+    const auto scriptedDiff = nmxd::diffTrees(scriptedLeft, scriptedRight, *scripted);
+    CHECK(nmxd::serializeChanges(compiledLeft, compiledRight, compiledDiff) ==
+          nmxd::serializeChanges(scriptedLeft, scriptedRight, scriptedDiff));
+}
+
+TEST_CASE("the event form reads a nested property and a wrapper like the compiled one",
+          "[lua][events]") {
+    // The two shapes the five questions were designed around, read by the
+    // event form: a property whose content is elements, and a wrapper that
+    // carries attributes of its own around the nodes it holds.
+    const auto registry = registryWithScript(readFile(samplePath("behaviortree_events.lua")));
+    const char* xml =
+        "<behaviortree>\n"
+        "  <node id=\"s1\" type=\"Sequence\">\n"
+        "    <property name=\"position\">\n"
+        "      <entityPosition><target name=\"enemy\" offset=\"1.5\"/></entityPosition>\n"
+        "    </property>\n"
+        "    <children policy=\"all\" retries=\"2\">\n"
+        "      <node id=\"w1\" type=\"Wait\"><property name=\"seconds\" value=\"1\"/></node>\n"
+        "    </children>\n"
+        "  </node>\n"
+        "</behaviortree>\n";
+
+    const Tree compiled = parseText(*registry.byName("bt"), xml, "t.bt");
+    const Tree scripted = parseText(*registry.byName("bt-events"), xml, "t.bt");
+    REQUIRE(compiled.size() == scripted.size());
+    for (nmxd::NodeId id = 0; id < compiled.size(); ++id) {
+        INFO("node " << id);
+        CHECK(compiled.node(id).contentHash == scripted.node(id).contentHash);
+    }
+}
+
+TEST_CASE("a wrapper can be dropped and its children kept", "[lua][events]") {
+    // The case that motivated the form.
+    const auto registry = registryWithScript(readFile(samplePath("nested_children.lua")));
+    const auto source = SourceFile::fromMemory(
+        "<node id=\"root\">\n"
+        "  <children>\n"
+        "    <child id=\"a\"/>\n"
+        "    <child id=\"b\"><children><child id=\"c\"/></children></child>\n"
+        "  </children>\n"
+        "  <editor><layout x=\"1\"/></editor>\n"
+        "</node>\n",
+        "t.nested", "t.nested");
+
+    const auto* provider = registry.resolve(source);
+    REQUIRE(provider != nullptr);
+    CHECK(provider->name() == "nested");
+
+    auto parsed = provider->parse(source, {});
+    REQUIRE(parsed.ok());
+    const Tree& tree = parsed.value();
+
+    REQUIRE(tree.size() == 4);
+    const auto& root = tree.node(tree.root());
+    REQUIRE(root.children.size() == 2);
+    CHECK(root.findProperty("children") == nullptr);
+
+    // The editor block is one opaque property holding its raw text.
+    REQUIRE(root.findProperty("editor") != nullptr);
+    CHECK(root.findProperty("editor")->value == "<editor><layout x=\"1\"/></editor>");
+
+    // Enter left the owner's id, and exit keyed the child by it.
+    const auto& b = tree.node(root.children[1]);
+    CHECK(provider->identity(tree, b.id).value == "root/b");
+    CHECK(provider->identity(tree, b.id).strong);
+    CHECK(provider->identity(tree, b.children[0]).value == "b/c");
+    CHECK(provider->style(tree, b.id).title == "b");
+}
+
+TEST_CASE("a script can say a node's children are unordered", "[lua][events]") {
+    // The gap finding F3 named: sibling order could not be declared
+    // meaningless from a script, so a re-sorted table read as a move per row.
+    const auto registry = registryWithScript(
+        "provider 'table' {\n"
+        "  base = 'xml',\n"
+        "  exit = function(el, out)\n"
+        "    out:node(el.name, el):attributes(el):ordered(el.name ~= 'rows'):adopt(el.items)\n"
+        "  end,\n"
+        "}\n");
+    const auto* provider = registry.byName("table");
+    REQUIRE(provider != nullptr);
+
+    const Tree left = parseText(*provider, "<rows><r k='1'/><r k='2'/></rows>", "l.xml");
+    const Tree right = parseText(*provider, "<rows><r k='2'/><r k='1'/></rows>", "r.xml");
+
+    CHECK_FALSE(provider->childrenOrdered(left, left.root()));
+    CHECK(provider->childrenOrdered(left, left.node(left.root()).children[0]));
+    CHECK(left.node(left.root()).contentHash == right.node(right.root()).contentHash);
+
+    const auto model = nmxd::diffTrees(left, right, *provider);
+    CHECK(model.moved == 0);
+    CHECK(model.modified == 0);
+}
+
+TEST_CASE("an element the script does not mention is kept", "[lua][events]") {
+    // The exit below has no else branch. The unmentioned element must still
+    // be in the tree, with everything it carried.
+    const auto registry = registryWithScript(
+        "provider 'partial' {\n"
+        "  base = 'xml',\n"
+        "  exit = function(el, out)\n"
+        "    if el.name == 'keep' then out:node('kept', el):adopt(el.items) end\n"
+        "  end,\n"
+        "}\n");
+    const auto* provider = registry.byName("partial");
+    REQUIRE(provider != nullptr);
+
+    const Tree tree = parseText(*provider, "<keep><other a='1'>text</other></keep>", "t.xml");
+    REQUIRE(tree.size() == 2);
+    const auto& other = tree.node(tree.node(tree.root()).children[0]);
+    CHECK(other.kind == "other");
+    CHECK(other.findProperty("a")->value == "1");
+    CHECK(other.findProperty(nmxd::kTextProperty)->value == "text");
+}
+
+TEST_CASE("a handle kept past its callback raises an error rather than crashing",
+          "[lua][events]") {
+    // The script stashes the builder and the element and uses them from a
+    // later exit. Both are stale by then. The uses fail as Lua errors, which
+    // pcall catches, and the parse still finishes with nothing lost.
+    const auto registry = registryWithScript(
+        "local stale_out, stale_el\n"
+        "provider 'stale' {\n"
+        "  base = 'xml',\n"
+        "  exit = function(el, out)\n"
+        "    if stale_out ~= nil then\n"
+        "      local ok = pcall(function() stale_out:node('late', nil) end)\n"
+        "      assert(not ok)\n"
+        "      ok = pcall(function() return stale_el.name end)\n"
+        "      assert(not ok)\n"
+        "    end\n"
+        "    stale_out, stale_el = out, el\n"
+        "    out:node(el.name, el):adopt(el.items)\n"
+        "  end,\n"
+        "}\n");
+    const auto* provider = registry.byName("stale");
+    REQUIRE(provider != nullptr);
+
+    const Tree tree = parseText(*provider, "<a><b/><c/></a>", "t.xml");
+    CHECK(tree.size() == 3);
+    CHECK(tree.node(tree.root()).kind == "a");
+}
+
+TEST_CASE("the event form works on a JSON base", "[lua][events]") {
+    // JSON has no walker of its own yet, so the base reads the file and the
+    // script sees the base's tree. Same surface, same rules.
+    const auto registry = registryWithScript(
+        "provider 'entities' {\n"
+        "  base = 'json',\n"
+        "  extensions = { '.ent' },\n"
+        "  exit = function(el, out)\n"
+        "    if el.name == 'item' then\n"
+        "      out:node(el.attr.type or 'item', el):identity(el.attr.id, 'strong')"
+        ":attributes(el):adopt(el.items)\n"
+        "    elseif el.name == 'entities' then\n"
+        "      out:forward(el.items)\n"
+        "    end\n"
+        "  end,\n"
+        "}\n");
+    const auto source = SourceFile::fromMemory(
+        "{\"entities\": [{\"id\": \"e1\", \"type\": \"Door\"}, {\"id\": \"e2\", \"type\": \"Key\"}]}",
+        "w.ent", "w.ent");
+    const auto* provider = registry.resolve(source);
+    REQUIRE(provider != nullptr);
+    CHECK(provider->name() == "entities");
+
+    auto parsed = provider->parse(source, {});
+    REQUIRE(parsed.ok());
+    const Tree& tree = parsed.value();
+    REQUIRE(tree.size() == 3);
+    const auto& root = tree.node(tree.root());
+    CHECK(root.kind == "$");
+    CHECK(root.findProperty("entities") == nullptr);
+
+    // Generic JSON keeps every scalar exactly as written, quotes included,
+    // and the script sees what the base produced.
+    CHECK(tree.node(root.children[0]).kind == "\"Door\"");
+    CHECK(provider->identity(tree, root.children[1]).value == "\"e2\"");
+    CHECK(source.slice(tree.node(root.children[1]).span) == "{\"id\": \"e2\", \"type\": \"Key\"}");
+}

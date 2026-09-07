@@ -102,20 +102,6 @@ void attributesAsParts(const Element& element, Property& into) {
     }
 }
 
-/// \brief Folds a property with exactly one plain part down to a value.
-///
-/// \param property The property to fold.
-///
-/// \remarks An element with one attribute and nothing else reads as a value
-///          rather than as a record with one field, which keeps the common
-///          case a single line.
-void collapseSinglePart(Property& property) {
-    if (property.children.size() == 1 && !property.children.front().hasParts()) {
-        property.value = property.children.front().value;
-        property.children.clear();
-    }
-}
-
 /// \brief Turns an element inside a folded property into one of its parts.
 ///
 /// \param element The element, whose items are consumed.
@@ -144,6 +130,7 @@ Property asPart(Element& element) {
         // Nothing inside but text, if anything.
         part.value = std::string(element.text());
     } else {
+        // One attribute and nothing else reads as a value, not a record.
         collapseSinglePart(part);
     }
     return part;

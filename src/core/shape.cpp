@@ -8,6 +8,27 @@
 
 namespace nmxd {
 
+// -------------------------------------------------------------- PendingNode
+
+PendingNode::~PendingNode() {
+    if (children.empty()) {
+        return;
+    }
+
+    // Every node destroyed inside the loop has had its children taken away
+    // first, so its own destructor returns at the check above.
+    std::vector<PendingNode> pending = std::move(children);
+    children.clear();
+    while (!pending.empty()) {
+        PendingNode node = std::move(pending.back());
+        pending.pop_back();
+        for (PendingNode& child : node.children) {
+            pending.push_back(std::move(child));
+        }
+        node.children.clear();
+    }
+}
+
 // ------------------------------------------------------------------ Element
 
 const Property* Element::attribute(std::string_view name) const noexcept {
@@ -48,13 +69,58 @@ Items Element::takeItems() noexcept {
     return taken;
 }
 
+// ------------------------------------------------------------------ helpers
+
+namespace {
+
+/// \brief Reports whether a name is in a list of names to leave out.
+///
+/// \param name The name to test.
+/// \param except The names to leave out.
+///
+/// \returns `true` when \p name is one of them.
+bool excluded(std::string_view name, AttributeNames except) {
+    return std::find(except.begin(), except.end(), name) != except.end();
+}
+
+/// \brief Copies an element's attributes into a list of properties.
+///
+/// \param element The element whose attributes to take.
+/// \param except Attribute names to leave out.
+/// \param into Where to append them.
+void copyAttributes(const Element& element, AttributeNames except,
+                    std::vector<Property>& into) {
+    for (const Property& attribute : element.attributes()) {
+        if (!excluded(attribute.name, except)) {
+            into.push_back(attribute);
+        }
+    }
+}
+
+}  // namespace
+
+Property propertyFromNode(PendingNode&& node) {
+    Property property;
+    property.name = std::move(node.kind);
+    property.span = node.span;
+    property.children = std::move(node.properties);
+    for (PendingNode& child : node.children) {
+        property.children.push_back(propertyFromNode(std::move(child)));
+    }
+    return property;
+}
+
+void collapseSinglePart(Property& property) {
+    if (property.children.size() == 1 && !property.children.front().hasParts()) {
+        property.value = property.children.front().value;
+        property.children.clear();
+    }
+}
+
 // -------------------------------------------------------------- NodeBuilder
 
-NodeBuilder& NodeBuilder::attributes(const Element& element) {
-    PendingNode& node = pending();
-    for (const Property& attribute : element.attributes()) {
-        node.properties.push_back(attribute);
-    }
+NodeBuilder& NodeBuilder::attributes(const Element& element, AttributeNames except) {
+    copyAttributes(element, except, pending().properties);
     return *this;
 }
 
@@ -127,6 +193,57 @@ NodeBuilder& NodeBuilder::orderedChildren(bool ordered) {
 
 PendingNode& NodeBuilder::pending() { return (*target_)[index_].node(); }
 
+// ---------------------------------------------------------- PropertyBuilder
+
+PropertyBuilder& PropertyBuilder::value(std::string value) {
+    pending().value = std::move(value);
+    return *this;
+}
+
+PropertyBuilder& PropertyBuilder::part(std::string name, std::string value, SourceSpan span) {
+    Property part;
+    part.name = std::move(name);
+    part.value = std::move(value);
+    part.span = span;
+    pending().children.push_back(std::move(part));
+    return *this;
+}
+
+PropertyBuilder& PropertyBuilder::part(Property part) {
+    pending().children.push_back(std::move(part));
+    return *this;
+}
+
+PropertyBuilder& PropertyBuilder::attributes(const Element& element, AttributeNames except) {
+    copyAttributes(element, except, pending().children);
+    return *this;
+}
+
+PropertyBuilder& PropertyBuilder::adopt(Items&& items) {
+    Property& property = pending();
+    for (Item& item : items) {
+        if (item.isNode()) {
+            property.children.push_back(propertyFromNode(std::move(item.node())));
+        } else {
+            property.children.push_back(std::move(item.property()));
+        }
+    }
+    items.clear();
+    return *this;
+}
+
+PropertyBuilder& PropertyBuilder::ordered(bool ordered) {
+    pending().ordered = ordered;
+    return *this;
+}
+
+PropertyBuilder& PropertyBuilder::collapse() {
+    collapseSinglePart(pending());
+    return *this;
+}
+
+Property& PropertyBuilder::pending() { return (*target_)[index_].property(); }
+
 // ------------------------------------------------------------------ Builder
 
 NodeBuilder Builder::node(std::string kind, const Element& source) {
@@ -143,23 +260,24 @@ NodeBuilder Builder::node(std::string kind, SourceSpan span) {
     return NodeBuilder(*target_, target_->size() - 1);
 }
 
-void Builder::property(std::string name, std::string value, const Element& source) {
-    property(std::move(name), std::move(value), source.span());
+PropertyBuilder Builder::property(std::string name, std::string value, const Element& source) {
+    return property(std::move(name), std::move(value), source.span());
 }
 
-void Builder::property(std::string name, std::string value, SourceSpan span) {
+PropertyBuilder Builder::property(std::string name, std::string value, SourceSpan span) {
     Property property;
     property.name = std::move(name);
     property.value = std::move(value);
     property.span = span;
-    this->property(std::move(property));
+    return this->property(std::move(property));
 }
 
-void Builder::property(Property property) {
+PropertyBuilder Builder::property(Property property) {
     Item item;
     item.value.emplace<Property>(std::move(property));
     target_->push_back(std::move(item));
     touched_ = true;
+    return PropertyBuilder(*target_, target_->size() - 1);
 }
 
 void Builder::forward(Items&& items) {
@@ -193,7 +311,9 @@ void DefaultShaper::exit(Element& element, Builder& out) {
 // ------------------------------------------------------------- ShapeSession
 
 ShapeSession::ShapeSession(IShaper& shaper, std::string_view text)
-    : shaper_(shaper), text_(text) {}
+    : shaper_(shaper), text_(text) {
+    shaper_.attach(*this);
+}
 
 Element& ShapeSession::open(std::string name, std::vector<Property> attributes,
                             SourceSpan span) {

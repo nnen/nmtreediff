@@ -7,6 +7,7 @@
 #include <any>
 #include <cstdint>
 #include <deque>
+#include <initializer_list>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -41,6 +42,25 @@ struct PendingNode {
     NodeAnnotation annotation;
     /// \brief Whether \ref annotation carries anything worth keeping.
     bool annotated = false;
+
+    /// \brief Makes an empty node.
+    PendingNode() = default;
+    /// \brief Copies a node and everything under it.
+    PendingNode(const PendingNode&) = default;
+    /// \brief Takes over a node and everything under it.
+    PendingNode(PendingNode&&) noexcept = default;
+    /// \brief Copies a node and everything under it.
+    PendingNode& operator=(const PendingNode&) = default;
+    /// \brief Takes over a node and everything under it.
+    PendingNode& operator=(PendingNode&&) noexcept = default;
+
+    /// \brief Destroys the node and everything under it.
+    ///
+    /// \remarks Written out because the implicit destructor recurses once
+    ///          per level, and a staged tree is as deep as the document. The
+    ///          children are taken out and destroyed from an explicit stack
+    ///          instead, so a deep document cannot overflow anything here.
+    ~PendingNode();
 };
 
 /// \brief One thing a shaper produced for an element: a node or a property.
@@ -76,6 +96,30 @@ struct Item {
 
 /// \brief The items produced for one element's children, in document order.
 using Items = std::vector<Item>;
+
+/// \brief Turns a staged node into a property with parts.
+///
+/// \param node The node, consumed.
+///
+/// \returns A property named after the node's kind, whose parts are the
+///          node's properties and, turned the same way, its children.
+///
+/// \remarks What happens when a node is adopted as a part: a record, because
+///          the parts are named. Recursive over the node's children.
+[[nodiscard]] Property propertyFromNode(PendingNode&& node);
+
+/// \brief Folds a property with exactly one plain part down to a value.
+///
+/// \param property The property to fold.
+///
+/// \remarks An element with one attribute and nothing else reads as a value
+///          rather than as a record with one field, which keeps the common
+///          case a single line. A property with no parts, or with a part that
+///          has parts of its own, is left alone.
+void collapseSinglePart(Property& property);
+
+/// \brief Names an attribute not to copy.
+using AttributeNames = std::initializer_list<std::string_view>;
 
 /// \brief How an element and everything inside it is handled.
 enum class ShapeMode {
@@ -279,9 +323,10 @@ public:
     /// \brief Adds every attribute of an element as a property.
     ///
     /// \param element The element whose attributes to take.
+    /// \param except Attribute names to leave out.
     ///
     /// \returns This handle.
-    NodeBuilder& attributes(const Element& element);
+    NodeBuilder& attributes(const Element& element, AttributeNames except = {});
 
     /// \brief Adds an element's text content as the property named
     ///        kTextProperty.
@@ -365,6 +410,79 @@ private:
     std::size_t index_;
 };
 
+/// \brief A handle to a property the builder has emitted, for giving it
+///        parts.
+///
+/// \remarks Valid only while the exit() call that made it is running. A
+///          property with no parts is a value; one with parts is a record,
+///          or a sequence once ordered() says so.
+class PropertyBuilder {
+public:
+    /// \brief Sets the property's value.
+    ///
+    /// \param value The value.
+    ///
+    /// \returns This handle.
+    PropertyBuilder& value(std::string value);
+
+    /// \brief Adds a part.
+    ///
+    /// \param name The part's name.
+    /// \param value The part's value.
+    /// \param span Where it sits in the source, or empty for none.
+    ///
+    /// \returns This handle.
+    PropertyBuilder& part(std::string name, std::string value, SourceSpan span = {});
+
+    /// \brief Adds a part that already has parts of its own.
+    ///
+    /// \param part The part.
+    ///
+    /// \returns This handle.
+    PropertyBuilder& part(Property part);
+
+    /// \brief Adds every attribute of an element as a part.
+    ///
+    /// \param element The element whose attributes to take.
+    /// \param except Attribute names to leave out.
+    ///
+    /// \returns This handle.
+    PropertyBuilder& attributes(const Element& element, AttributeNames except = {});
+
+    /// \brief Takes items in as parts.
+    ///
+    /// \param items The items, consumed. A node among them becomes a part
+    ///        the way propertyFromNode() makes one.
+    ///
+    /// \returns This handle.
+    PropertyBuilder& adopt(Items&& items);
+
+    /// \brief Says whether the parts are a sequence rather than a record.
+    ///
+    /// \param ordered `true` when reordering the parts is a change.
+    ///
+    /// \returns This handle.
+    PropertyBuilder& ordered(bool ordered);
+
+    /// \brief Folds a single plain part down to the value.
+    ///
+    /// \returns This handle.
+    ///
+    /// \remarks See collapseSinglePart().
+    PropertyBuilder& collapse();
+
+    /// \brief Accesses the property being built.
+    ///
+    /// \returns The staged property.
+    [[nodiscard]] Property& pending();
+
+private:
+    friend class Builder;
+    PropertyBuilder(Items& target, std::size_t index) : target_(&target), index_(index) {}
+    Items* target_;
+    std::size_t index_;
+};
+
 /// \brief What exit() emits into.
 ///
 /// \remarks Everything emitted lands in the list the parent element will see
@@ -395,19 +513,25 @@ public:
     /// \param name The property name.
     /// \param value The property value.
     /// \param source The element it came from, whose span it takes.
-    void property(std::string name, std::string value, const Element& source);
+    ///
+    /// \returns A handle for giving the property parts.
+    PropertyBuilder property(std::string name, std::string value, const Element& source);
 
     /// \brief Emits a property with an explicit span.
     ///
     /// \param name The property name.
     /// \param value The property value.
     /// \param span Where it sits in the source, or empty for none.
-    void property(std::string name, std::string value, SourceSpan span = {});
+    ///
+    /// \returns A handle for giving the property parts.
+    PropertyBuilder property(std::string name, std::string value, SourceSpan span = {});
 
     /// \brief Emits a property that already has its parts.
     ///
     /// \param property The property.
-    void property(Property property);
+    ///
+    /// \returns A handle for giving the property more parts.
+    PropertyBuilder property(Property property);
 
     /// \brief Passes items up unchanged.
     ///
@@ -466,6 +590,16 @@ class IShaper {
 public:
     /// \brief Destroys the shaper.
     virtual ~IShaper() = default;
+
+    /// \brief Called once, before the first element, with the session that
+    ///        will drive this shaper.
+    ///
+    /// \param session The session.
+    ///
+    /// \remarks For a shaper that hands elements to something outside C++
+    ///          and needs to check, later, that what comes back still names
+    ///          an open element. The default does nothing.
+    virtual void attach(ShapeSession& session) { (void)session; }
 
     /// \brief Called when an element starts, before anything inside it.
     ///
