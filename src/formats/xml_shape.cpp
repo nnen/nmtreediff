@@ -271,7 +271,8 @@ Result<Tree, ParseError> shapeXmlDocument(const SourceFile& source, IShaper& sha
     }
 
     // The walk reports elements and the session decides what they become.
-    ShapeSession session(shaper, text);
+    DefaultShaper fallback;
+    ShapeSession session(shaper, fallback, text);
     XmlWalker walker(session, text, token);
     if (!walker.walk(root)) {
         return fail(ParseError::Cancelled);

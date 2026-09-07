@@ -254,6 +254,22 @@ public:
     /// \returns The slot. Shapers use data() instead.
     [[nodiscard]] std::any& cache() noexcept { return cache_; }
 
+    /// \brief Returns what the parser knows about this element beyond its
+    ///        name, attributes and text.
+    ///
+    /// \returns The slot, filled by the driver for its own default treatment
+    ///          and empty otherwise.
+    ///
+    /// \remarks The JSON walker records here whether an array holds an object
+    ///          anywhere inside it, which is what decides whether the array
+    ///          reads as a list of values or as a list of nodes. A fact like
+    ///          that has no place in the element's attributes, because an
+    ///          attribute is something the file said.
+    [[nodiscard]] std::any& source() noexcept { return source_; }
+
+    /// \copydoc source()
+    [[nodiscard]] const std::any& source() const noexcept { return source_; }
+
     /// \brief Returns how this element is being handled.
     ///
     /// \returns The mode, which descendants inherit.
@@ -282,6 +298,7 @@ private:
     Items items_;
     std::any data_;
     std::any cache_;
+    std::any source_;
     ShapeMode mode_ = ShapeMode::Shaped;
     std::uint64_t serial_ = 0;
 };
@@ -631,7 +648,9 @@ public:
 /// \remarks Every element becomes a node named after itself, every attribute
 ///          and the text become properties, and every item made inside it is
 ///          adopted. This is what the generic XML format is, and what a
-///          scripted format gets for anything it does not mention.
+///          scripted format on XML gets for anything it does not mention. A
+///          driver whose documents mean something else, JSON with its arrays
+///          of values, brings a default of its own to the session.
 class DefaultShaper final : public IShaper {
 public:
     void exit(Element& element, Builder& out) override;
@@ -650,8 +669,10 @@ public:
     /// \brief Prepares to shape one document.
     ///
     /// \param shaper The shaper to consult.
+    /// \param fallback The default treatment, applied to an element the
+    ///        shaper says nothing about or hands over.
     /// \param text The whole document, for raw slices.
-    ShapeSession(IShaper& shaper, std::string_view text);
+    ShapeSession(IShaper& shaper, IShaper& fallback, std::string_view text);
 
     /// \brief Opens an element.
     ///
@@ -701,7 +722,7 @@ public:
     /// \brief Returns the default treatment.
     ///
     /// \returns The shaper that keeps everything.
-    [[nodiscard]] DefaultShaper& defaultShaper() noexcept { return default_; }
+    [[nodiscard]] IShaper& defaultShaper() noexcept { return fallback_; }
 
     /// \brief Turns what was produced into a tree.
     ///
@@ -731,7 +752,7 @@ private:
     [[nodiscard]] Items& targetFor(Element& element) noexcept;
 
     IShaper& shaper_;
-    DefaultShaper default_;
+    IShaper& fallback_;
     std::string_view text_;
     std::deque<Element> frames_;
     Items rootItems_;

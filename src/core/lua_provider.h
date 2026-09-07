@@ -25,9 +25,10 @@ class ProviderRegistry;
 /// \remarks A scripted provider shapes; it does not parse bytes. The
 ///          requirements ask for custom XML-based and JSON-based formats, so
 ///          there is always an underlying format the tool already reads. For
-///          XML the walker reports each element to the script as the parser
-///          meets it; for any other base the base provider reads the file and
-///          the script shapes that reading's tree. Either way every hot loop
+///          XML and JSON a walker reports each element to the script as the
+///          parser meets it; for any other base, and for the five-question
+///          form on JSON, the base provider reads the file and the script
+///          shapes that reading's tree. Either way every hot loop
 ///          stays in compiled code and the scripted surface stays far smaller
 ///          than IFormatProvider, which matters now that the surface is
 ///          published in two languages.

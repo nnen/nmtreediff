@@ -310,8 +310,8 @@ void DefaultShaper::exit(Element& element, Builder& out) {
 
 // ------------------------------------------------------------- ShapeSession
 
-ShapeSession::ShapeSession(IShaper& shaper, std::string_view text)
-    : shaper_(shaper), text_(text) {
+ShapeSession::ShapeSession(IShaper& shaper, IShaper& fallback, std::string_view text)
+    : shaper_(shaper), fallback_(fallback), text_(text) {
     shaper_.attach(*this);
 }
 
@@ -392,13 +392,13 @@ void ShapeSession::shapeClosed(Element& element) {
             break;
         }
         case ShapeMode::Default:
-            default_.exit(element, out);
+            fallback_.exit(element, out);
             break;
         case ShapeMode::Shaped:
             shaper_.exit(element, out);
             // An exit that said nothing did not mean to lose the element.
             if (!out.touched()) {
-                default_.exit(element, out);
+                fallback_.exit(element, out);
             }
             break;
     }

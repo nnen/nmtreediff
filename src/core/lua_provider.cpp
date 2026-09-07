@@ -18,6 +18,7 @@
 #include "core/registry.h"
 #include "core/shape.h"
 #include "core/tree_shape.h"
+#include "formats/json_shape.h"
 #include "formats/xml_shape.h"
 
 namespace nmxd {
@@ -858,11 +859,16 @@ public:
             shaper = std::make_unique<LegacyScriptShaper>(state.get(), *shape);
         }
 
-        // XML has a walker of its own, so the script sees the elements as the
-        // parser meets them. Any other base reads the file first, and the
+        // XML and JSON have walkers of their own, so the script sees the
+        // elements as the parser meets them. The five-question form on JSON
+        // keeps reading the base's tree, because that is the table it was
+        // documented against. Any other base reads the file first, and the
         // script sees that reading's tree.
         if (base_.name() == "xml") {
             return shapeXmlDocument(source, *shaper, *this, token);
+        }
+        if (base_.name() == "json" && usesEventForm(*shape)) {
+            return shapeJsonDocument(source, *shaper, *this, token);
         }
         auto parsed = base_.parse(source, token);
         if (!parsed.ok()) {

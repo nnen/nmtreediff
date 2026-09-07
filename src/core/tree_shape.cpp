@@ -28,7 +28,8 @@ Result<Tree, ParseError> shapeTree(const Tree& generic, const SourceFile& source
         return fail(ParseError::Empty);
     }
 
-    ShapeSession session(shaper, source.text());
+    DefaultShaper fallback;
+    ShapeSession session(shaper, fallback, source.text());
 
     // The arena is walked with an explicit stack, opening a node as the walk
     // reaches it and closing it once every child has been closed.

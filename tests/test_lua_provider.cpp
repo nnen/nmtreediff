@@ -422,8 +422,8 @@ TEST_CASE("a handle kept past its callback raises an error rather than crashing"
 }
 
 TEST_CASE("the event form works on a JSON base", "[lua][events]") {
-    // JSON has no walker of its own yet, so the base reads the file and the
-    // script sees the base's tree. Same surface, same rules.
+    // The JSON walker reports objects with their scalars as attributes and
+    // arrays holding item elements. Same surface, same rules as XML.
     const auto registry = registryWithScript(
         "provider 'entities' {\n"
         "  base = 'json',\n"
@@ -457,4 +457,130 @@ TEST_CASE("the event form works on a JSON base", "[lua][events]") {
     CHECK(tree.node(root.children[0]).kind == "\"Door\"");
     CHECK(provider->identity(tree, root.children[1]).value == "\"e2\"");
     CHECK(source.slice(tree.node(root.children[1]).span) == "{\"id\": \"e2\", \"type\": \"Key\"}");
+}
+
+TEST_CASE("on JSON an object's scalar members are attributes and array values are text",
+          "[lua][events][json]") {
+    // What the JSON walker reports: an object carries its scalars as
+    // attributes, each spanning key and value; an array element that is a
+    // scalar is an element whose text is the value as written.
+    const auto registry = registryWithScript(
+        "provider 'j' {\n"
+        "  base = 'json',\n"
+        "  exit = function(el, out)\n"
+        "    if el.name == 'item' and el.attr['#type'] == nil then\n"
+        "      out:node('v', el):property('raw', el.text, el)\n"
+        "    elseif el.name == '$' then\n"
+        "      out:node('doc', el):attributes(el, '#type'):adopt(el.items)\n"
+        "    end\n"
+        "  end,\n"
+        "}\n");
+    const auto* provider = registry.byName("j");
+    REQUIRE(provider != nullptr);
+
+    const char* text = "{\"hp\": 3, \"name\": \"x\", \"list\": [1, \"two\"]}";
+    const auto source = SourceFile::fromMemory(text, "t.json", "t.json");
+    auto parsed = provider->parse(source, {});
+    REQUIRE(parsed.ok());
+    const Tree& tree = parsed.value();
+
+    const auto& root = tree.node(tree.root());
+    CHECK(root.kind == "doc");
+    REQUIRE(root.findProperty("hp") != nullptr);
+    CHECK(root.findProperty("hp")->value == "3");
+    CHECK(source.slice(root.findProperty("hp")->span) == "\"hp\": 3");
+    CHECK(root.findProperty("#type") == nullptr);
+
+    // The list held no object, and the script shaped its elements but not
+    // the list itself, so the list took the default: one property whose
+    // parts came from what the script made.
+    const nmxd::Property* list = root.findProperty("list");
+    REQUIRE(list != nullptr);
+    CHECK(list->ordered);
+    CHECK(source.slice(list->span) == "\"list\": [1, \"two\"]");
+    REQUIRE(list->children.size() == 2);
+    CHECK(list->children[0].name == "v");
+    REQUIRE(list->children[1].children.size() == 1);
+    CHECK(list->children[1].children[0].value == "\"two\"");
+}
+
+TEST_CASE("on JSON an unmentioned array of values is one property", "[lua][events][json]") {
+    // The script says nothing about tags or pos, so both get the generic
+    // JSON reading: a list of values is one property, nested lists are parts
+    // with parts, and reordering any of it is a change.
+    const auto registry = registryWithScript(
+        "provider 'j' {\n"
+        "  base = 'json',\n"
+        "  exit = function(el, out)\n"
+        "    if el.name == '$' then out:node('doc', el):attributes(el):adopt(el.items) end\n"
+        "  end,\n"
+        "}\n");
+    const auto* provider = registry.byName("j");
+    REQUIRE(provider != nullptr);
+
+    const Tree tree = parseText(*provider, "{\"tags\": [\"a\", \"b\"], \"pos\": [[1, 2], [3]]}",
+                                "t.json");
+    const auto& root = tree.node(tree.root());
+    CHECK(root.children.empty());
+
+    const nmxd::Property* tags = root.findProperty("tags");
+    REQUIRE(tags != nullptr);
+    CHECK(tags->ordered);
+    REQUIRE(tags->children.size() == 2);
+    CHECK(tags->children[1].value == "\"b\"");
+
+    const nmxd::Property* pos = root.findProperty("pos");
+    REQUIRE(pos != nullptr);
+    REQUIRE(pos->children.size() == 2);
+    CHECK(pos->children[0].ordered);
+    REQUIRE(pos->children[0].children.size() == 2);
+    CHECK(pos->children[0].children[1].value == "2");
+}
+
+TEST_CASE("on JSON enter sees the members and can key what is inside", "[lua][events][json]") {
+    // The nested-children case on JSON. The wrapper is the "children" array,
+    // which forwards its items, and each object is keyed by the id the object
+    // above left at enter.
+    const auto registry = registryWithScript(
+        "provider 'j' {\n"
+        "  base = 'json',\n"
+        "  enter = function(el, frame)\n"
+        "    if el.attr.id ~= nil then frame.data = el.attr.id end\n"
+        "    if el.name == 'editor' then frame:opaque() end\n"
+        "  end,\n"
+        "  exit = function(el, out)\n"
+        "    if el.name == 'children' then out:forward(el.items) return end\n"
+        "    if el.attr.id == nil then return end\n"
+        "    local owner = el.parent\n"
+        "    while owner ~= nil and owner.data == nil do owner = owner.parent end\n"
+        "    local key = el.attr.id\n"
+        "    if owner ~= nil then key = owner.data .. '/' .. key end\n"
+        "    out:node('n', el):identity(key, 'strong'):attributes(el, '#type'):adopt(el.items)\n"
+        "  end,\n"
+        "}\n");
+    const auto* provider = registry.byName("j");
+    REQUIRE(provider != nullptr);
+
+    const char* text =
+        "{\"id\": \"root\", \"children\": [{\"id\": \"a\"},"
+        " {\"id\": \"b\", \"children\": [{\"id\": \"c\"}]}], \"editor\": {\"x\": 1}}";
+    const auto source = SourceFile::fromMemory(text, "t.json", "t.json");
+    auto parsed = provider->parse(source, {});
+    REQUIRE(parsed.ok());
+    const Tree& tree = parsed.value();
+
+    REQUIRE(tree.size() == 4);
+    const auto& root = tree.node(tree.root());
+    REQUIRE(root.children.size() == 2);
+    CHECK(root.findProperty("children") == nullptr);
+
+    const auto& b = tree.node(root.children[1]);
+    CHECK(provider->identity(tree, b.id).value == "\"root\"/\"b\"");
+    CHECK(provider->identity(tree, b.children[0]).value == "\"b\"/\"c\"");
+
+    // The editor object was kept opaque: one property, its raw text.
+    const nmxd::Property* editor = root.findProperty("editor");
+    REQUIRE(editor != nullptr);
+    CHECK(editor->value == "\"editor\": {\"x\": 1}");
+    CHECK(source.slice(editor->span) == editor->value);
 }

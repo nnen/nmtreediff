@@ -162,6 +162,7 @@ nmxmldiff/
       bt_xml.h/.cpp        sample behavior-tree provider (M6)
       xml_spans.h/.cpp     span recovery shared by the XML providers (M6)
       xml_shape.h/.cpp     the XML walker that drives a shaper
+      json_shape.h/.cpp    the JSON walker that drives a shaper, and its default
     ui/
       app_window.h/.cpp    docking layout, menu, details panel, keyboard map
       text_view.h/.cpp
@@ -545,12 +546,24 @@ declares `IShaper`, with `enter()` called when an element starts and `exit()`
 when it ends, and `Builder`, through which `exit()` says what the element
 becomes. `ShapeSession` keeps the stack of open elements, calls the shaper,
 stages what it emits and writes the arena out at the end. `formats/xml_shape`
-walks a pugixml document into a session, and `core/tree_shape` walks a tree
-another provider built, which is how a format on top of JSON reaches the same
-interface until JSON has a walker of its own. Generic XML is the default
-treatment and nothing more; the behaviour-tree provider is a shaper; the
-scripted provider is a shaper that calls into Lua. Span recovery is written
-once, in the XML walker, and `IFormatProvider` did not change.
+walks a pugixml document into a session, `formats/json_shape` walks a simdjson
+document into one, and `core/tree_shape` walks a tree another provider built,
+for a base that has no walker. Generic XML and generic JSON are each a
+driver's default treatment and nothing more; the behaviour-tree provider is a
+shaper; the scripted provider is a shaper that calls into Lua. Span recovery
+is written once per format, in its walker, and `IFormatProvider` did not
+change.
+
+**JSON reports scalar members as attributes.** They are what a script keys and
+titles a node by, and an attribute is visible at enter where an item is not.
+The On Demand cursor is forward only, so having them before anything inside
+the object is reported costs a second pass over each object, the same price
+the array look-ahead already paid. The array look-ahead itself stays, and its
+answer travels on the element to the JSON default treatment, which turns an
+array of values into one ordered property at exit and leaves an array of
+objects a node. A script that shapes the elements but says nothing about the
+array still gets that default, with the parts made from what the script
+produced.
 
 **The decision is made at exit, not at enter.** A SAX-style start event would
 force a shaper to say what an element is before its content is visible, and

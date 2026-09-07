@@ -24,12 +24,13 @@ namespace nmxd {
 ///
 /// \remarks Every node is reported as an element named after its kind, with
 ///          its properties as the attributes and its span as the span. This
-///          is how a format built on a base that has no walker of its own,
-///          JSON today, still reaches the same shaper interface: the base
-///          reads the file, and the shaper reads the base's tree. It costs one
-///          intermediate tree, which a native walker would not, so a base
-///          that grows a walker of its own replaces this without any shaper
-///          noticing.
+///          is how a format built on a base that has no walker of its own
+///          still reaches the same shaper interface: the base reads the file,
+///          and the shaper reads the base's tree. It costs one intermediate
+///          tree, which a native walker does not, so XML and JSON each have
+///          one and this serves everything else, including the five-question
+///          scripted form on JSON, which was documented against the generic
+///          JSON tree.
 [[nodiscard]] Result<Tree, ParseError> shapeTree(const Tree& generic, const SourceFile& source,
                                                  IShaper& shaper, const IFormatProvider& provider,
                                                  std::stop_token token);

@@ -163,12 +163,20 @@ this form, and the tests hold it against the compiled provider the same way
 they hold the short form. `testdata/sample/nested_children.lua` is the wrapper
 case above, complete.
 
-**A JSON base is read first.** XML has a walker of its own, so a script sees
-the elements as the parser meets them. Any other base reads the file into its
-own tree first, and the script sees that tree: a node's kind is the element's
-name, its properties are the attributes, and its span is the span. Generic
-JSON keeps every scalar exactly as written, quotes included, and so does what
-the script sees.
+**What JSON looks like.** XML and JSON each have a walker of their own, so a
+script sees the values as the parser meets them. On JSON the document's
+outermost value is an element named `$`. An object is an element whose
+attributes are its `#type` and its scalar members, each with the value exactly
+as written, quotes included, and a span from the key to the end of the value;
+its object and array members are the elements inside it, named after their
+keys. An array is an element with `#type` set to `array`, holding one element
+named `item` per value. A scalar inside an array is an element whose `el.text`
+is the value as written. Left unmentioned, an array under an object that holds
+no object anywhere inside becomes one ordered property, exactly as generic
+JSON reads it, and everything else becomes a node. The short form on JSON
+keeps reading the generic JSON tree, which is the table it was documented
+against. A base that is neither, such as a compiled format of your own, is
+read into its tree first and the script sees that tree.
 
 **A script gets its own interpreter on each worker.** Two sides of a comparison
 parse at once and a Lua state is not thread safe, so the states share nothing.
@@ -334,10 +342,11 @@ Lua binding in front of it: an exit that says nothing gets the default, items
 left behind go up, and `drop()` is the only way to lose content. Spans are the
 driver's business, so a node made from an element covers the element and a
 property made from an attribute covers the attribute, and nothing in a shaper
-computes an offset. `src/formats/bt_xml.cpp` is the worked example, and
-`tree_shape.h` drives the same interface from a tree another provider built,
-which is how a format on top of JSON is written until JSON has a walker of its
-own.
+computes an offset. `src/formats/bt_xml.cpp` is the worked example. A format
+on top of JSON hands its shaper to `shapeJsonDocument()` in
+`formats/json_shape.h` instead, and `tree_shape.h` drives the same interface
+from a tree another provider built, for a format on top of one that has no
+walker.
 
 A format that is neither XML nor JSON builds the tree itself. Build it depth
 first in document order, which gives the rest of the tool two invariants it
