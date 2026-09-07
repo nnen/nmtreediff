@@ -55,9 +55,10 @@ provider "bt" {
 }
 ```
 
-Each function is handed one element, with `name` holding what the file calls it
-and `attr` holding its attributes by name. Everything is optional: a provider
-with only a `base` reads exactly like the format it sits on.
+This is the short form: five questions, each handed one element with `name`
+holding what the file calls it and `attr` holding its attributes by name.
+Everything is optional: a provider with only a `base` reads exactly like the
+format it sits on.
 
 | Entry | What it decides |
 | --- | --- |
@@ -80,6 +81,94 @@ inside it attach to the nearest node above.
 answers are kept with the tree, so nothing crosses into the interpreter while a
 frame is being drawn. Write them as though they cost something, because they do,
 but not per frame.
+
+### The full form: enter and exit
+
+The five questions decide each element from that element alone. Some formats
+need more: a wrapper that should vanish while the nodes inside it are kept, a
+child keyed by the node above it, a block of editor data that should stay one
+opaque property. For those a script writes `enter` and `exit` instead, and the
+five questions are ignored.
+
+```lua
+provider "tree" {
+  base = "xml",
+
+  enter = function(el, frame)
+    if el.name == "node" then
+      frame.data = el.attr.id     -- visible to every element inside
+    elseif el.name == "editor" then
+      frame:opaque()              -- one property holding the raw text
+    end
+  end,
+
+  exit = function(el, out)
+    if el.name == "node" then
+      out:node("node", el):identity(el.attr.id, "strong"):attributes(el):adopt(el.items)
+    elseif el.name == "child" then
+      local owner = el:ancestor("node")
+      out:node("child", el)
+         :identity(owner.data .. "/" .. el.attr.name, "strong")
+         :attributes(el):adopt(el.items)
+    elseif el.name == "children" then
+      out:forward(el.items)       -- a wrapper: what it held goes up, it keeps nothing
+    end
+  end,
+}
+```
+
+**Exit decides, enter steers.** `enter` is called when an element starts,
+before anything inside it, and never emits. It can leave a value on the element
+for its descendants and it can take the subtree away: `frame:default()` gives
+the element and everything inside it the default treatment with no further
+callbacks, and `frame:opaque()` keeps it as one property holding its raw text.
+`exit` is called when the element ends. By then every element inside it has
+already become a node or a property, and those sit in `el.items` in document
+order. That is the whole reason the decision is made at exit: a script can look
+at what an element holds before saying what the element is.
+
+**What exit can say.** `out:node(kind, el)` emits a node spanning the element;
+`out:property(name, value, el)` emits a property; `out:forward(el.items)`
+passes the items up unchanged; `out:default(el)` applies the default treatment;
+`out:drop()` keeps nothing. A node handle takes `:attributes(el, ...)` with names
+to leave out, `:text(el)`, `:property(name, value, el)`, `:adopt(el.items)`,
+which makes nodes children and properties properties, `:kind(name)`,
+`:identity(value, "strong")`, `:title(first, second)` and `:ordered(false)`. A
+property handle takes `:value(v)`, `:part(name, value, el)`, `:attributes(el,
+...)`, `:adopt(el.items)`, which makes every item a part, `:ordered(true)` for a
+sequence, and `:collapse()`, which folds a single plain part into the value.
+
+**Nothing is dropped here either.** An `exit` that says nothing about an element
+gives it the default treatment. Items an `exit` neither adopts nor forwards are
+forwarded for it. The only way to lose content is `out:drop()`, which is what
+makes a forgotten branch harmless and a deliberate one visible.
+
+**What an element shows.** `el.name`, `el.attr`, `el.text` (empty until exit,
+and empty on an element that holds elements), `el.span` as `start` and `stop`
+offsets, `el.depth`, `el.index` among its siblings, `el.child_count`,
+`el.parent`, `el:ancestor(name)`, `el.data` and `el.items`. An element is
+reachable while it or anything inside it is being visited. Nothing below an
+element is reachable except through `el.items`, and nothing to its right at
+all, which is what keeps the surface honest about what a parser reports as it
+reads.
+
+**Handles do not outlive their callback.** A builder or node handle kept past
+the `exit` that made it, or an element kept past its close, raises a Lua error
+when touched rather than reading memory that is gone. An error raised inside
+`enter` or `exit` is read as no answer: what was emitted before it stays, and
+the rules above keep the rest.
+
+`testdata/sample/behaviortree_events.lua` is the behaviour tree written in
+this form, and the tests hold it against the compiled provider the same way
+they hold the short form. `testdata/sample/nested_children.lua` is the wrapper
+case above, complete.
+
+**A JSON base is read first.** XML has a walker of its own, so a script sees
+the elements as the parser meets them. Any other base reads the file into its
+own tree first, and the script sees that tree: a node's kind is the element's
+name, its properties are the attributes, and its span is the span. Generic
+JSON keeps every scalar exactly as written, quotes included, and so does what
+the script sees.
 
 **A script gets its own interpreter on each worker.** Two sides of a comparison
 parse at once and a Lua state is not thread safe, so the states share nothing.
@@ -213,10 +302,47 @@ Rough guide to the range:
 Result<Tree, ParseError> parse(const SourceFile& source, std::stop_token token) const override;
 ```
 
-The one method that does real work. Build the tree depth first in document
-order, which gives the rest of the tool two invariants it relies on: a parent
-has a lower index than its children, and a node's descendants occupy a
-contiguous run of indices after it.
+The one method that does real work, and for an XML-based format it is two
+lines, because the reading is done for you. Write a shaper, which decides what
+each element becomes, and hand it to the XML driver:
+
+```cpp
+class MyShaper final : public IShaper {
+    void exit(Element& el, Builder& out) override {
+        if (el.name() == "node") {
+            out.node(std::string(el.attributeValue("type")), el)
+                .attributes(el)
+                .adopt(el.takeItems());
+        } else if (el.name() == "children") {
+            out.forward(el.takeItems());
+        }
+        // Anything unmentioned gets the default treatment, and is kept.
+    }
+};
+
+Result<Tree, ParseError> parse(const SourceFile& source, std::stop_token token) const override {
+    MyShaper shaper;
+    return shapeXmlDocument(source, shaper, *this, token);
+}
+```
+
+`core/shape.h` is the contract: `exit()` is called when an element ends, with
+the items already made from what it held, and `enter()` when it starts, for
+steering and for leaving values that descendants read. The same rules as the
+scripted full form apply, because the scripted form is this interface with a
+Lua binding in front of it: an exit that says nothing gets the default, items
+left behind go up, and `drop()` is the only way to lose content. Spans are the
+driver's business, so a node made from an element covers the element and a
+property made from an attribute covers the attribute, and nothing in a shaper
+computes an offset. `src/formats/bt_xml.cpp` is the worked example, and
+`tree_shape.h` drives the same interface from a tree another provider built,
+which is how a format on top of JSON is written until JSON has a walker of its
+own.
+
+A format that is neither XML nor JSON builds the tree itself. Build it depth
+first in document order, which gives the rest of the tool two invariants it
+relies on: a parent has a lower index than its children, and a node's
+descendants occupy a contiguous run of indices after it.
 
 ```cpp
 Tree tree;

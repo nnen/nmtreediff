@@ -22,13 +22,20 @@ class ProviderRegistry;
 ///
 /// \returns The provider, ready to register.
 ///
-/// \remarks A scripted provider shapes a tree; it does not parse bytes. The
+/// \remarks A scripted provider shapes; it does not parse bytes. The
 ///          requirements ask for custom XML-based and JSON-based formats, so
-///          there is always an underlying format the tool already reads: the
-///          base provider does the parsing and the script decides what the
-///          result means. That keeps every hot loop in compiled code and makes
-///          the scripted surface far smaller than IFormatProvider, which
-///          matters now that the surface is published in two languages.
+///          there is always an underlying format the tool already reads. For
+///          XML the walker reports each element to the script as the parser
+///          meets it; for any other base the base provider reads the file and
+///          the script shapes that reading's tree. Either way every hot loop
+///          stays in compiled code and the scripted surface stays far smaller
+///          than IFormatProvider, which matters now that the surface is
+///          published in two languages.
+///
+///          Two forms are read. The short form is five questions asked per
+///          element. The full form is an enter and an exit callback, handed a
+///          builder, which is the same IShaper interface a compiled format
+///          implements with a Lua binding in front of it.
 ///
 ///          Each worker builds its own interpreter from \p script, because a
 ///          Lua state is not thread safe and the two sides of a diff parse in

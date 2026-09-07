@@ -144,6 +144,8 @@ nmxmldiff/
       source.h/.cpp        SourceFile: bytes, line index, label
       tree.h/.cpp          Node, Tree, NodeId, Property, SourceSpan
       provider.h/.cpp      IFormatProvider and its value types
+      shape.h/.cpp         the shaping layer: elements, items, builder, session
+      tree_shape.h/.cpp    driving a shaper from a tree another provider built
       registry.h/.cpp      registration, sniffing, explicit override
       hash.h/.cpp          content hashing of subtrees
       match.h/.cpp         identity, bottom-up, top-down passes
@@ -159,6 +161,7 @@ nmxmldiff/
       json_generic.h/.cpp  default JSON provider (M5)
       bt_xml.h/.cpp        sample behavior-tree provider (M6)
       xml_spans.h/.cpp     span recovery shared by the XML providers (M6)
+      xml_shape.h/.cpp     the XML walker that drives a shaper
     ui/
       app_window.h/.cpp    docking layout, menu, details panel, keyboard map
       text_view.h/.cpp
@@ -527,6 +530,59 @@ because constraint C does not make exceptions for code the user wrote.
 `IFormatProvider` and delegating, so `kProviderInterfaceVersion` should stay at
 1. If it does not, that is the most interesting result M8 can produce and it
 belongs in the plan rather than in a commit message.
+
+### The shaping layer
+
+The five questions above decide each element from that element alone, and
+findings F3 and F21 are the two places that was not enough: a script could not
+say that sibling order carries nothing, and it could not see children,
+ancestors or parts. A wrapper element could be kept as a property, but it could
+not vanish while the nodes inside it were kept. The answer is a layer under
+`parse()` rather than a change to it.
+
+**A parser reports, a shaper decides, a builder records.** `core/shape.h`
+declares `IShaper`, with `enter()` called when an element starts and `exit()`
+when it ends, and `Builder`, through which `exit()` says what the element
+becomes. `ShapeSession` keeps the stack of open elements, calls the shaper,
+stages what it emits and writes the arena out at the end. `formats/xml_shape`
+walks a pugixml document into a session, and `core/tree_shape` walks a tree
+another provider built, which is how a format on top of JSON reaches the same
+interface until JSON has a walker of its own. Generic XML is the default
+treatment and nothing more; the behaviour-tree provider is a shaper; the
+scripted provider is a shaper that calls into Lua. Span recovery is written
+once, in the XML walker, and `IFormatProvider` did not change.
+
+**The decision is made at exit, not at enter.** A SAX-style start event would
+force a shaper to say what an element is before its content is visible, and
+whether an element is a node or a property usually depends on what is inside
+it. At exit the items made from the children are already decided, so a wrapper
+forwards them and a node adopts them, and a script that wants to look one
+level down reads what its own callback produced for that level. Enter is kept
+for what only enter can do: leave a value for descendants and take a subtree
+away from the shaper, either to the default treatment or as one opaque
+property. Enter never emits, which keeps the builder single-model.
+
+**Nothing is dropped is now a default rather than a rule.** A wrapper has to be
+droppable, so the rule could not stay absolute. Instead an exit that says
+nothing gets the default treatment, items an exit leaves behind are forwarded,
+and `drop()` is the only way to lose content. A script that mentions only what
+it cares about still cannot lose an element it forgot.
+
+**The parser stays pugixml.** A SAX parser would drop one copy of the document
+during parsing and let a cancel reach inside the parse, and neither is a need
+that has been measured. What the layer does drop is the generic tree the Lua
+path used to build before shaping it. The interface is kept to what a SAX
+source could deliver, ancestors and shaped children and nothing raw below or to
+the right, so the parser can change later without any shaper noticing.
+
+**Two scripted forms, one shaper interface.** The five questions stay as the
+short form and are implemented as a shaper of their own, still held by the
+tests against the compiled provider. `enter` and `exit` are the full form,
+bound through sol2 usertypes that resolve their element or builder on every
+use, so a handle a script kept too long raises a Lua error rather than reading
+freed memory. The behaviour tree written in the full form is held against the
+compiled provider too, which is the proof that the full form can say
+everything the short one can.
 
 ### The built-in providers
 
@@ -1275,3 +1331,10 @@ particular is the same finding as F3 seen from another side: the scripted
 surface was built to carry the sample behaviour tree and has not been widened
 since the data model grew properties with parts. Widening it once, deliberately,
 is cheaper than answering it one function at a time.
+
+That widening is the shaping layer described under section 6, and it closes
+F3 and F21 together: a script's exit callback sees the element complete, its
+ancestors, its text and the items made from what it held, and a node handle
+can say its children are unordered. It also takes the XML parse off the
+recursion list in F16, because the walker keeps its own stack and the staged
+tree is torn down from one too.

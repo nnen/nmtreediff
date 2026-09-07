@@ -50,8 +50,12 @@ struct PendingNode {
     /// \brief Takes over a node and everything under it.
     PendingNode(PendingNode&&) noexcept = default;
     /// \brief Copies a node and everything under it.
+    ///
+    /// \returns This node.
     PendingNode& operator=(const PendingNode&) = default;
     /// \brief Takes over a node and everything under it.
+    ///
+    /// \returns This node.
     PendingNode& operator=(PendingNode&&) noexcept = default;
 
     /// \brief Destroys the node and everything under it.

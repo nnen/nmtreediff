@@ -55,15 +55,21 @@ constexpr const char* kNameAttribute = "name";
 /// \brief The attribute a folded element takes its value from.
 constexpr const char* kValueAttribute = "value";
 
-/// \brief Names of the usertypes a script sees.
+/// \brief The usertype a script sees an element as.
 ///
-/// \remarks Prefixed so that a script cannot mistake them for something it
-///          declared, and so that an error message names what it is about.
+/// \remarks The usertype names are prefixed so that a script cannot mistake
+///          them for something it declared, and so that an error message
+///          names what it is about.
 constexpr const char* kElementType = "nmxd.Element";
+/// \brief The usertype a script sees an element's items as.
 constexpr const char* kItemsType = "nmxd.Items";
+/// \brief The usertype a script sees the builder as.
 constexpr const char* kBuilderType = "nmxd.Builder";
+/// \brief The usertype a script sees an emitted node as.
 constexpr const char* kNodeType = "nmxd.Node";
+/// \brief The usertype a script sees an emitted property as.
 constexpr const char* kPropertyType = "nmxd.Property";
+/// \brief The usertype a script sees the enter control as.
 constexpr const char* kFrameType = "nmxd.Frame";
 
 /// \brief Reads a string out of a protected call's result.
@@ -369,9 +375,9 @@ struct ScriptContext {
 
 /// \brief A script's view of one open element.
 struct ElementHandle {
-    ScriptContext* context = nullptr;
-    std::uint32_t depth = 0;
-    std::uint64_t serial = 0;
+    ScriptContext* context = nullptr;  ///< What the handle points back to.
+    std::uint32_t depth = 0;           ///< The element's depth.
+    std::uint64_t serial = 0;          ///< The element's serial.
 
     /// \brief Resolves the element.
     ///
@@ -400,7 +406,7 @@ struct ElementHandle {
 
 /// \brief A script's view of the items made inside one element.
 struct ItemsHandle {
-    ElementHandle owner;
+    ElementHandle owner;  ///< The element the items belong to.
 
     /// \brief Resolves the items.
     ///
@@ -410,8 +416,8 @@ struct ItemsHandle {
 
 /// \brief A script's view of the builder handed to exit.
 struct BuilderHandle {
-    ScriptContext* context = nullptr;
-    std::uint64_t epoch = 0;
+    ScriptContext* context = nullptr;  ///< What the handle points back to.
+    std::uint64_t epoch = 0;           ///< The callback the handle was made in.
 
     /// \brief Resolves the builder.
     ///
@@ -428,9 +434,9 @@ struct BuilderHandle {
 
 /// \brief A script's handle on a node it emitted.
 struct NodeHandle {
-    ScriptContext* context = nullptr;
-    std::uint64_t epoch = 0;
-    NodeBuilder node;
+    ScriptContext* context = nullptr;  ///< What the handle points back to.
+    std::uint64_t epoch = 0;           ///< The callback the handle was made in.
+    NodeBuilder node;                  ///< The builder for the node.
 
     /// \brief Resolves the node builder.
     ///
@@ -447,9 +453,9 @@ struct NodeHandle {
 
 /// \brief A script's handle on a property it emitted.
 struct PropertyHandle {
-    ScriptContext* context = nullptr;
-    std::uint64_t epoch = 0;
-    PropertyBuilder property;
+    ScriptContext* context = nullptr;  ///< What the handle points back to.
+    std::uint64_t epoch = 0;           ///< The callback the handle was made in.
+    PropertyBuilder property;          ///< The builder for the property.
 
     /// \brief Resolves the property builder.
     ///
@@ -466,8 +472,8 @@ struct PropertyHandle {
 
 /// \brief A script's handle on the control handed to enter.
 struct FrameHandle {
-    ElementHandle owner;
-    std::uint64_t epoch = 0;
+    ElementHandle owner;      ///< The element being entered.
+    std::uint64_t epoch = 0;  ///< The callback the handle was made in.
 
     /// \brief Resolves the control.
     ///

@@ -351,6 +351,12 @@ The body may hold these entries. Every one is optional.
 | `kind` | function | the element's own name |
 | `identity` | function | no identity |
 | `title` | function | the node's kind |
+| `enter` | function | nothing is steered |
+| `exit` | function | every element gets the default treatment |
+
+The five functions from `is_node` to `title` are the short form, and `enter`
+and `exit` are the full form. A body that has either `enter` or `exit` is read
+in the full form and the five are ignored.
 
 **`display_name`** is the name shown to a person, in the format list and in the
 window.
@@ -456,6 +462,102 @@ provider "bt-lua" {
   title            = function(element) return element.attr.type, element.attr.name end,
 }
 ```
+
+### The enter and exit functions
+
+The short form decides each element from that element alone. The full form is
+for what it cannot say: a wrapper that should vanish while the nodes inside it
+are kept, a child keyed by the node above it, a block that should stay one
+opaque property. Both functions are optional, but writing either one switches
+the whole declaration to this form.
+
+**`enter(el, frame)`** is called when an element starts, before anything
+inside it. Only `el.name`, `el.attr`, where the element starts and its
+ancestors are known. It never emits. It may set `frame.data`, which every
+element inside can read back as the ancestor's `data`, and it may steer:
+`frame:default()` gives this element and everything inside it the default
+treatment with no further callbacks, and `frame:opaque()` keeps the element as
+one property, named after it, holding its raw text, with nothing inside it
+visited.
+
+**`exit(el, out)`** is called when the element ends, after everything inside
+it. By then each element inside has already become a node or a property, and
+those sit in `el.items` in document order. `exit` says what this element
+becomes through `out`:
+
+| Call | What it does |
+| --- | --- |
+| `out:node(kind, el)` | Emits a node spanning `el`, and returns a node handle. Pass `nil` for no span. |
+| `out:property(name, value, el)` | Emits a property spanning `el`, and returns a property handle. |
+| `out:forward(el.items)` | Passes the items up to the element above, unchanged. |
+| `out:default(el)` | Applies the default treatment: a node named after the element, with its attributes, its text and its items. |
+| `out:drop()` | Keeps nothing of this element and discards its items. |
+
+A node handle takes these, each returning the handle so calls chain:
+
+| Call | What it does |
+| --- | --- |
+| `:attributes(el, ...)` | Adds every attribute as a property, except the names listed. |
+| `:text(el)` | Adds the element's text as the `#text` property, when there is any. |
+| `:property(name, value, el)` | Adds one property, spanning `el` or nothing. |
+| `:adopt(el.items)` | Takes the items in: nodes become children, properties become properties. |
+| `:kind(name)` | Changes the node's kind. |
+| `:identity(value, "strong")` | What makes this the same node across versions, as in the short form. |
+| `:title(first, second)` | The card's title and optional subtitle. |
+| `:ordered(false)` | Says the order of the node's children carries nothing, so a reordering is not a change. |
+
+A property handle takes these:
+
+| Call | What it does |
+| --- | --- |
+| `:value(v)` | Sets the value. |
+| `:part(name, value, el)` | Adds one part. |
+| `:attributes(el, ...)` | Adds every attribute as a part, except the names listed. |
+| `:adopt(el.items)` | Takes the items in as parts. A node among them becomes a part named after its kind. |
+| `:ordered(true)` | Says the parts are a sequence, so reordering them is a change. |
+| `:collapse()` | Folds a single plain part into the value, so `<x a="1"/>` reads as `x = 1`. |
+
+**Nothing is dropped.** An `exit` that says nothing about an element gives it
+the default treatment. Items an `exit` neither adopts nor forwards are
+forwarded for it. `out:drop()` is the only way to lose content.
+
+**What an element shows.** `el.name`; `el.attr`, a table of attribute values by
+name; `el.text`, empty until exit and empty on an element that holds elements;
+`el.span`, a table with `start` and `stop` byte offsets; `el.depth`, zero for
+the document element; `el.index` among its siblings; `el.child_count`;
+`el.closed`; `el.parent`, or `nil`; `el:ancestor(name)`, the nearest ancestor
+of that name or `nil`; `el.data`, what `enter` left there; and `el.items`.
+Nothing below an element is reachable except through `el.items`, and nothing
+to its right at all.
+
+**Handles do not outlive their callback.** A builder or a node handle used after
+the `exit` that made it, or an element used after it closed, raises a Lua error
+naming the problem. An error raised inside `enter` or `exit` is read as no
+answer: what was emitted before it stays, and the rules above keep the rest.
+
+```lua
+provider "nested" {
+  base = "xml",
+  extensions = { ".nested" },
+
+  enter = function(el, frame)
+    if el.name == "node" then frame.data = el.attr.id end
+    if el.name == "editor" then frame:opaque() end
+  end,
+
+  exit = function(el, out)
+    if el.name == "node" or el.name == "child" then
+      out:node(el.name, el):attributes(el):adopt(el.items)
+    elseif el.name == "children" then
+      out:forward(el.items)   -- the wrapper vanishes, the children stay
+    end
+  end,
+}
+```
+
+`testdata/sample/nested_children.lua` is this example complete, and
+`testdata/sample/behaviortree_events.lua` is the behaviour tree written in
+this form, held by the tests against the compiled provider.
 
 ### When a script runs
 
