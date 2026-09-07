@@ -28,9 +28,8 @@ namespace nmxd {
 ///          still reaches the same shaper interface: the base reads the file,
 ///          and the shaper reads the base's tree. It costs one intermediate
 ///          tree, which a native walker does not, so XML and JSON each have
-///          one and this serves everything else, including the five-question
-///          scripted form on JSON, which was documented against the generic
-///          JSON tree.
+///          one and this serves everything else, such as a script built on a
+///          compiled format of the studio's own.
 [[nodiscard]] Result<Tree, ParseError> shapeTree(const Tree& generic, const SourceFile& source,
                                                  IShaper& shaper, const IFormatProvider& provider,
                                                  std::stop_token token);

@@ -1,14 +1,14 @@
 Writing a format provider
 =========================
 
-**Provider interface version 1.**
+**Provider interface version 2.**
 
 A format provider teaches NM Tree Diff to read one file format. It decides what
 counts as a node, which two nodes are the same node across two versions of a
 file, and how a node is titled and coloured. Everything above it, the matcher,
 both views and the reports, works the same whatever you decide.
 
-This document is the contract. Version 1 will keep working: changes to the
+This document is the contract. Version 2 will keep working: changes to the
 interface are additive, so a new method arrives with a default implementation
 and nothing already declared changes shape or meaning. The number in the
 heading goes up only when that promise is broken, which would be a decision
@@ -39,60 +39,12 @@ A format in script
 Put this in `~/.nmtreediff.lua`, or in a file you pass with `--config`:
 
 ```lua
-provider "bt" {
-  display_name = "Behavior tree",
-  base = "xml",
-  extensions = { ".bt", ".btree" },
-  graph_direction = "left_to_right",
-  property_order = { "id", "type", "name" },
-
-  is_node = function(element) return element.name == "node" end,
-  fold_into_parent = function(element) return element.name == "property" end,
-
-  kind     = function(element) return element.attr.type end,
-  identity = function(element) return element.attr.id, "strong" end,
-  title    = function(element) return element.attr.type, element.attr.name end,
-}
-```
-
-This is the short form: five questions, each handed one element with `name`
-holding what the file calls it and `attr` holding its attributes by name.
-Everything is optional: a provider with only a `base` reads exactly like the
-format it sits on.
-
-| Entry | What it decides |
-| --- | --- |
-| `base` | Which built-in format does the parsing. `xml` or `json`. |
-| `extensions` | Which suffixes this format claims. A claimed suffix beats the format underneath. |
-| `graph_direction` | `top_down` or `left_to_right`. |
-| `property_order` | Which properties sort first. Presentation only. |
-| `is_node` | Whether an element becomes a node. Default: every element does. |
-| `fold_into_parent` | Whether it becomes a name and value pair on the node above. An element that is neither still becomes a property, named after itself and holding a part per attribute, and the walk carries on inside it so any nodes it wraps still surface. |
-| `kind` | What sort of node this is. Default: the element's name. |
-| `identity` | What makes this the same node across versions. Return a second value of `"strong"` to say the key may be matched across any distance. |
-| `title` | The card's first line, and optionally a second. |
-
-**Nothing is dropped.** An element is a node or it is a property. There is no
-third answer, so a format cannot lose content by failing to mention it. A
-wrapper keeps both halves: the wrapper itself becomes a property, and the nodes
-inside it attach to the nearest node above.
-
-**Each function is asked once per node, while the document is open.** The
-answers are kept with the tree, so nothing crosses into the interpreter while a
-frame is being drawn. Write them as though they cost something, because they do,
-but not per frame.
-
-### The full form: enter and exit
-
-The five questions decide each element from that element alone. Some formats
-need more: a wrapper that should vanish while the nodes inside it are kept, a
-child keyed by the node above it, a block of editor data that should stay one
-opaque property. For those a script writes `enter` and `exit` instead, and the
-five questions are ignored.
-
-```lua
 provider "tree" {
+  display_name = "Nested tree",
   base = "xml",
+  extensions = { ".tree" },
+  graph_direction = "left_to_right",
+  property_order = { "id", "name" },
 
   enter = function(el, frame)
     if el.name == "node" then
@@ -117,6 +69,19 @@ provider "tree" {
 }
 ```
 
+A script writes two functions, and everything else in the body is a setting.
+Everything is optional: a provider with only a `base` reads exactly like the
+format it sits on.
+
+| Entry | What it decides |
+| --- | --- |
+| `base` | Which built-in format does the parsing. `xml` or `json`. |
+| `extensions` | Which suffixes this format claims. A claimed suffix beats the format underneath. |
+| `graph_direction` | `top_down` or `left_to_right`. |
+| `property_order` | Which properties sort first. Presentation only. |
+| `enter` | Called when an element starts. Steers, and leaves values for what is inside. |
+| `exit` | Called when an element ends. Says what the element becomes. |
+
 **Exit decides, enter steers.** `enter` is called when an element starts,
 before anything inside it, and never emits. It can leave a value on the element
 for its descendants and it can take the subtree away: `frame:default()` gives
@@ -138,10 +103,11 @@ property handle takes `:value(v)`, `:part(name, value, el)`, `:attributes(el,
 ...)`, `:adopt(el.items)`, which makes every item a part, `:ordered(true)` for a
 sequence, and `:collapse()`, which folds a single plain part into the value.
 
-**Nothing is dropped here either.** An `exit` that says nothing about an element
-gives it the default treatment. Items an `exit` neither adopts nor forwards are
-forwarded for it. The only way to lose content is `out:drop()`, which is what
-makes a forgotten branch harmless and a deliberate one visible.
+**Nothing is dropped.** An `exit` that says nothing about an element gives it
+the default treatment, which keeps the element as a node with everything it
+carried. Items an `exit` neither adopts nor forwards are forwarded for it. The
+only way to lose content is `out:drop()`, which is what makes a forgotten
+branch harmless and a deliberate one visible.
 
 **What an element shows.** `el.name`, `el.attr`, `el.text` (empty until exit,
 and empty on an element that holds elements), `el.span` as `start` and `stop`
@@ -152,16 +118,20 @@ element is reachable except through `el.items`, and nothing to its right at
 all, which is what keeps the surface honest about what a parser reports as it
 reads.
 
+**Each function is called once per element, while the document is open.** The
+answers are kept with the tree, so nothing crosses into the interpreter while a
+frame is being drawn. Write them as though they cost something, because they do,
+but not per frame.
+
 **Handles do not outlive their callback.** A builder or node handle kept past
 the `exit` that made it, or an element kept past its close, raises a Lua error
 when touched rather than reading memory that is gone. An error raised inside
 `enter` or `exit` is read as no answer: what was emitted before it stays, and
 the rules above keep the rest.
 
-`testdata/sample/behaviortree_events.lua` is the behaviour tree written in
-this form, and the tests hold it against the compiled provider the same way
-they hold the short form. `testdata/sample/nested_children.lua` is the wrapper
-case above, complete.
+`testdata/sample/behaviortree.lua` is the compiled behaviour-tree provider
+written in script, and the tests hold it against the compiled one.
+`testdata/sample/nested_children.lua` is the wrapper case above, complete.
 
 **What JSON looks like.** XML and JSON each have a walker of their own, so a
 script sees the values as the parser meets them. On JSON the document's
@@ -173,10 +143,9 @@ keys. An array is an element with `#type` set to `array`, holding one element
 named `item` per value. A scalar inside an array is an element whose `el.text`
 is the value as written. Left unmentioned, an array under an object that holds
 no object anywhere inside becomes one ordered property, exactly as generic
-JSON reads it, and everything else becomes a node. The short form on JSON
-keeps reading the generic JSON tree, which is the table it was documented
-against. A base that is neither, such as a compiled format of your own, is
-read into its tree first and the script sees that tree.
+JSON reads it, and everything else becomes a node. A base that is neither, such
+as a compiled format of your own, is read into its tree first and the script
+sees that tree.
 
 **A script gets its own interpreter on each worker.** Two sides of a comparison
 parse at once and a Lua state is not thread safe, so the states share nothing.
@@ -336,9 +305,9 @@ Result<Tree, ParseError> parse(const SourceFile& source, std::stop_token token) 
 
 `core/shape.h` is the contract: `exit()` is called when an element ends, with
 the items already made from what it held, and `enter()` when it starts, for
-steering and for leaving values that descendants read. The same rules as the
-scripted full form apply, because the scripted form is this interface with a
-Lua binding in front of it: an exit that says nothing gets the default, items
+steering and for leaving values that descendants read. The same rules as a
+script's `enter` and `exit` apply, because the scripted form is this interface
+with a Lua binding in front of it: an exit that says nothing gets the default, items
 left behind go up, and `drop()` is the only way to lose content. Spans are the
 driver's business, so a node made from an element covers the element and a
 property made from an attribute covers the attribute, and nothing in a shaper

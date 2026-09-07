@@ -37,24 +37,8 @@ constexpr const char* kEnter = "enter";
 /// \brief The function a script writes to be told an element has ended.
 constexpr const char* kExit = "exit";
 
-/// \brief The function a script writes to say what counts as a node.
-constexpr const char* kIsNode = "is_node";
-/// \brief The function that says an element describes the node above it.
-constexpr const char* kFoldIntoParent = "fold_into_parent";
-/// \brief The function that names what sort of node this is.
-constexpr const char* kKind = "kind";
-/// \brief The function that says what makes a node the same node.
-constexpr const char* kIdentity = "identity";
-/// \brief The function that titles a node's card.
-constexpr const char* kTitle = "title";
-
-/// \brief The word a script returns to mean an identity may travel.
+/// \brief The word a script passes to mean an identity may travel.
 constexpr const char* kStrongWord = "strong";
-
-/// \brief The attribute a folded element is named after, when it has one.
-constexpr const char* kNameAttribute = "name";
-/// \brief The attribute a folded element takes its value from.
-constexpr const char* kValueAttribute = "value";
 
 /// \brief The usertype a script sees an element as.
 ///
@@ -73,292 +57,7 @@ constexpr const char* kPropertyType = "nmxd.Property";
 /// \brief The usertype a script sees the enter control as.
 constexpr const char* kFrameType = "nmxd.Frame";
 
-/// \brief Reads a string out of a protected call's result.
-///
-/// \param result The result.
-/// \param index Which return value to read.
-///
-/// \returns The string, or nothing when that return value is not one.
-[[nodiscard]] sol::optional<std::string> stringAt(const sol::protected_function_result& result,
-                                                  int index) {
-    if (!result.valid() || result.return_count() <= index ||
-        result.get_type(index) != sol::type::string) {
-        return sol::nullopt;
-    }
-    return result.get<std::string>(index);
-}
-
-// ------------------------------------------------------- the compatible form
-
-/// \brief The five-question form, written as a shaper.
-///
-/// \remarks The form a script wrote against version 1: `is_node`,
-///          `fold_into_parent`, `kind`, `identity` and `title`, each handed
-///          a table with the element's name and attributes. It is kept as
-///          the short way to say the common thing, and it is kept exact:
-///          the tests hold it against the compiled behaviour-tree provider.
-///
-///          The two yes-or-no questions are asked at enter, because they
-///          decide how everything below is read, and the three naming
-///          questions at exit, where the element's text is known too.
-class LegacyScriptShaper final : public IShaper {
-public:
-    /// \brief Prepares to shape with a script's table of functions.
-    ///
-    /// \param lua The interpreter the script is loaded in.
-    /// \param shape The script's table.
-    LegacyScriptShaper(sol::state& lua, sol::table shape) : lua_(lua), shape_(std::move(shape)) {}
-
-    void enter(Element& element, EnterControl& control) override {
-        (void)control;
-        Answers answers;
-        if (element.parent() == nullptr) {
-            // The document's own root is always a node. A script decides what
-            // is inside a document, not whether there is one.
-            answers.isNode = true;
-        } else if (!insideFold(element)) {
-            // Under a folded element nothing is asked: everything there is
-            // part of the property, whatever the script would have said.
-            answers.isNode = ask(kIsNode, element, true);
-            answers.fold = !answers.isNode && ask(kFoldIntoParent, element, false);
-        }
-        element.data() = answers;
-    }
-
-    void exit(Element& element, Builder& out) override {
-        if (insideFold(element)) {
-            out.property(deepProperty(element, std::string(element.name())));
-            return;
-        }
-
-        const Answers answers = answersOf(element);
-        if (answers.isNode) {
-            shapeNode(element, out);
-            return;
-        }
-        if (answers.fold) {
-            out.property(deepProperty(element, propertyName(element)));
-            return;
-        }
-
-        // Anything else keeps its own name and attributes, and whatever it
-        // holds goes up to the node above, so a wrapper neither disappears
-        // nor swallows the nodes it holds.
-        out.property(shallowProperty(element));
-        out.forward(element.takeItems());
-    }
-
-private:
-    /// \brief What the script said about an element at enter.
-    struct Answers {
-        bool isNode = false;  ///< Whether the element is a node of its own.
-        bool fold = false;    ///< Whether it folds into the node above.
-    };
-
-    /// \brief Reads the answers stored on an element.
-    ///
-    /// \param element The element.
-    ///
-    /// \returns The answers, or none when nothing was stored.
-    [[nodiscard]] static Answers answersOf(const Element& element) {
-        const Answers* answers = std::any_cast<Answers>(&element.data());
-        return answers == nullptr ? Answers{} : *answers;
-    }
-
-    /// \brief Reports whether an element sits inside a folded element.
-    ///
-    /// \param element The element.
-    ///
-    /// \returns `true` when any ancestor folds into its parent.
-    [[nodiscard]] static bool insideFold(const Element& element) {
-        for (const Element* above = element.parent(); above != nullptr; above = above->parent()) {
-            if (answersOf(*above).fold) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /// \brief Turns an element into the table a script sees.
-    ///
-    /// \param element The element.
-    ///
-    /// \returns A table holding the element's name and its attributes by
-    ///          name, with its text under kTextProperty once it is closed.
-    [[nodiscard]] sol::table describe(const Element& element) {
-        sol::table table = lua_.create_table();
-        table["name"] = std::string(element.name());
-
-        sol::table attributes = lua_.create_table();
-        for (const Property& attribute : element.attributes()) {
-            attributes[attribute.name] = attribute.value;
-        }
-        if (!element.text().empty()) {
-            attributes[std::string(kTextProperty)] = std::string(element.text());
-        }
-        table["attr"] = attributes;
-        return table;
-    }
-
-    /// \brief Calls one of the script's functions, if it wrote one.
-    ///
-    /// \param function The name of the function.
-    /// \param element The element to describe to it.
-    ///
-    /// \returns The result, or nothing when the script did not supply the
-    ///          function.
-    [[nodiscard]] sol::optional<sol::protected_function_result> call(const char* function,
-                                                                     const Element& element) {
-        const sol::optional<sol::protected_function> callable = shape_[function];
-        if (!callable) {
-            return sol::nullopt;
-        }
-        return (*callable)(describe(element));
-    }
-
-    /// \brief Asks the script a yes-or-no question about an element.
-    ///
-    /// \param function The name of the function to call.
-    /// \param element The element to ask about.
-    /// \param whenAbsent What to answer when the script did not supply one.
-    ///
-    /// \returns The script's answer, or \p whenAbsent.
-    [[nodiscard]] bool ask(const char* function, const Element& element, bool whenAbsent) {
-        const auto result = call(function, element);
-        if (!result || !result->valid() || result->get_type() == sol::type::nil) {
-            return whenAbsent;
-        }
-        return result->get<bool>();
-    }
-
-    /// \brief Turns an element the script called a node into one.
-    ///
-    /// \param element The element, whose items are consumed.
-    /// \param out Where to emit it.
-    void shapeNode(Element& element, Builder& out) {
-        std::string kind(element.name());
-        if (const auto result = call(kKind, element)) {
-            if (const auto named = stringAt(*result, 0)) {
-                kind = *named;
-            }
-        }
-
-        NodeBuilder node = out.node(std::move(kind), element).attributes(element).text(element);
-
-        if (const auto result = call(kIdentity, element)) {
-            if (const auto identity = stringAt(*result, 0)) {
-                // A second return value naming strength, so the common case
-                // stays one line and the strong case is deliberate.
-                const auto strength = stringAt(*result, 1);
-                node.identity(*identity, strength && *strength == kStrongWord);
-            }
-        }
-        if (const auto result = call(kTitle, element)) {
-            if (const auto title = stringAt(*result, 0)) {
-                node.title(*title, stringAt(*result, 1).value_or(std::string{}));
-            }
-        }
-
-        node.adopt(element.takeItems());
-    }
-
-    /// \brief Chooses what a folded element's property is called.
-    ///
-    /// \param element The element being folded.
-    ///
-    /// \returns The value of its `name` attribute where it has one, and the
-    ///          element's own name otherwise.
-    ///
-    /// \remarks A format that writes `<property name="speed" .../>` means
-    ///          the property to be called speed. One that writes
-    ///          `<transform .../>` means it to be called transform.
-    [[nodiscard]] static std::string propertyName(const Element& element) {
-        const std::string_view named = element.attributeValue(kNameAttribute);
-        return std::string(named.empty() ? element.name() : named);
-    }
-
-    /// \brief Turns an element and everything inside it into a property.
-    ///
-    /// \param element The element, whose items are consumed.
-    /// \param name What to call the resulting property.
-    ///
-    /// \returns The property, with a part per attribute, the text, and each
-    ///          element inside, which were turned into parts as they closed.
-    ///
-    /// \remarks A record rather than a sequence: these parts are named, so
-    ///          their order carries nothing.
-    [[nodiscard]] static Property deepProperty(Element& element, std::string name) {
-        Property property;
-        property.name = std::move(name);
-        property.span = element.span();
-
-        for (const Property& attribute : element.attributes()) {
-            // The name and value attributes are the element's own bookkeeping
-            // rather than part of what it describes.
-            if (attribute.name == kNameAttribute || attribute.name == kValueAttribute) {
-                continue;
-            }
-            property.children.push_back(attribute);
-        }
-        if (!element.text().empty()) {
-            Property text;
-            text.name = std::string(kTextProperty);
-            text.value = std::string(element.text());
-            text.span = element.textSpan();
-            property.children.push_back(std::move(text));
-        }
-        for (Item& item : element.takeItems()) {
-            if (!item.isNode()) {
-                property.children.push_back(std::move(item.property()));
-            }
-        }
-
-        if (property.children.empty()) {
-            property.value = std::string(element.attributeValue(kValueAttribute));
-        } else if (property.children.size() == 1 && !property.children.front().hasParts()) {
-            // One attribute and nothing else is a value, not a record.
-            property.value = property.children.front().value;
-            property.children.clear();
-        }
-        return property;
-    }
-
-    /// \brief Keeps an element that is neither a node nor folded.
-    ///
-    /// \param element The element.
-    ///
-    /// \returns A property named after the element, holding its attributes
-    ///          and text as parts, or as its value when there is one of them.
-    ///
-    /// \remarks Attributes only, deliberately. Whatever the element holds is
-    ///          forwarded on its own account, so recording it here as well
-    ///          would represent everything inside it twice.
-    [[nodiscard]] static Property shallowProperty(const Element& element) {
-        Property folded;
-        folded.name = std::string(element.name());
-        folded.span = element.span();
-        for (const Property& attribute : element.attributes()) {
-            folded.children.push_back(attribute);
-        }
-        if (!element.text().empty()) {
-            Property text;
-            text.name = std::string(kTextProperty);
-            text.value = std::string(element.text());
-            text.span = element.textSpan();
-            folded.children.push_back(std::move(text));
-        }
-        if (folded.children.size() == 1) {
-            folded.value = folded.children.front().value;
-            folded.children.clear();
-        }
-        return folded;
-    }
-
-    sol::state& lua_;
-    sol::table shape_;
-};
-
-// ------------------------------------------------------------ the new form
+// ------------------------------------------------------------------ handles
 
 /// \brief What every handle a script holds points back to.
 ///
@@ -792,15 +491,6 @@ private:
     sol::optional<sol::protected_function> exit_;
 };
 
-/// \brief Reports whether a script's table uses the enter-and-exit form.
-///
-/// \param shape The script's table.
-///
-/// \returns `true` when it defines `enter` or `exit`.
-[[nodiscard]] bool usesEventForm(const sol::table& shape) {
-    return shape[kEnter].valid() || shape[kExit].valid();
-}
-
 // ------------------------------------------------------------ the provider
 
 /// \brief A format whose shape is decided by a script.
@@ -852,29 +542,22 @@ public:
             return fail(ParseError::NotWellFormed);
         }
 
-        std::unique_ptr<IShaper> shaper;
-        if (usesEventForm(*shape)) {
-            shaper = std::make_unique<ScriptShaper>(state.get(), *shape);
-        } else {
-            shaper = std::make_unique<LegacyScriptShaper>(state.get(), *shape);
-        }
+        ScriptShaper shaper(state.get(), *shape);
 
         // XML and JSON have walkers of their own, so the script sees the
-        // elements as the parser meets them. The five-question form on JSON
-        // keeps reading the base's tree, because that is the table it was
-        // documented against. Any other base reads the file first, and the
-        // script sees that reading's tree.
+        // elements as the parser meets them. Any other base reads the file
+        // first, and the script sees that reading's tree.
         if (base_.name() == "xml") {
-            return shapeXmlDocument(source, *shaper, *this, token);
+            return shapeXmlDocument(source, shaper, *this, token);
         }
-        if (base_.name() == "json" && usesEventForm(*shape)) {
-            return shapeJsonDocument(source, *shaper, *this, token);
+        if (base_.name() == "json") {
+            return shapeJsonDocument(source, shaper, *this, token);
         }
         auto parsed = base_.parse(source, token);
         if (!parsed.ok()) {
             return fail(parsed.error());
         }
-        return shapeTree(parsed.value(), source, *shaper, *this, token);
+        return shapeTree(parsed.value(), source, shaper, *this, token);
     }
 
     IdentityKey identity(const Tree& tree, NodeId id) const override {

@@ -324,13 +324,12 @@ Being a sequence rather than a record, an array property compares by position, s
 reordering a list of tags registers as a change. That is the behaviour arrays
 already have as nodes, kept rather than lost.
 
-**A scripted JSON format decides for itself.** The `is_node` hook already means
-what is needed: answer `true` and the array is a node, answer `false` and R7.8
-makes it a property. What M9 has to add is the information a script needs to
-answer, because a JSON element is not an XML element. It should see what kind of
-container it is looking at and whether the elements inside are scalars, so a
-studio whose spawn lists want to be nodes and whose tag lists want to be
-properties can say so in one line each.
+**A scripted JSON format decides for itself.** A script's `exit` sees an
+array with its `#type` and with the items already made from its elements, so
+answering node or property is one branch: emit a node and adopt the items, or
+emit a property and adopt them as parts. A studio whose spawn lists want to be
+nodes and whose tag lists want to be properties says so in one line each, and
+an array the script does not mention gets the generic reading.
 
 **This moves every JSON golden case,** which is the cost and the reason it is
 worth doing at the start of M9 rather than the end. Regenerating them is the
@@ -479,12 +478,13 @@ subclass rather than a redesign. If the bridge needs the interface to change,
 the interface was wrong, and it is better to find that out now than after a
 studio has written against it.
 
-**A scripted provider shapes a tree; it does not parse bytes.** R7 asks for
+**A scripted provider shapes; it does not parse bytes.** R7 asks for
 "custom XML-based, JSON-based, etc. formats", so there is always an underlying
 format the tool already reads. A script declares which one, and the built-in
-provider for it does the parsing. What the script decides is what the generic
-tree means: which elements are nodes, which children fold into properties, what
-a node is called and coloured, and what makes two nodes the same node.
+walker for it reports each element as the parser meets it. What the script
+decides is what those elements mean: which become nodes and which become
+properties, what a node is called and coloured, what makes two nodes the same
+node, and which wrappers vanish while what they hold stays.
 
 ```lua
 provider "bt" {
@@ -492,12 +492,16 @@ provider "bt" {
   base = "xml",
   extensions = { ".bt", ".btree" },
 
-  is_node = function(element) return element.name == "node" end,
-  fold_into_parent = function(element) return element.name == "property" end,
-
-  kind = function(node) return node.attr.type end,
-  identity = function(node) return node.attr.id, "strong" end,
-  title = function(node) return node.attr.type, node.attr.name end,
+  exit = function(el, out)
+    if el.name == "node" then
+      out:node(el.attr.type, el)
+         :identity(el.attr.id, "strong")
+         :title(el.attr.type, el.attr.name)
+         :attributes(el):adopt(el.items)
+    elseif el.name == "property" then
+      out:property(el.attr.name, el.attr.value, el)
+    end
+  end,
 }
 ```
 
@@ -534,12 +538,12 @@ belongs in the plan rather than in a commit message.
 
 ### The shaping layer
 
-The five questions above decide each element from that element alone, and
-findings F3 and F21 are the two places that was not enough: a script could not
-say that sibling order carries nothing, and it could not see children,
-ancestors or parts. A wrapper element could be kept as a property, but it could
-not vanish while the nodes inside it were kept. The answer is a layer under
-`parse()` rather than a change to it.
+Findings F3 and F21 named two places the first scripted surface was not
+enough: a script could not say that sibling order carries nothing, and it
+could not see children, ancestors or parts. A wrapper element could be kept as
+a property, but it could not vanish while the nodes inside it were kept. The
+answer is a layer under `parse()` rather than a change to it, and the scripted
+surface above is what that layer looks like from Lua.
 
 **A parser reports, a shaper decides, a builder records.** `core/shape.h`
 declares `IShaper`, with `enter()` called when an element starts and `exit()`
@@ -588,14 +592,16 @@ path used to build before shaping it. The interface is kept to what a SAX
 source could deliver, ancestors and shaped children and nothing raw below or to
 the right, so the parser can change later without any shaper noticing.
 
-**Two scripted forms, one shaper interface.** The five questions stay as the
-short form and are implemented as a shaper of their own, still held by the
-tests against the compiled provider. `enter` and `exit` are the full form,
+**One scripted form, bound to the shaper interface.** `enter` and `exit` are
 bound through sol2 usertypes that resolve their element or builder on every
 use, so a handle a script kept too long raises a Lua error rather than reading
-freed memory. The behaviour tree written in the full form is held against the
-compiled provider too, which is the proof that the full form can say
-everything the short one can.
+freed memory. The behaviour tree written in script is held against the
+compiled provider, which is the proof that a script can say everything the
+compiled shaper can. The first scripted surface, a set of per-element
+questions that could not see below an element, was retired rather than kept
+beside this one: two surfaces to document and to keep exact was a cost with no
+user yet to justify it, and retiring it is why the provider interface version
+is 2 although the C++ interface did not change.
 
 ### The built-in providers
 
@@ -1072,8 +1078,7 @@ read as text, found nothing there, and lost everything inside it. The fixed
 version distinguishes the two cases by who visits the children: a folded
 element's content is read once, there and nowhere else, so it nests; an element
 the format does not recognise is walked into separately, so only its attributes
-are recorded and recording its children as well would represent them twice. The
-bridge makes the same distinction through `fold_into_parent`.
+are recorded and recording its children as well would represent them twice.
 
 The corpus had no case that reached a property with parts at all, which is why
 neither hole showed up in it. Three cases now do: a nested property whose change

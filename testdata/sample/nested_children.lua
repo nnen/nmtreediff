@@ -8,10 +8,9 @@
 --   </node>
 --
 -- The wrapper is not a node and should not survive as one, and the elements
--- inside it are the node's children. The five-question form cannot say that:
--- it can keep the wrapper as a property, but it cannot make it vanish. The
--- enter and exit form can, because exit sees the items already made from what
--- the wrapper held and simply passes them up.
+-- inside it are the node's children. Deciding at exit is what makes that
+-- possible: exit sees the items already made from what the wrapper held and
+-- simply passes them up, and nothing stands for the wrapper itself.
 
 provider "nested" {
   display_name = "Nested children",

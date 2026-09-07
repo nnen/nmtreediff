@@ -19,15 +19,18 @@ namespace nmxd {
 
 /// \brief The version of the format provider interface this build publishes.
 ///
-/// \remarks This is the studio-facing surface. A provider written against
-///          version 1 keeps working in every later version 1 build, because
-///          changes to the interface are additive: a new method arrives with a
-///          default implementation, and nothing already declared changes shape
-///          or meaning. The number goes up only when that promise is broken,
-///          which is a decision rather than an accident.
+/// \remarks This is the studio-facing surface, in both languages: this
+///          interface and the scripted form built on it. A provider written
+///          against version 2 keeps working in every later version 2 build,
+///          because changes to the interface are additive: a new method
+///          arrives with a default implementation, and nothing already
+///          declared changes shape or meaning. The number goes up only when
+///          that promise is broken, which is a decision rather than an
+///          accident. Version 2 is where the scripted form became the enter
+///          and exit callbacks of IShaper; the C++ interface did not change.
 ///
 ///          Documented in docs/PROVIDERS.md, which carries the same number.
-inline constexpr int kProviderInterfaceVersion = 1;
+inline constexpr int kProviderInterfaceVersion = 2;
 
 /// \brief An opaque colour, with eight bits per channel.
 struct Color {

@@ -248,15 +248,16 @@ provider "bt" {
   base = "xml",
   extensions = { ".bt", ".btree" },
 
-  -- Only <node> elements are nodes.
-  is_node = function(element) return element.name == "node" end,
-  -- <property name= value=/> describes the node it sits in.
-  fold_into_parent = function(element) return element.name == "property" end,
-
-  -- What it does, not what the element is called.
-  kind = function(element) return element.attr.type end,
-  -- The editor's GUID, which makes this the same node however far it moved.
-  identity = function(element) return element.attr.id, "strong" end,
+  exit = function(el, out)
+    if el.name == "node" then
+      -- What it does, not what the element is called; and the editor's GUID,
+      -- which makes this the same node however far it moved.
+      out:node(el.attr.type, el):identity(el.attr.id, "strong"):attributes(el):adopt(el.items)
+    elseif el.name == "property" then
+      -- <property name= value=/> describes the node it sits in.
+      out:property(el.attr.name, el.attr.value, el)
+    end
+  end,
 }
 ```
 
@@ -346,17 +347,8 @@ The body may hold these entries. Every one is optional.
 | `extensions` | list of strings | none |
 | `graph_direction` | string | inherit |
 | `property_order` | list of strings | none |
-| `is_node` | function | every element is a node |
-| `fold_into_parent` | function | no element folds |
-| `kind` | function | the element's own name |
-| `identity` | function | no identity |
-| `title` | function | the node's kind |
 | `enter` | function | nothing is steered |
 | `exit` | function | every element gets the default treatment |
-
-The five functions from `is_node` to `title` are the short form, and `enter`
-and `exit` are the full form. A body that has either `enter` or `exit` is read
-in the full form and the five are ignored.
 
 **`display_name`** is the name shown to a person, in the format list and in the
 window.
@@ -384,92 +376,9 @@ set whatever this says.
 
 ### The shaping functions
 
-The five function entries are the script's opinion about what the parsed file
-means. Each takes one element table and is called once per element while the
-document is read, never once per frame.
-
-The element table has exactly two fields:
-
-- `element.name` is the element's name as the base format produced it. For XML
-  that is the tag name. For JSON it is the member key the value appeared under,
-  `$` for the document's outermost value and `item` for every element of an
-  array. Generic JSON also records a node's `#type` property, which says
-  whether it is an object or an array.
-- `element.attr` maps a property name to its value, both strings. A property
-  that has parts rather than a single value appears with an empty value, and
-  the parts are not reachable from the script.
-
-The table describes the element as the base format parsed it, before any
-shaping. Children are not reachable from it, so a decision about an element is
-made from that element alone.
-
-**`is_node(element)`** returns true when the element is a node of its own.
-Absent, it answers true, so every element is a node until a script says
-otherwise. The document's outermost element is a node whatever this says: a
-script decides what is inside a document, not whether there is one.
-
-**`fold_into_parent(element)`** returns true when the element describes the node
-above it rather than standing on its own. It is asked only about elements
-`is_node` rejected. A folded element becomes one property of the nearest node
-above, with a part for each of its attributes and each element inside it, and
-the walk stops there. Absent, it answers false.
-
-An element that is neither a node nor folded keeps both halves: its own name and
-attributes become a property of the node above, and the walk carries on into
-its children, which attach to that same node. This is why nothing in a file can
-go missing, whatever a script does or fails to say.
-
-A folded element's property is named after its `name` attribute where it has a
-non-empty one, and after the element itself otherwise. Its `name` and `value`
-attributes are the element's own bookkeeping and are not repeated among the
-parts.
-
-**`kind(element)`** returns what sort of node this is, which is the word shown
-on the card and the word the colour is derived from. Two nodes of one kind
-always get one colour, so a script never chooses a colour. A return that is not
-a string leaves the element's own name in place.
-
-**`identity(element)`** returns what makes this the same node across two
-versions, and optionally a second string saying how far that reaches. Return
-`"strong"` as the second value to say the identity may travel: two nodes
-carrying it are the same node however far apart they have moved, and a node
-survives even a change of kind. A strong key that appears more than once on
-either side identifies nothing and anchors nothing, rather than being guessed
-at. Any other second value, or none, gives a weak key, which is only a hint the
-matcher is free to ignore, and today it does: only a strong key changes
-matching. An empty or non-string first return means no identity, and the node
-is matched on shape alone.
-
-**`title(element)`** returns the card's title, and optionally a subtitle as a
-second string. A non-string first return leaves the title as the node's kind.
-
-An error raised inside any of these is caught and read as no answer: the default
-applies, and the comparison carries on. A script that is wrong about one element
-does not fail the run.
-
-```lua
-provider "bt-lua" {
-  display_name = "Behavior tree (script)",
-  base = "xml",
-  extensions = {},
-  graph_direction = "left_to_right",
-  property_order = { "id", "type", "name" },
-
-  is_node          = function(element) return element.name == "node" end,
-  fold_into_parent = function(element) return element.name == "property" end,
-  kind             = function(element) return element.attr.type end,
-  identity         = function(element) return element.attr.id, "strong" end,
-  title            = function(element) return element.attr.type, element.attr.name end,
-}
-```
-
-### The enter and exit functions
-
-The short form decides each element from that element alone. The full form is
-for what it cannot say: a wrapper that should vanish while the nodes inside it
-are kept, a child keyed by the node above it, a block that should stay one
-opaque property. Both functions are optional, but writing either one switches
-the whole declaration to this form.
+The two function entries are the script's opinion about what the parsed file
+means. Both are optional. `enter` is called once per element as it starts and
+`exit` once as it ends, while the document is read, never once per frame.
 
 **`enter(el, frame)`** is called when an element starts, before anything
 inside it. Only `el.name`, `el.attr`, where the element starts and its
@@ -501,9 +410,9 @@ A node handle takes these, each returning the handle so calls chain:
 | `:text(el)` | Adds the element's text as the `#text` property, when there is any. |
 | `:property(name, value, el)` | Adds one property, spanning `el` or nothing. |
 | `:adopt(el.items)` | Takes the items in: nodes become children, properties become properties. |
-| `:kind(name)` | Changes the node's kind. |
-| `:identity(value, "strong")` | What makes this the same node across versions, as in the short form. |
-| `:title(first, second)` | The card's title and optional subtitle. |
+| `:kind(name)` | Changes the node's kind, which is the word shown on the card and the word the colour is derived from. Two nodes of one kind always get one colour, so a script never chooses a colour. |
+| `:identity(value, "strong")` | What makes this the same node across versions. With `"strong"` the identity may travel: two nodes carrying it are the same node however far apart they have moved, and a node survives even a change of kind. A strong key that appears more than once on either side identifies nothing and anchors nothing. Without `"strong"` the key is a hint the matcher is free to ignore, and today it does. |
+| `:title(first, second)` | The card's title and optional subtitle. Absent, the card shows the kind. |
 | `:ordered(false)` | Says the order of the node's children carries nothing, so a reordering is not a change. |
 
 A property handle takes these:
@@ -529,6 +438,15 @@ the document element; `el.index` among its siblings; `el.child_count`;
 of that name or `nil`; `el.data`, what `enter` left there; and `el.items`.
 Nothing below an element is reachable except through `el.items`, and nothing
 to its right at all.
+
+**What JSON looks like.** On a JSON base the document's outermost value is an
+element named `$`. An object's `el.attr` holds `#type` and its scalar members,
+each exactly as written, quotes included; its object and array members are the
+elements inside it, named after their keys. An array is an element with `#type`
+set to `array` holding one element named `item` per value, and a scalar inside
+an array is an element whose `el.text` is the value as written. Left
+unmentioned, an array under an object that holds no object anywhere inside
+becomes one ordered property, exactly as generic JSON reads it.
 
 **Handles do not outlive their callback.** A builder or a node handle used after
 the `exit` that made it, or an element used after it closed, raises a Lua error
@@ -556,8 +474,8 @@ provider "nested" {
 ```
 
 `testdata/sample/nested_children.lua` is this example complete, and
-`testdata/sample/behaviortree_events.lua` is the behaviour tree written in
-this form, held by the tests against the compiled provider.
+`testdata/sample/behaviortree.lua` is the behaviour tree written in script,
+held by the tests against the compiled provider.
 
 ### When a script runs
 

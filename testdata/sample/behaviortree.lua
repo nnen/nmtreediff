@@ -10,6 +10,28 @@
 --   nmxmldiff --config testdata/sample/behaviortree.lua --format bt-lua \
 --             testdata/sample/guard_before.bt testdata/sample/guard_after.bt
 
+-- A <property> with a name is one the format folds into the node above.
+local function is_folded_property(el)
+  return el.name == "property" and el.attr.name ~= nil and el.attr.name ~= ""
+end
+
+-- Whether an element sits inside a folded property's content. Everything in
+-- there is a part of that property, however it is named, and a wrapper the
+-- format does not know is transparent on the way up.
+local function inside_property(el)
+  local above = el.parent
+  while above ~= nil do
+    if above.parent == nil or above.name == "node" then
+      return false
+    end
+    if is_folded_property(above) then
+      return true
+    end
+    above = above.parent
+  end
+  return false
+end
+
 provider "bt-lua" {
   display_name = "Behavior tree (script)",
   base = "xml",
@@ -28,37 +50,60 @@ provider "bt-lua" {
   -- whatever this says.
   property_order = { "id", "type", "name" },
 
-  -- Only <node> elements are nodes. Everything else is either folded into the
-  -- node above it or walked through.
-  is_node = function(element)
-    return element.name == "node"
-  end,
+  -- Called when an element ends, after everything inside it. By then each
+  -- element inside has already been turned into a node or a property, and
+  -- those sit in el.items in document order.
+  exit = function(el, out)
+    -- The document element is the root, whatever it is called.
+    if el.parent == nil then
+      out:node(el.name, el):attributes(el):adopt(el.items)
+      return
+    end
 
-  -- <property name= value=/> describes the node it sits inside, so it becomes
-  -- a property of that node rather than a node of its own. Anything else the
-  -- walk passes through, which keeps a wrapper element from swallowing what is
-  -- inside it.
-  fold_into_parent = function(element)
-    return element.name == "property"
-  end,
+    -- Inside a folded property, an element is a part: its attributes and
+    -- the parts made from what it holds, or its text when it holds nothing.
+    if inside_property(el) then
+      local value = ""
+      if el.child_count == 0 and next(el.attr) == nil then
+        value = el.text
+      end
+      out:property(el.name, value, el):attributes(el):adopt(el.items):collapse()
+      return
+    end
 
-  -- What the node does is what kind of node it is. The element name is "node"
-  -- for every one of them, which tells a reader nothing.
-  kind = function(element)
-    return element.attr.type
-  end,
+    -- Only <node> elements are nodes. What the node does is what kind of node
+    -- it is: the element name is "node" for every one of them, which tells a
+    -- reader nothing. The editor writes a GUID, so two nodes carrying the same
+    -- one are the same node however far apart they have moved. That is worth
+    -- saying out loud: "strong" means the matcher may pair them across any
+    -- distance, and it is what lets a node survive a change of type that no
+    -- structural heuristic could recover from.
+    if el.name == "node" then
+      local n = out:node(el.attr.type or "node", el)
+      n:identity(el.attr.id, "strong")
+      n:title(el.attr.type, el.attr.name)
+      n:attributes(el)
+      n:adopt(el.items)
+      return
+    end
 
-  -- The editor writes a GUID, so two nodes carrying the same one are the same
-  -- node however far apart they have moved. That is worth saying out loud:
-  -- "strong" means the matcher may pair them across any distance, and it is
-  -- what lets a node survive a change of type that no structural heuristic
-  -- could recover from.
-  identity = function(element)
-    return element.attr.id, "strong"
-  end,
+    -- <property name= value=/> describes the node it sits inside, so it
+    -- becomes a property of that node rather than a node of its own.
+    if is_folded_property(el) then
+      if el.attr.value == nil and el.child_count > 0 then
+        -- Content made of elements is a value with parts. The name and value
+        -- attributes are the element's own bookkeeping, not parts of it.
+        out:property(el.attr.name, "", el):attributes(el, "name", "value"):adopt(el.items):collapse()
+      else
+        out:property(el.attr.name, el.attr.value or el.text, el)
+      end
+      return
+    end
 
-  -- The behaviour first, the author's name for it second.
-  title = function(element)
-    return element.attr.type, element.attr.name
+    -- Anything else keeps its own name and attributes as a property of the
+    -- node above, and what it holds goes up to that node too. A wrapper such
+    -- as <children> neither breaks the tree nor disappears from it.
+    out:property(el.name, "", el):attributes(el):collapse()
+    out:forward(el.items)
   end,
 }

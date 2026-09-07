@@ -64,6 +64,12 @@ Tree parseWith(const nmxd::ProviderRegistry& registry, const char* format, const
     return std::move(tree).value();
 }
 
+Tree parseText(const IFormatProvider& provider, const char* text, const char* name) {
+    auto parsed = provider.parse(SourceFile::fromMemory(text, name, name), {});
+    REQUIRE(parsed.ok());
+    return std::move(parsed).value();
+}
+
 }  // namespace
 
 TEST_CASE("a scripted provider builds the same tree as the compiled one", "[lua]") {
@@ -79,13 +85,14 @@ TEST_CASE("a scripted provider builds the same tree as the compiled one", "[lua]
         const auto& right = scripted.node(id);
         CHECK(left.kind == right.kind);
         CHECK(left.children.size() == right.children.size());
-        CHECK(left.span.begin == right.span.begin);
-        CHECK(left.span.end == right.span.end);
+        CHECK(left.span == right.span);
 
         REQUIRE(left.properties.size() == right.properties.size());
         for (std::size_t i = 0; i < left.properties.size(); ++i) {
             CHECK(left.properties[i].name == right.properties[i].name);
             CHECK(left.properties[i].value == right.properties[i].value);
+            CHECK(left.properties[i].span == right.properties[i].span);
+            CHECK(left.properties[i].children.size() == right.properties[i].children.size());
         }
     }
 }
@@ -116,6 +123,33 @@ TEST_CASE("a scripted provider reports the same changes", "[lua]") {
 
     CHECK(nmxd::serializeChanges(compiledLeft, compiledRight, compiledDiff) ==
           nmxd::serializeChanges(scriptedLeft, scriptedRight, scriptedDiff));
+}
+
+TEST_CASE("a script reads a nested property and a wrapper like the compiled provider",
+          "[lua]") {
+    // The two shapes that are easiest to get subtly wrong: a property whose
+    // content is elements, and a wrapper that carries attributes of its own
+    // around the nodes it holds.
+    const auto registry = registryWithScript(readFile(samplePath("behaviortree.lua")));
+    const char* xml =
+        "<behaviortree>\n"
+        "  <node id=\"s1\" type=\"Sequence\">\n"
+        "    <property name=\"position\">\n"
+        "      <entityPosition><target name=\"enemy\" offset=\"1.5\"/></entityPosition>\n"
+        "    </property>\n"
+        "    <children policy=\"all\" retries=\"2\">\n"
+        "      <node id=\"w1\" type=\"Wait\"><property name=\"seconds\" value=\"1\"/></node>\n"
+        "    </children>\n"
+        "  </node>\n"
+        "</behaviortree>\n";
+
+    const Tree compiled = parseText(*registry.byName("bt"), xml, "t.bt");
+    const Tree scripted = parseText(*registry.byName("bt-lua"), xml, "t.bt");
+    REQUIRE(compiled.size() == scripted.size());
+    for (nmxd::NodeId id = 0; id < compiled.size(); ++id) {
+        INFO("node " << id);
+        CHECK(compiled.node(id).contentHash == scripted.node(id).contentHash);
+    }
 }
 
 TEST_CASE("a scripted identity survives a change of kind", "[lua]") {
@@ -152,7 +186,6 @@ TEST_CASE("a script may claim extensions and win them", "[lua]") {
         "provider 'mine' {\n"
         "  base = 'xml',\n"
         "  extensions = { '.MINE' },\n"
-        "  is_node = function(e) return true end,\n"
         "}\n");
 
     const auto source = SourceFile::fromMemory("<r/>", "thing.mine", "thing.mine");
@@ -173,7 +206,7 @@ TEST_CASE("a provider built on a format that does not exist is reported", "[lua]
     CHECK(registry.byName("x") == nullptr);
 }
 
-TEST_CASE("a script that keeps every element still parses", "[lua]") {
+TEST_CASE("a script that says nothing reads like the format it is built on", "[lua]") {
     // The smallest possible provider: one that changes nothing. It should read
     // exactly like the format it is built on, which is what says the bridge
     // adds nothing of its own.
@@ -192,125 +225,8 @@ TEST_CASE("a script that keeps every element still parses", "[lua]") {
     CHECK(shaped.value().size() == generic.value().size());
 }
 
-TEST_CASE("a script that will not stop is cancelled", "[lua][slow]") {
-    // Constraint C makes no exception for code the user wrote. A script with a
-    // loop in it would otherwise hold a worker for ever, and switching format
-    // or reloading a file has to be able to take that worker back.
-    const auto registry = registryWithScript(
-        "provider 'spinner' {\n"
-        "  base = 'xml',\n"
-        "  is_node = function(e)\n"
-        "    while true do end\n"
-        "  end,\n"
-        "}\n");
-
-    const auto* provider = registry.byName("spinner");
-    REQUIRE(provider != nullptr);
-
-    const auto source = SourceFile::fromMemory("<r><a/></r>", "t.xml", "t.xml");
-
-    std::stop_source stopping;
-    std::thread canceller([&stopping] {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        stopping.request_stop();
-    });
-
-    const auto started = std::chrono::steady_clock::now();
-    const auto parsed = provider->parse(source, stopping.get_token());
-    const auto elapsed = std::chrono::steady_clock::now() - started;
-    canceller.join();
-
-    // It gave up rather than running to the end, and it did so promptly.
-    CHECK_FALSE(parsed.ok());
-    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() < 2000);
-}
-
-// ---------------------------------------------------------------------------
-// The enter-and-exit form.
-
-namespace {
-
-Tree parseText(const IFormatProvider& provider, const char* text, const char* name) {
-    auto parsed = provider.parse(SourceFile::fromMemory(text, name, name), {});
-    REQUIRE(parsed.ok());
-    return std::move(parsed).value();
-}
-
-}  // namespace
-
-TEST_CASE("the event form builds the same tree as the compiled provider", "[lua][events]") {
-    const auto registry = registryWithScript(readFile(samplePath("behaviortree_events.lua")));
-
-    const Tree compiled = parseWith(registry, "bt", "guard_before.bt");
-    const Tree scripted = parseWith(registry, "bt-events", "guard_before.bt");
-
-    REQUIRE(compiled.size() == scripted.size());
-    for (nmxd::NodeId id = 0; id < compiled.size(); ++id) {
-        INFO("node " << id);
-        const auto& left = compiled.node(id);
-        const auto& right = scripted.node(id);
-        CHECK(left.kind == right.kind);
-        CHECK(left.children.size() == right.children.size());
-        CHECK(left.span == right.span);
-
-        REQUIRE(left.properties.size() == right.properties.size());
-        for (std::size_t i = 0; i < left.properties.size(); ++i) {
-            CHECK(left.properties[i].name == right.properties[i].name);
-            CHECK(left.properties[i].value == right.properties[i].value);
-            CHECK(left.properties[i].span == right.properties[i].span);
-            CHECK(left.properties[i].children.size() == right.properties[i].children.size());
-        }
-    }
-}
-
-TEST_CASE("the event form reports the same changes", "[lua][events]") {
-    const auto registry = registryWithScript(readFile(samplePath("behaviortree_events.lua")));
-
-    const Tree compiledLeft = parseWith(registry, "bt", "guard_before.bt");
-    const Tree compiledRight = parseWith(registry, "bt", "guard_after.bt");
-    const Tree scriptedLeft = parseWith(registry, "bt-events", "guard_before.bt");
-    const Tree scriptedRight = parseWith(registry, "bt-events", "guard_after.bt");
-
-    const auto* compiled = registry.byName("bt");
-    const auto* scripted = registry.byName("bt-events");
-    REQUIRE(compiled != nullptr);
-    REQUIRE(scripted != nullptr);
-
-    const auto compiledDiff = nmxd::diffTrees(compiledLeft, compiledRight, *compiled);
-    const auto scriptedDiff = nmxd::diffTrees(scriptedLeft, scriptedRight, *scripted);
-    CHECK(nmxd::serializeChanges(compiledLeft, compiledRight, compiledDiff) ==
-          nmxd::serializeChanges(scriptedLeft, scriptedRight, scriptedDiff));
-}
-
-TEST_CASE("the event form reads a nested property and a wrapper like the compiled one",
-          "[lua][events]") {
-    // The two shapes the five questions were designed around, read by the
-    // event form: a property whose content is elements, and a wrapper that
-    // carries attributes of its own around the nodes it holds.
-    const auto registry = registryWithScript(readFile(samplePath("behaviortree_events.lua")));
-    const char* xml =
-        "<behaviortree>\n"
-        "  <node id=\"s1\" type=\"Sequence\">\n"
-        "    <property name=\"position\">\n"
-        "      <entityPosition><target name=\"enemy\" offset=\"1.5\"/></entityPosition>\n"
-        "    </property>\n"
-        "    <children policy=\"all\" retries=\"2\">\n"
-        "      <node id=\"w1\" type=\"Wait\"><property name=\"seconds\" value=\"1\"/></node>\n"
-        "    </children>\n"
-        "  </node>\n"
-        "</behaviortree>\n";
-
-    const Tree compiled = parseText(*registry.byName("bt"), xml, "t.bt");
-    const Tree scripted = parseText(*registry.byName("bt-events"), xml, "t.bt");
-    REQUIRE(compiled.size() == scripted.size());
-    for (nmxd::NodeId id = 0; id < compiled.size(); ++id) {
-        INFO("node " << id);
-        CHECK(compiled.node(id).contentHash == scripted.node(id).contentHash);
-    }
-}
-
-TEST_CASE("a wrapper can be dropped and its children kept", "[lua][events]") {
-    // The case that motivated the form.
+TEST_CASE("a wrapper can be dropped and its children kept", "[lua]") {
+    // The case the surface was designed around.
     const auto registry = registryWithScript(readFile(samplePath("nested_children.lua")));
     const auto source = SourceFile::fromMemory(
         "<node id=\"root\">\n"
@@ -347,9 +263,9 @@ TEST_CASE("a wrapper can be dropped and its children kept", "[lua][events]") {
     CHECK(provider->style(tree, b.id).title == "b");
 }
 
-TEST_CASE("a script can say a node's children are unordered", "[lua][events]") {
-    // The gap finding F3 named: sibling order could not be declared
-    // meaningless from a script, so a re-sorted table read as a move per row.
+TEST_CASE("a script can say a node's children are unordered", "[lua]") {
+    // Sibling order that carries nothing, so a re-sorted table is not a move
+    // per row.
     const auto registry = registryWithScript(
         "provider 'table' {\n"
         "  base = 'xml',\n"
@@ -372,7 +288,7 @@ TEST_CASE("a script can say a node's children are unordered", "[lua][events]") {
     CHECK(model.modified == 0);
 }
 
-TEST_CASE("an element the script does not mention is kept", "[lua][events]") {
+TEST_CASE("an element the script does not mention is kept", "[lua]") {
     // The exit below has no else branch. The unmentioned element must still
     // be in the tree, with everything it carried.
     const auto registry = registryWithScript(
@@ -393,8 +309,7 @@ TEST_CASE("an element the script does not mention is kept", "[lua][events]") {
     CHECK(other.findProperty(nmxd::kTextProperty)->value == "text");
 }
 
-TEST_CASE("a handle kept past its callback raises an error rather than crashing",
-          "[lua][events]") {
+TEST_CASE("a handle kept past its callback raises an error rather than crashing", "[lua]") {
     // The script stashes the builder and the element and uses them from a
     // later exit. Both are stale by then. The uses fail as Lua errors, which
     // pcall catches, and the parse still finishes with nothing lost.
@@ -421,9 +336,44 @@ TEST_CASE("a handle kept past its callback raises an error rather than crashing"
     CHECK(tree.node(tree.root()).kind == "a");
 }
 
-TEST_CASE("the event form works on a JSON base", "[lua][events]") {
-    // The JSON walker reports objects with their scalars as attributes and
-    // arrays holding item elements. Same surface, same rules as XML.
+TEST_CASE("a script that will not stop is cancelled", "[lua][slow]") {
+    // Constraint C makes no exception for code the user wrote. A script with a
+    // loop in it would otherwise hold a worker for ever, and switching format
+    // or reloading a file has to be able to take that worker back.
+    const auto registry = registryWithScript(
+        "provider 'spinner' {\n"
+        "  base = 'xml',\n"
+        "  exit = function(el, out)\n"
+        "    while true do end\n"
+        "  end,\n"
+        "}\n");
+
+    const auto* provider = registry.byName("spinner");
+    REQUIRE(provider != nullptr);
+
+    const auto source = SourceFile::fromMemory("<r><a/></r>", "t.xml", "t.xml");
+
+    std::stop_source stopping;
+    std::thread canceller([&stopping] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        stopping.request_stop();
+    });
+
+    const auto started = std::chrono::steady_clock::now();
+    const auto parsed = provider->parse(source, stopping.get_token());
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    canceller.join();
+
+    // It gave up rather than running to the end, and it did so promptly.
+    CHECK_FALSE(parsed.ok());
+    CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() < 2000);
+}
+
+// ---------------------------------------------------------------------------
+// Scripts on a JSON base.
+
+TEST_CASE("a script on JSON sees objects with their scalars and arrays with their items",
+          "[lua][json]") {
     const auto registry = registryWithScript(
         "provider 'entities' {\n"
         "  base = 'json',\n"
@@ -453,14 +403,14 @@ TEST_CASE("the event form works on a JSON base", "[lua][events]") {
     CHECK(root.findProperty("entities") == nullptr);
 
     // Generic JSON keeps every scalar exactly as written, quotes included,
-    // and the script sees what the base produced.
+    // and the script sees what the parser produced.
     CHECK(tree.node(root.children[0]).kind == "\"Door\"");
     CHECK(provider->identity(tree, root.children[1]).value == "\"e2\"");
     CHECK(source.slice(tree.node(root.children[1]).span) == "{\"id\": \"e2\", \"type\": \"Key\"}");
 }
 
 TEST_CASE("on JSON an object's scalar members are attributes and array values are text",
-          "[lua][events][json]") {
+          "[lua][json]") {
     // What the JSON walker reports: an object carries its scalars as
     // attributes, each spanning key and value; an array element that is a
     // scalar is an element whose text is the value as written.
@@ -504,7 +454,7 @@ TEST_CASE("on JSON an object's scalar members are attributes and array values ar
     CHECK(list->children[1].children[0].value == "\"two\"");
 }
 
-TEST_CASE("on JSON an unmentioned array of values is one property", "[lua][events][json]") {
+TEST_CASE("on JSON an unmentioned array of values is one property", "[lua][json]") {
     // The script says nothing about tags or pos, so both get the generic
     // JSON reading: a list of values is one property, nested lists are parts
     // with parts, and reordering any of it is a change.
@@ -537,7 +487,7 @@ TEST_CASE("on JSON an unmentioned array of values is one property", "[lua][event
     CHECK(pos->children[0].children[1].value == "2");
 }
 
-TEST_CASE("on JSON enter sees the members and can key what is inside", "[lua][events][json]") {
+TEST_CASE("on JSON enter sees the members and can key what is inside", "[lua][json]") {
     // The nested-children case on JSON. The wrapper is the "children" array,
     // which forwards its items, and each object is keyed by the id the object
     // above left at enter.

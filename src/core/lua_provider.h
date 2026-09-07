@@ -26,15 +26,13 @@ class ProviderRegistry;
 ///          requirements ask for custom XML-based and JSON-based formats, so
 ///          there is always an underlying format the tool already reads. For
 ///          XML and JSON a walker reports each element to the script as the
-///          parser meets it; for any other base, and for the five-question
-///          form on JSON, the base provider reads the file and the script
-///          shapes that reading's tree. Either way every hot loop
-///          stays in compiled code and the scripted surface stays far smaller
-///          than IFormatProvider, which matters now that the surface is
-///          published in two languages.
+///          parser meets it; for any other base the base provider reads the
+///          file and the script shapes that reading's tree. Either way every
+///          hot loop stays in compiled code and the scripted surface stays far
+///          smaller than IFormatProvider, which matters now that the surface
+///          is published in two languages.
 ///
-///          Two forms are read. The short form is five questions asked per
-///          element. The full form is an enter and an exit callback, handed a
+///          A script writes an enter and an exit callback and is handed a
 ///          builder, which is the same IShaper interface a compiled format
 ///          implements with a Lua binding in front of it.
 ///
