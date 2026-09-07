@@ -12,11 +12,14 @@ add_library(nmxd_core STATIC
     match.cpp
     jobs.cpp
     provider.cpp
+    shape.cpp
+    tree_shape.cpp
     registry.cpp
     tree.cpp
     ${CMAKE_SOURCE_DIR}/src/formats/bt_xml.cpp
     ${CMAKE_SOURCE_DIR}/src/formats/json_generic.cpp
     ${CMAKE_SOURCE_DIR}/src/formats/xml_generic.cpp
+    ${CMAKE_SOURCE_DIR}/src/formats/xml_shape.cpp
     ${CMAKE_SOURCE_DIR}/src/formats/xml_spans.cpp
     session.cpp
     source.cpp

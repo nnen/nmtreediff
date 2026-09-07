@@ -129,9 +129,10 @@ struct Node {
 
 /// \brief What a provider worked out about a node while parsing it.
 ///
-/// \remarks Never part of matching. The hasher walks a node's kind, its
-///          properties and its children, and this is none of those, so nothing
-///          here can change which nodes pair up.
+/// \remarks Never hashed. The hasher walks a node's kind, its properties and
+///          its children, and this is none of those. What a provider records
+///          here still reaches the matcher, but only through the provider's
+///          own answers: identity() and childrenOrdered() may read it back.
 ///
 ///          It exists for a provider whose answers are expensive to produce.
 ///          A scripted provider has to cross into an interpreter to decide what
@@ -153,6 +154,11 @@ struct NodeAnnotation {
     /// \remarks Packed rather than a Color, because Color is declared with
     ///          the provider interface and that interface is built on this file.
     std::uint32_t accent = 0;
+    /// \brief Whether the order of this node's children carries nothing.
+    ///
+    /// \remarks Stated the negative way round so that an annotation that says
+    ///          nothing keeps the interface's default, which is ordered.
+    bool childrenUnordered = false;
 };
 
 /// \brief A parsed document, held as a flat arena of nodes.

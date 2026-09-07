@@ -10,10 +10,8 @@
 #include <string_view>
 #include <vector>
 
-#include <pugixml.hpp>
-
 #include "core/hash.h"
-#include "formats/xml_spans.h"
+#include "formats/xml_shape.h"
 
 namespace nmxd {
 
@@ -92,41 +90,11 @@ public:
     }
 
     Result<Tree, ParseError> parse(const SourceFile& source, std::stop_token token) const override {
-        if (source.empty()) {
-            return fail(ParseError::Empty);
-        }
-
-        // Offsets are what spans are made of, so a document whose bytes do not
-        // line up with the text is refused rather than silently mis-linked.
-        const std::string_view text = source.text();
-        if (startsWith(text, "\xFF\xFE") || startsWith(text, "\xFE\xFF")) {
-            return fail(ParseError::UnsupportedEncoding);
-        }
-
-        pugi::xml_document document;
-        const pugi::xml_parse_result result =
-            document.load_buffer(text.data(), text.size(), pugi::parse_default,
-                                 pugi::encoding_utf8);
-        if (!result) {
-            return fail(ParseError::NotWellFormed);
-        }
-
-        Tree tree;
-        tree.setFormatName(std::string(name()));
-
-        const pugi::xml_node root = document.first_child();
-        if (root.type() != pugi::node_element) {
-            return fail(ParseError::NotWellFormed);
-        }
-
-        build(tree, kInvalidNode, root, text, token);
-        if (token.stop_requested()) {
-            return fail(ParseError::Cancelled);
-        }
-
-        tree.finalize();
-        computeHashes(tree, *this, token);
-        return tree;
+        // Generic XML is the default treatment and nothing more: every element
+        // a node, every attribute a property, leaf text a property too. The
+        // driver does the reading, the span recovery and the cancellation.
+        DefaultShaper shaper;
+        return shapeXmlDocument(source, shaper, *this, token);
     }
 
     IdentityKey identity(const Tree& tree, NodeId id) const override {
@@ -181,73 +149,6 @@ public:
         (void)tree;
         (void)id;
         return true;  // element order is meaningful in XML
-    }
-
-private:
-    /// \brief Builds one node and everything below it.
-    ///
-    /// \param tree The tree being built.
-    /// \param parent The parent node's id, or kInvalidNode for the root.
-    /// \param element The element to convert.
-    /// \param text The whole document, used to recover spans.
-    /// \param token Checked before each element.
-    static void build(Tree& tree, NodeId parent, const pugi::xml_node& element,
-                      std::string_view text, const std::stop_token& token) {
-        if (token.stop_requested()) {
-            return;
-        }
-
-        // offset_debug points at the element name, one byte past the '<'.
-        const auto nameOffset = static_cast<std::uint32_t>(element.offset_debug());
-        const std::uint32_t begin = nameOffset > 0 ? nameOffset - 1 : 0;
-        const std::uint32_t startTagEnd = endOfTag(text, begin);
-
-        const NodeId id = tree.add(parent, element.name(), SourceSpan{begin, startTagEnd});
-
-        // pugixml reports offsets for nodes but not for attributes, so the
-        // start tag is scanned once and its attribute spans are matched up
-        // with the parsed attributes, which arrive in document order.
-        const auto spans = scanAttributeSpans(text, begin, startTagEnd);
-        std::size_t spanIndex = 0;
-        for (const pugi::xml_attribute& attribute : element.attributes()) {
-            const SourceSpan span = spanIndex < spans.size() ? spans[spanIndex] : SourceSpan{};
-            ++spanIndex;
-            tree.addProperty(id, attribute.name(), attribute.value(), span);
-        }
-
-        bool hasElementChild = false;
-        for (const pugi::xml_node& child : element.children()) {
-            if (child.type() == pugi::node_element) {
-                hasElementChild = true;
-                build(tree, id, child, text, token);
-            }
-        }
-
-        // Text content only becomes a property on a leaf. On a node that also
-        // has element children, mixed content is not what any of the target
-        // formats mean, and folding it in would invent a difference.
-        if (!hasElementChild) {
-            const char* value = element.child_value();
-            if (value != nullptr && *value != '\0') {
-                const pugi::xml_node textNode = element.first_child();
-                const auto textOffset = static_cast<std::uint32_t>(textNode.offset_debug());
-                SourceSpan span{textOffset, textOffset};
-                span.end = textOffset + static_cast<std::uint32_t>(std::string_view(value).size());
-                tree.addProperty(id, std::string(kTextProperty), value, span);
-            }
-        }
-
-        // Now that every child is placed, the element ends either at its own
-        // self-closing tag or just past its closing tag.
-        Node& node = tree.node(id);
-        const bool selfClosing = isSelfClosing(text, startTagEnd);
-        if (selfClosing) {
-            node.span.end = startTagEnd;
-        } else {
-            const std::uint32_t searchFrom =
-                node.children.empty() ? startTagEnd : tree.node(node.children.back()).span.end;
-            node.span.end = endOfClosingTag(text, searchFrom);
-        }
     }
 };
 
