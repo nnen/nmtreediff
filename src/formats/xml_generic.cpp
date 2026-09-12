@@ -125,7 +125,7 @@ public:
         }
 
         tree.finalize();
-        computeHashes(tree, *this, token);
+        computeHashes(tree, token);
         return tree;
     }
 
@@ -175,12 +175,6 @@ public:
             return static_cast<int>(kLeadingProperties.size()) + 1;
         }
         return rankFromList(kLeadingProperties, propertyName);
-    }
-
-    bool childrenOrdered(const Tree& tree, NodeId id) const override {
-        (void)tree;
-        (void)id;
-        return true;  // element order is meaningful in XML
     }
 
 private:

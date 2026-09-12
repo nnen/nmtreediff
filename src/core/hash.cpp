@@ -126,7 +126,7 @@ std::uint64_t hashProperty(const Property& property) {
     }
 }
 
-void computeHashes(Tree& tree, const IFormatProvider& provider, std::stop_token token) {
+void computeHashes(Tree& tree, std::stop_token token) {
     if (tree.empty()) {
         return;
     }
@@ -164,7 +164,7 @@ void computeHashes(Tree& tree, const IFormatProvider& provider, std::stop_token 
         for (const auto child : node.children) {
             childHashes.push_back(tree.node(child).contentHash);
         }
-        if (!provider.childrenOrdered(tree, node.id)) {
+        if (!node.childrenOrdered) {
             std::sort(childHashes.begin(), childHashes.end());
         }
         h = mix(h, childHashes.size());

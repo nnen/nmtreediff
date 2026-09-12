@@ -2,6 +2,7 @@
 # testable in continuous integration and reusable by a future merge tool.
 
 add_library(nmxd_core STATIC
+    builder.cpp
     config.cpp
     lua_config.cpp
     lua_provider.cpp

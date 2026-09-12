@@ -218,14 +218,13 @@ public:
     ///
     /// \returns `true` when sibling position carries meaning.
     ///
-    /// \remarks Ordered children mean a reordering is a move. Unordered means
-    ///          position carries nothing and a reordering is not a change at
-    ///          all. XML elements are ordered; JSON object members are not. The
-    ///          default is ordered.
-    [[nodiscard]] virtual bool childrenOrdered(const Tree& tree, NodeId id) const {
-        (void)tree;
-        (void)id;
-        return true;
+    /// \remarks Not virtual. The answer is a fact about the node that the
+    ///          provider recorded while building the tree, in
+    ///          Node::childrenOrdered, and this reads it. One mechanism for one
+    ///          fact rather than a callback that has to work it out again from
+    ///          whatever the provider left behind.
+    [[nodiscard]] bool childrenOrdered(const Tree& tree, NodeId id) const {
+        return tree.node(id).childrenOrdered;
     }
 
     /// \brief Returns the direction this format's graph reads best in.

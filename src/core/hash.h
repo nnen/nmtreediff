@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <stop_token>
 
-#include "core/provider.h"
+
 #include "core/tree.h"
 
 namespace nmxd {
@@ -14,16 +14,15 @@ namespace nmxd {
 /// \brief Fills in Node::contentHash for every node in a tree, bottom up.
 ///
 /// \param tree The tree to hash, modified in place.
-/// \param provider The format provider, consulted for child ordering.
 /// \param token Checked periodically; the function returns early when a stop is
 ///        requested, leaving the remaining hashes unset.
 ///
 /// \remarks A node's hash covers its kind, its properties as an unordered set,
 ///          and its children. Properties are order-independent so that a
-///          reordered attribute list is not a change. Children follow the
-///          provider: ordered children hash in order, unordered children hash
-///          as a set, so reordering the members of a JSON object leaves the
-///          hash alone while reordering an array does not.
+///          reordered attribute list is not a change. Children follow
+///          Node::childrenOrdered: ordered children hash in order, unordered
+///          children hash as a set, so reordering the members of a JSON object
+///          leaves the hash alone while reordering an array does not.
 ///
 ///          Two subtrees that are the same document fragment must hash the same
 ///          in every run and on every machine, because a change in hashing
@@ -34,7 +33,7 @@ namespace nmxd {
 ///          Requires Tree::finalize() to have run, and walks the arena
 ///          backwards so that every child is hashed before its parent without
 ///          recursing.
-void computeHashes(Tree& tree, const IFormatProvider& provider, std::stop_token token = {});
+void computeHashes(Tree& tree, std::stop_token token = {});
 
 /// \brief Hashes one property, parts and all.
 ///

@@ -221,7 +221,7 @@ private:
             }
 
             shaped_.finalize();
-            computeHashes(shaped_, provider_, token);
+            computeHashes(shaped_, token);
             if (token.stop_requested()) {
                 return fail(ParseError::Cancelled);
             }

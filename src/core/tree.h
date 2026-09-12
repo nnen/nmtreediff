@@ -155,6 +155,16 @@ struct Node {
     /// \brief The node's full extent in the source bytes.
     SourceSpan span;
 
+    /// \brief Whether sibling position under this node carries meaning.
+    ///
+    /// \remarks Ordered children mean a reordering is a move. Unordered means
+    ///          position carries nothing and a reordering is not a change at
+    ///          all. XML elements are ordered; JSON object members are not,
+    ///          and one JSON document holds both, which is why this sits on
+    ///          the node rather than on the format. Set by the provider while
+    ///          the tree is built.
+    bool childrenOrdered = true;
+
     /// \brief A hash of this node's whole subtree.
     ///
     /// \remarks Filled in by computeHashes(). Zero until then.

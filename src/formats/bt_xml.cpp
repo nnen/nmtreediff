@@ -152,7 +152,7 @@ public:
         closeSpan(tree, rootId, root, text);
 
         tree.finalize();
-        computeHashes(tree, *this, token);
+        computeHashes(tree, token);
         return tree;
     }
 
@@ -196,14 +196,6 @@ public:
         (void)tree;
         (void)id;
         return rankFromList(kLeadingProperties, propertyName);
-    }
-
-    bool childrenOrdered(const Tree& tree, NodeId id) const override {
-        (void)tree;
-        (void)id;
-        // Sibling order in a behaviour tree is execution order, so moving a
-        // child is a change to what the agent does.
-        return true;
     }
 
     GraphDirection graphDirection() const override {

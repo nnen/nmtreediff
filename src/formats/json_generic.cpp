@@ -210,6 +210,10 @@ private:
 
         switch (type) {
             case ondemand::json_type::object: {
+                // Reordering the members of an object changes nothing about
+                // the document, so a reordering there is not a move and is not
+                // reported as one. Reordering an array changes the document.
+                tree_.node(id).childrenOrdered = false;
                 tree_.addProperty(id, std::string(kTypeProperty), std::string(kObjectType));
                 if (const auto error = buildObject(id, value)) {
                     return error;
@@ -660,7 +664,7 @@ public:
         }
 
         tree.finalize();
-        computeHashes(tree, *this, token);
+        computeHashes(tree, token);
         return tree;
     }
 
@@ -721,13 +725,6 @@ public:
         return rankFromList(kLeadingProperties, propertyName);
     }
 
-    bool childrenOrdered(const Tree& tree, NodeId id) const override {
-        // The hook that generic XML never exercises. Reordering the members of
-        // an object changes nothing about the document, so a reordering there
-        // is not a move and should not be reported as one. Reordering an array
-        // changes the document, so it is.
-        return isArray(tree.node(id));
-    }
 };
 
 }  // namespace
