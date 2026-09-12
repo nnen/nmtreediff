@@ -14,6 +14,7 @@
 namespace fs = std::filesystem;
 
 using nmxd::Property;
+using nmxd::PropertyForm;
 using nmxd::kValueProperty;
 using nmxd::Node;
 using nmxd::NodeId;
@@ -163,7 +164,7 @@ TEST_CASE("an array of scalars becomes one property", "[json]") {
     const Node& root = tree.node(tree.root());
     const Property* tags = root.findProperty("tags");
     REQUIRE(tags != nullptr);
-    CHECK(tags->ordered);
+    CHECK(tags->form == PropertyForm::Sequence);
     REQUIRE(tags->children.size() == 2);
     CHECK(tags->children[0].value == "\"a\"");
     CHECK(tags->children[1].value == "\"b\"");
@@ -193,11 +194,11 @@ TEST_CASE("an array of arrays of scalars is one property with parts", "[json]") 
     CHECK(tree.size() == 1);
     const Property* matrix = tree.node(tree.root()).findProperty("matrix");
     REQUIRE(matrix != nullptr);
-    CHECK(matrix->ordered);
+    CHECK(matrix->ordered());
     REQUIRE(matrix->children.size() == 2);
 
     const Property& row = matrix->children.front();
-    CHECK(row.ordered);
+    CHECK(row.ordered());
     REQUIRE(row.children.size() == 2);
     CHECK(row.children[0].value == "1");
     CHECK(row.children[1].value == "0");
@@ -274,7 +275,7 @@ TEST_CASE("object members are unordered and array elements are not", "[json][ord
     // its parts are positional, while a node's properties never are.
     const Property* list = tree.node(tree.root()).findProperty("list");
     REQUIRE(list != nullptr);
-    CHECK(list->ordered);
+    CHECK(list->form == PropertyForm::Sequence);
 }
 
 TEST_CASE("reordering a list is a change and reordering a record is not",

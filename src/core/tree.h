@@ -37,40 +37,97 @@ inline constexpr std::string_view kTextProperty = "#text";
 ///          clashing names for the same idea.
 inline constexpr std::string_view kValueProperty = "#value";
 
+/// \brief What shape a property's content has.
+///
+/// \remarks Three forms rather than a flag, because a flag saying how parts
+///          compare says nothing when there are none: an empty array, an empty
+///          record and an empty string would be one property. The form is part
+///          of the hash, so they are three.
+enum class PropertyForm : std::uint8_t {
+    /// \brief A value and nothing else. Never has parts.
+    Scalar,
+    /// \brief Named parts whose order means nothing. Compared as a set.
+    ///
+    /// \remarks A transform, a colour, a bounding box: one thing with named
+    ///          fields, so reordering the fields is not a change.
+    Record,
+    /// \brief Positional parts, named or not. Compared in order.
+    ///
+    /// \remarks A list of tags: a position in a list is not a name, so
+    ///          reordering the items is a change. The same distinction a node
+    ///          carries through IFormatProvider::childrenOrdered(), one level
+    ///          further down.
+    Sequence,
+};
+
 /// \brief A named value attached to a node.
 struct Property {
     /// \brief The property's name.
+    ///
+    /// \remarks Names may repeat. Two properties of one node called `tag` are
+    ///          two properties, and everything that compares a property list
+    ///          treats it as a multiset for that reason. An item of a sequence
+    ///          may have no name at all.
     std::string name;
 
-    /// \brief The property's value, or empty when it has parts instead.
+    /// \brief The property's value, in any form.
+    ///
+    /// \remarks A record or a sequence may carry a value as well as parts. A
+    ///          folded `<property name="speed" value="1.0">` with elements
+    ///          inside it is one thing with both, and choosing one half would
+    ///          drop the other.
     std::string value;
+
+    /// \brief How the content is shaped. See PropertyForm.
+    PropertyForm form = PropertyForm::Scalar;
 
     /// \brief Where the property sits in the source bytes.
     SourceSpan span;
 
-    /// \brief The property's parts, for a value with structure.
+    /// \brief The property's parts. Always empty for a scalar.
     ///
-    /// \remarks A transform, a colour or a list of tags is one thing with
-    ///          parts rather than a string. Flattening it into names like
+    /// \remarks Flattening a structured value into names like
     ///          `transform.position.x` would turn one changed number into a
     ///          changed string with a made-up name, so the shape the file had is
     ///          kept instead.
     std::vector<Property> children;
 
-    /// \brief Whether those parts are a sequence rather than a record.
+    Property() = default;
+    Property(const Property&) = default;
+    Property(Property&&) noexcept = default;
+    Property& operator=(const Property&) = default;
+    Property& operator=(Property&&) noexcept = default;
+
+    /// \brief Destroys the property and its parts without recursing.
     ///
-    /// \remarks A record's parts are named and their order means nothing, so
-    ///          they compare as a set: reordering a transform's fields is not a
-    ///          change. A sequence's parts are positional, so reordering a list
-    ///          of tags is. This is the same distinction nodes carry through
-    ///          IFormatProvider::childrenOrdered(), one level further down.
-    bool ordered = false;
+    /// \remarks The compiler's destructor would destroy the parts vector,
+    ///          which destroys each part, which destroys its parts vector,
+    ///          one call frame per level. A property nested a few thousand
+    ///          levels deep would then take the process down on its way out.
+    ///          This one pulls every descendant up into one flat list first,
+    ///          so each destruction is shallow.
+    ///
+    ///          Copying is still the compiler's and still recursive. Nothing
+    ///          in the tool copies a deep property; a property is moved.
+    ~Property();
 
     /// \brief Reports whether this property has parts.
     ///
-    /// \returns `true` when the property's content is structure rather than
-    ///          a value.
+    /// \returns `true` when the property holds at least one part.
     [[nodiscard]] bool hasParts() const noexcept { return !children.empty(); }
+
+    /// \brief Reports whether the parts are positional.
+    ///
+    /// \returns `true` for a sequence.
+    [[nodiscard]] bool ordered() const noexcept { return form == PropertyForm::Sequence; }
+
+    /// \brief Finds the first part with a name.
+    ///
+    /// \param partName The name to look for.
+    ///
+    /// \returns A pointer to the first part of that name, or `nullptr` when
+    ///          there is none. Invalidated by any change to the property.
+    [[nodiscard]] const Property* findPart(std::string_view partName) const noexcept;
 };
 
 /// \brief One node of a parsed document.
@@ -113,12 +170,16 @@ struct Node {
     /// \remarks Filled in by Tree::finalize().
     std::uint32_t descendantCount = 0;
 
-    /// \brief Finds a property by name.
+    /// \brief Finds the first property with a name.
     ///
     /// \param name The property name to look for.
     ///
-    /// \returns A pointer to the property, or `nullptr` when this node has no
-    ///          property of that name. Invalidated by any change to the node.
+    /// \returns A pointer to the first property of that name, or `nullptr`
+    ///          when this node has none. Invalidated by any change to the node.
+    ///
+    /// \remarks Names may repeat, and this answers the one question every
+    ///          caller of it asks: the `id`, the `type`, the `#text`. Anything
+    ///          that has to see every property of a name walks the list.
     [[nodiscard]] const Property* findProperty(std::string_view name) const noexcept;
 
     /// \brief Reports whether this node has children.

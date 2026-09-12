@@ -56,37 +56,24 @@ constexpr ImU32 kMovedColour = IM_COL32(168, 143, 224, 255);
 /// \brief What stands between an old value and the new one.
 constexpr const char* kValueArrow = "->";
 
-/// \brief Reports whether two properties differ, parts and all.
+/// \brief Labels a property that has parts, for the header of its subtree.
 ///
-/// \param left The property on the left.
-/// \param right The property on the right.
+/// \param property The property to label.
+/// \param before What the property was on the other side, or null.
 ///
-/// \returns `true` when anything about them differs.
-///
-/// \remarks The same rule the engine applies, so the panel never marks a
-///          part changed that the change list did not count, or the reverse.
-[[nodiscard]] bool propertyDiffers(const Property& left, const Property& right) {
-    if (left.value != right.value || left.ordered != right.ordered ||
-        left.children.size() != right.children.size()) {
-        return true;
+/// \returns The name, a count in brackets for a sequence or braces for a
+///          record, and the value where the property carries one. When the
+///          value differs from \p before, both values with the arrow between
+///          them, the way a scalar's line reads.
+[[nodiscard]] std::string partsLabel(const Property& property, const Property* before) {
+    std::string label = property.name;
+    label += property.ordered() ? " [" + std::to_string(property.children.size()) + "]" : " {}";
+    if (before != nullptr && before->value != property.value) {
+        label += " " + before->value + " " + kValueArrow + " " + property.value;
+    } else if (!property.value.empty()) {
+        label += " " + property.value;
     }
-    for (std::size_t i = 0; i < left.children.size(); ++i) {
-        const Property& part = left.children[i];
-        if (left.ordered) {
-            if (part.name != right.children[i].name ||
-                propertyDiffers(part, right.children[i])) {
-                return true;
-            }
-            continue;
-        }
-        const auto it =
-            std::find_if(right.children.begin(), right.children.end(),
-                         [&part](const Property& other) { return other.name == part.name; });
-        if (it == right.children.end() || propertyDiffers(part, *it)) {
-            return true;
-        }
-    }
-    return false;
+    return label;
 }
 
 /// \brief Reports whether a name appears in a list of changed properties.
@@ -786,9 +773,10 @@ void AppWindow::drawPropertyParts(const Property& property, bool changed,
         ImGui::PushStyleColor(ImGuiCol_Text, kModifiedColour);
     }
 
-    const std::string label =
-        property.name + (property.ordered ? " [" + std::to_string(property.children.size()) + "]"
-                                          : " {}");
+    // The header carries the value where the property has one, and what it
+    // was before when that is what changed, so a record that is both a value
+    // and a set of parts reads the way a scalar does.
+    const std::string label = partsLabel(property, changed ? before : nullptr);
     // A property that changed opens itself, so the change is visible rather than
     // something the reader has to go looking for.
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth;
@@ -808,14 +796,8 @@ void AppWindow::drawPropertyParts(const Property& property, bool changed,
             // compares: a record by name, a sequence by position.
             const Property* was = nullptr;
             if (before != nullptr) {
-                if (property.ordered) {
-                    was = i < before->children.size() ? &before->children[i] : nullptr;
-                } else {
-                    const auto it = std::find_if(
-                        before->children.begin(), before->children.end(),
-                        [&part](const Property& other) { return other.name == part.name; });
-                    was = it != before->children.end() ? &*it : nullptr;
-                }
+                was = property.ordered() ? (i < before->children.size() ? &before->children[i] : nullptr)
+                                         : before->findPart(part.name);
             }
 
             Property shown = part;
@@ -823,7 +805,7 @@ void AppWindow::drawPropertyParts(const Property& property, bool changed,
                 shown.name = std::to_string(i);
             }
             const bool partChanged =
-                before != nullptr && (was == nullptr || propertyDiffers(part, *was));
+                before != nullptr && (was == nullptr || propertiesDiffer(part, *was));
             drawProperty(shown, partChanged, was);
         }
         ImGui::TreePop();

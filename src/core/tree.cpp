@@ -4,13 +4,51 @@
 #include "core/tree.h"
 
 #include <algorithm>
+#include <iterator>
 
 namespace nmxd {
 
-const Property* Node::findProperty(std::string_view name) const noexcept {
-    const auto it = std::find_if(properties.begin(), properties.end(),
+namespace {
+
+/// \brief Finds the first property in a list with a name.
+///
+/// \param list The properties to search.
+/// \param name The name to look for.
+///
+/// \returns The first match, or `nullptr`.
+const Property* firstNamed(const std::vector<Property>& list, std::string_view name) noexcept {
+    const auto it = std::find_if(list.begin(), list.end(),
                                  [name](const Property& p) { return p.name == name; });
-    return it == properties.end() ? nullptr : &*it;
+    return it == list.end() ? nullptr : &*it;
+}
+
+}  // namespace
+
+Property::~Property() {
+    if (children.empty()) {
+        return;
+    }
+
+    // Flatten first, destroy second. Every part is moved into one list, and
+    // any parts it has are moved onto the end of that same list, until nothing
+    // in it has parts. The list then destroys shallow properties one by one.
+    std::vector<Property> pending = std::move(children);
+    for (std::size_t i = 0; i < pending.size(); ++i) {
+        if (pending[i].children.empty()) {
+            continue;
+        }
+        std::vector<Property> parts = std::move(pending[i].children);
+        pending.insert(pending.end(), std::make_move_iterator(parts.begin()),
+                       std::make_move_iterator(parts.end()));
+    }
+}
+
+const Property* Property::findPart(std::string_view partName) const noexcept {
+    return firstNamed(children, partName);
+}
+
+const Property* Node::findProperty(std::string_view name) const noexcept {
+    return firstNamed(properties, name);
 }
 
 NodeId Tree::add(NodeId parent, std::string kind, SourceSpan span) {
@@ -34,7 +72,11 @@ NodeId Tree::add(NodeId parent, std::string kind, SourceSpan span) {
 }
 
 void Tree::addProperty(NodeId node, std::string name, std::string value, SourceSpan span) {
-    nodes_[node].properties.push_back(Property{std::move(name), std::move(value), span});
+    Property property;
+    property.name = std::move(name);
+    property.value = std::move(value);
+    property.span = span;
+    nodes_[node].properties.push_back(std::move(property));
 }
 
 void Tree::addProperty(NodeId node, Property property) {

@@ -9,7 +9,13 @@
 #include <unordered_map>
 #include <utility>
 
+#include "core/hash.h"
+
 namespace nmxd {
+
+bool propertiesDiffer(const Property& left, const Property& right) {
+    return hashProperty(left) != hashProperty(right);
+}
 
 namespace {
 
@@ -28,43 +34,32 @@ std::vector<std::uint32_t> siblingIndices(const Tree& tree) {
     return indices;
 }
 
-/// \brief Reports whether two properties differ, parts and all.
+/// \brief A node's properties grouped by name, each group a sorted list of
+///        property hashes.
 ///
-/// \param left The property on the left.
-/// \param right The property on the right.
-///
-/// \returns `true` when anything about them differs.
-///
-/// \remarks A record's parts are matched by name and a sequence's by
-///          position, which is the same rule their hashes use. The change list
-///          names the outermost property that differs rather than a path into
-///          it: a reader looking at a transform wants to be told the transform
-///          changed, and the details panel is where the parts are.
-[[nodiscard]] bool propertiesDiffer(const Property& left, const Property& right) {
-    if (left.value != right.value || left.ordered != right.ordered ||
-        left.children.size() != right.children.size()) {
-        return true;
-    }
+/// \remarks Names may repeat, so a name maps to a bag rather than to one
+///          property. Two bags are equal when they hold the same hashes the
+///          same number of times, which is what makes a second `cooldown`
+///          with a different value count as a change rather than hide behind
+///          the first.
+using PropertyBags = std::unordered_map<std::string_view, std::vector<std::uint64_t>>;
 
-    if (left.ordered) {
-        for (std::size_t i = 0; i < left.children.size(); ++i) {
-            if (left.children[i].name != right.children[i].name ||
-                propertiesDiffer(left.children[i], right.children[i])) {
-                return true;
-            }
-        }
-        return false;
+/// \brief Groups a node's properties by name.
+///
+/// \param node The node whose properties to group.
+///
+/// \returns One sorted bag of hashes per distinct name. The keys point into
+///          the node's own strings and are valid as long as it is.
+[[nodiscard]] PropertyBags bagProperties(const Node& node) {
+    PropertyBags bags;
+    bags.reserve(node.properties.size());
+    for (const Property& property : node.properties) {
+        bags[property.name].push_back(hashProperty(property));
     }
-
-    for (const Property& part : left.children) {
-        const auto it = std::find_if(
-            right.children.begin(), right.children.end(),
-            [&part](const Property& other) { return other.name == part.name; });
-        if (it == right.children.end() || propertiesDiffer(part, *it)) {
-            return true;
-        }
+    for (auto& [name, hashes] : bags) {
+        std::sort(hashes.begin(), hashes.end());
     }
-    return false;
+    return bags;
 }
 
 /// \brief Lists the property names that differ between two matched nodes.
@@ -78,35 +73,31 @@ std::vector<std::uint32_t> siblingIndices(const Tree& tree) {
 /// \returns The differing names, ordered the way the provider would display
 ///          them so the list reads like the node card.
 ///
-/// \remarks Names are compared as a set, so a reordered attribute list yields
-///          nothing.
+/// \remarks Properties are compared as a multiset, so a reordered attribute
+///          list yields nothing and a repeated name is counted as many times
+///          as it appears. A name is listed once however many of its
+///          properties changed: the change list names the outermost property
+///          that differs, and the details panel is where the parts are.
 std::vector<std::string> changedPropertyNames(const IFormatProvider& provider, const Tree& leftTree,
                                               NodeId leftId, const Tree& rightTree,
                                               NodeId rightId) {
-    const Node& left = leftTree.node(leftId);
-    const Node& right = rightTree.node(rightId);
-
-    std::unordered_map<std::string, const Property*> rightProperties;
-    rightProperties.reserve(right.properties.size());
-    for (const auto& property : right.properties) {
-        rightProperties.emplace(property.name, &property);
-    }
+    const PropertyBags leftBags = bagProperties(leftTree.node(leftId));
+    const PropertyBags rightBags = bagProperties(rightTree.node(rightId));
 
     std::vector<std::string> changed;
-    for (const auto& property : left.properties) {
-        const auto it = rightProperties.find(property.name);
-        if (it == rightProperties.end() || propertiesDiffer(property, *it->second)) {
-            changed.push_back(property.name);
+    for (const auto& [name, hashes] : leftBags) {
+        const auto it = rightBags.find(name);
+        if (it == rightBags.end() || it->second != hashes) {
+            changed.emplace_back(name);
         }
     }
-    for (const auto& property : right.properties) {
-        if (left.findProperty(property.name) == nullptr) {
-            changed.push_back(property.name);
+    for (const auto& [name, hashes] : rightBags) {
+        if (!leftBags.contains(name)) {
+            changed.emplace_back(name);
         }
     }
 
     std::sort(changed.begin(), changed.end());
-    changed.erase(std::unique(changed.begin(), changed.end()), changed.end());
 
     // Reported in the order the provider would display them, so the list reads
     // the same way the node card does.

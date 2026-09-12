@@ -17,6 +17,7 @@ using nmxd::Node;
 using nmxd::NodeId;
 using nmxd::ParseError;
 using nmxd::Property;
+using nmxd::PropertyForm;
 using nmxd::SourceFile;
 using nmxd::Tree;
 
@@ -399,7 +400,7 @@ TEST_CASE("an unrecognised element is kept as a property with parts", "[bt]") {
     const Property* transform = move->findProperty("transform");
     REQUIRE(transform != nullptr);
     CHECK(transform->hasParts());
-    CHECK_FALSE(transform->ordered);  // a record, so reordering it is not a change
+    CHECK(transform->form == PropertyForm::Record);  // a record, so reordering it is not a change
     REQUIRE(transform->children.size() == 3);
     CHECK(transform->children[0].name == "x");
     CHECK(transform->children[0].value == "1");

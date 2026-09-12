@@ -36,6 +36,28 @@ namespace nmxd {
 ///          recursing.
 void computeHashes(Tree& tree, const IFormatProvider& provider, std::stop_token token = {});
 
+/// \brief Hashes one property, parts and all.
+///
+/// \param property The property to hash.
+///
+/// \returns A hash covering the name, the value, the form and the whole
+///          subtree of parts.
+///
+/// \remarks A record's parts are folded in sorted order and a sequence's in
+///          the order they appear, which is what makes reordering a transform's
+///          fields invisible and reordering a list of tags a change. The form
+///          is folded in for a record or a sequence, so an empty record, an
+///          empty sequence and an empty scalar are three hashes. A scalar
+///          hashes exactly as it did before properties had forms.
+///
+///          This is the one definition of "the same property" in the tool. The
+///          change list and the details panel compare through it, so they
+///          cannot disagree with matching about what changed.
+///
+///          Walks the parts with an explicit stack rather than recursing, so a
+///          property nested to any depth costs memory rather than the process.
+[[nodiscard]] std::uint64_t hashProperty(const Property& property);
+
 /// \brief Hashes a byte range with FNV-1a.
 ///
 /// \param bytes The bytes to hash.

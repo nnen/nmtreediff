@@ -34,6 +34,56 @@ constexpr std::uint64_t mix(std::uint64_t h, std::uint64_t value) noexcept {
     return h;
 }
 
+/// \brief Hashes what one property says about itself, parts aside.
+///
+/// \param property The property to hash.
+///
+/// \returns A hash of the name, the value and, for a record or a sequence,
+///          the form.
+///
+/// \remarks The form is folded only when it is not scalar, so a scalar hashes
+///          as it always did and nothing in the golden corpus moves except
+///          where a format actually starts nesting.
+[[nodiscard]] std::uint64_t hashPropertyHead(const Property& property) {
+    std::uint64_t h = hashBytes(property.name, kOffsetBasis);
+    h = hashBytes("=", h);
+    h = hashBytes(property.value, h);
+    if (property.form != PropertyForm::Scalar) {
+        h = mix(h, static_cast<std::uint64_t>(property.form));
+    }
+    return h;
+}
+
+/// \brief Folds a property's part hashes into its own.
+///
+/// \param property The property whose parts were hashed.
+/// \param head The hash of the property itself.
+/// \param parts One hash per part, in part order. Sorted in place for a
+///        record.
+///
+/// \returns The finished hash.
+[[nodiscard]] std::uint64_t foldParts(const Property& property, std::uint64_t head,
+                                      std::vector<std::uint64_t>& parts) {
+    if (!property.ordered()) {
+        std::sort(parts.begin(), parts.end());
+    }
+    std::uint64_t h = mix(head, parts.size());
+    for (const std::uint64_t part : parts) {
+        h = mix(h, part);
+    }
+    return h;
+}
+
+/// \brief One property on the way to being hashed.
+struct PropertyFrame {
+    /// \brief The property.
+    const Property* property = nullptr;
+    /// \brief How many of its parts have been pushed so far.
+    std::size_t next = 0;
+    /// \brief The hashes of the parts finished so far.
+    std::vector<std::uint64_t> parts;
+};
+
 }  // namespace
 
 std::uint64_t hashBytes(std::string_view bytes, std::uint64_t seed) noexcept {
@@ -45,41 +95,35 @@ std::uint64_t hashBytes(std::string_view bytes, std::uint64_t seed) noexcept {
     return h;
 }
 
-/// \brief Hashes one property, including any parts it has.
-///
-/// \param property The property to hash.
-///
-/// \returns A hash covering the name, the value and the whole subtree.
-///
-/// \remarks A record's parts are folded in sorted order and a sequence's in
-///          the order they appear, which is what makes reordering a transform's
-///          fields invisible and reordering a list of tags a change.
-///
-///          A property with no parts hashes exactly as it did before properties
-///          could have any, so nothing in the golden corpus moves except where a
-///          format actually starts nesting.
-[[nodiscard]] std::uint64_t hashProperty(const Property& property) {
-    std::uint64_t h = hashBytes(property.name, kOffsetBasis);
-    h = hashBytes("=", h);
-    h = hashBytes(property.value, h);
+std::uint64_t hashProperty(const Property& property) {
     if (!property.hasParts()) {
-        return h;
+        return hashPropertyHead(property);
     }
 
-    std::vector<std::uint64_t> parts;
-    parts.reserve(property.children.size());
-    for (const Property& child : property.children) {
-        parts.push_back(hashProperty(child));
-    }
-    if (!property.ordered) {
-        std::sort(parts.begin(), parts.end());
-    }
+    // Post-order over the parts with a stack of frames, so a property nested
+    // to any depth never costs a call frame per level. A frame is finished
+    // once every part has been hashed, and its hash goes to the frame below.
+    std::vector<PropertyFrame> stack;
+    stack.push_back(PropertyFrame{&property});
+    while (true) {
+        PropertyFrame& frame = stack.back();
+        const Property& current = *frame.property;
+        if (frame.next < current.children.size()) {
+            const Property& part = current.children[frame.next++];
+            stack.push_back(PropertyFrame{&part});
+            continue;
+        }
 
-    h = mix(h, parts.size());
-    for (const std::uint64_t part : parts) {
-        h = mix(h, part);
+        std::uint64_t h = hashPropertyHead(current);
+        if (current.hasParts()) {
+            h = foldParts(current, h, frame.parts);
+        }
+        stack.pop_back();
+        if (stack.empty()) {
+            return h;
+        }
+        stack.back().parts.push_back(h);
     }
-    return h;
 }
 
 void computeHashes(Tree& tree, const IFormatProvider& provider, std::stop_token token) {

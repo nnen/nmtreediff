@@ -387,7 +387,7 @@ private:
     ///          a name. They are marked as a sequence, so reordering them is a
     ///          change while reordering a record's fields is not.
     simdjson::error_code collectArrayProperty(Property& into, ondemand::array& array) {
-        into.ordered = true;
+        into.form = PropertyForm::Sequence;
         for (auto elementResult : array) {
             ondemand::value element;
             if (const auto error = std::move(elementResult).get(element)) {

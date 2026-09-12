@@ -138,6 +138,20 @@ struct DiffModel {
     }
 };
 
+/// \brief Reports whether two properties differ, parts and all.
+///
+/// \param left The property on one side.
+/// \param right The property on the other.
+///
+/// \returns `true` when anything about them differs: value, form, or any
+///          part at any depth.
+///
+/// \remarks Defined by hashProperty(), so the change list, the details panel
+///          and matching all agree on what "the same property" means. The
+///          name is compared too; callers pairing properties by name first
+///          get the same answer either way.
+[[nodiscard]] bool propertiesDiffer(const Property& left, const Property& right);
+
 /// \brief Matches two trees and classifies the result.
 ///
 /// \param left The left, usually older, tree.

@@ -372,6 +372,8 @@ private:
         } else if (property.children.size() == 1 && property.children.front().children.empty()) {
             property.value = property.children.front().value;
             property.children.clear();
+        } else {
+            property.form = PropertyForm::Record;
         }
         return property;
     }
@@ -405,6 +407,8 @@ private:
         if (folded.children.size() == 1) {
             folded.value = folded.children.front().value;
             folded.children.clear();
+        } else if (!folded.children.empty()) {
+            folded.form = PropertyForm::Record;
         }
         tree.addProperty(owner, std::move(folded));
     }

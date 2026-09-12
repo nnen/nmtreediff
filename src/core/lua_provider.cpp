@@ -333,6 +333,7 @@ private:
                 // One attribute and nothing else is a value, not a record.
                 folded.value = source.properties.front().value;
             } else {
+                folded.form = PropertyForm::Record;
                 folded.children = source.properties;
             }
             shaped_.addProperty(owner, std::move(folded));
@@ -454,7 +455,9 @@ private:
             if (property.children.size() == 1 && !property.children.front().hasParts()) {
                 property.value = property.children.front().value;
                 property.children.clear();
+                return property;
             }
+            property.form = PropertyForm::Record;
             return property;
         }
 

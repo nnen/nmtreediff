@@ -8,6 +8,7 @@
 #include "core/match.h"
 #include "core/registry.h"
 #include "core/source.h"
+#include "formats/bt_xml.h"
 #include "formats/xml_generic.h"
 
 using nmxd::describe;
@@ -376,4 +377,53 @@ TEST_CASE("a property present on only one side is reported as changed", "[match]
     const auto* change = model.changeFor(Side::Right, item);
     REQUIRE(change != nullptr);
     CHECK(change->changedProperties == std::vector<std::string>{"doomed", "fresh"});
+}
+
+TEST_CASE("a second property of the same name is a change, not a shadow", "[match][repeated]") {
+    // Two properties called cooldown are two properties. A format that folds
+    // repeated child elements into properties produces exactly this, and a
+    // change list that keyed properties by name saw only the first of them, so
+    // adding a second with a different value was reported as no change at all.
+    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const Tree left = parse(*provider,
+                            "<behaviortree><node id=\"n1\" type=\"Wait\">"
+                            "<property name=\"cooldown\" value=\"1\"/>"
+                            "</node></behaviortree>");
+    const Tree right = parse(*provider,
+                             "<behaviortree><node id=\"n1\" type=\"Wait\">"
+                             "<property name=\"cooldown\" value=\"1\"/>"
+                             "<property name=\"cooldown\" value=\"2\"/>"
+                             "</node></behaviortree>");
+
+    const auto model = nmxd::diffTrees(left, right, *provider);
+    const NodeId node = right.node(right.root()).children[0];
+    const auto* change = model.changeFor(Side::Right, node);
+    REQUIRE(change != nullptr);
+    CHECK(change->status == NodeStatus::Modified);
+    CHECK(change->changedProperties == std::vector<std::string>{"cooldown"});
+
+    // And the same pair the other way round is caught just the same, so the
+    // miss is not merely asymmetric.
+    const auto reversed = nmxd::diffTrees(right, left, *provider);
+    const auto* undone = reversed.changeFor(Side::Right, left.node(left.root()).children[0]);
+    REQUIRE(undone != nullptr);
+    CHECK(undone->changedProperties == std::vector<std::string>{"cooldown"});
+}
+
+TEST_CASE("repeated properties in a different order are not a change", "[match][repeated]") {
+    // A multiset, so the same two cooldowns in either order are the same node.
+    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const Tree left = parse(*provider,
+                            "<behaviortree><node id=\"n1\" type=\"Wait\">"
+                            "<property name=\"cooldown\" value=\"1\"/>"
+                            "<property name=\"cooldown\" value=\"2\"/>"
+                            "</node></behaviortree>");
+    const Tree right = parse(*provider,
+                             "<behaviortree><node id=\"n1\" type=\"Wait\">"
+                             "<property name=\"cooldown\" value=\"2\"/>"
+                             "<property name=\"cooldown\" value=\"1\"/>"
+                             "</node></behaviortree>");
+
+    const auto model = nmxd::diffTrees(left, right, *provider);
+    CHECK(model.identical());
 }
