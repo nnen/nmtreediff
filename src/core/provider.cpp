@@ -20,6 +20,8 @@ const char* describe(ParseError error) noexcept {
             return "the document is empty";
         case ParseError::Cancelled:
             return "parsing was cancelled";
+        case ParseError::ShapeFailed:
+            return "the format could not shape the document";
     }
     return "unknown parse error";
 }

@@ -3,6 +3,8 @@ include(Catch)
 add_executable(nmxd_tests
     test_bt_provider.cpp
     test_builder.cpp
+    test_dom.cpp
+    test_shape.cpp
     test_budgets.cpp
     test_config.cpp
     test_cli.cpp

@@ -226,6 +226,23 @@ struct NodeAnnotation {
     std::uint32_t accent = 0;
 };
 
+/// \brief One job of a shaping pass that raised an error.
+///
+/// \remarks A failure does not fail the parse. Whatever the job built stays,
+///          whatever it never queued is simply missing from the tree, and
+///          this says where. The span is the element the job was working on,
+///          and the owner is the node the missing content would have hung
+///          from, so the text view and the node view can each mark it.
+struct ShapeFailure {
+    /// \brief The element the job was working on, or empty when it named
+    ///        none.
+    SourceSpan span;
+    /// \brief The shaped node the job was building under, or kInvalidNode.
+    NodeId owner = kInvalidNode;
+    /// \brief What went wrong, with a line where the script knows one.
+    std::string message;
+};
+
 /// \brief A parsed document, held as a flat arena of nodes.
 ///
 /// \remarks Nodes are addressed by index rather than by pointer. That keeps a
@@ -358,6 +375,30 @@ public:
     /// \returns `true` when a provider recorded something.
     [[nodiscard]] bool annotated() const noexcept { return !annotations_.empty(); }
 
+    /// \brief Returns the shaping jobs that failed while this tree was built.
+    ///
+    /// \returns The failures, in the order they happened. Empty for a tree
+    ///          whose shaping raised nothing.
+    [[nodiscard]] const std::vector<ShapeFailure>& failures() const noexcept { return failures_; }
+
+    /// \brief Records the shaping jobs that failed.
+    ///
+    /// \param failures What went wrong, owners already renumbered.
+    void setFailures(std::vector<ShapeFailure> failures) { failures_ = std::move(failures); }
+
+    /// \brief Returns the source bytes no part of this tree came from.
+    ///
+    /// \returns Disjoint spans in ascending order. Empty when the provider
+    ///          represented everything, or did not say.
+    [[nodiscard]] const std::vector<SourceSpan>& unrepresented() const noexcept {
+        return unrepresented_;
+    }
+
+    /// \brief Records the source bytes no part of this tree came from.
+    ///
+    /// \param spans Disjoint spans in ascending order.
+    void setUnrepresented(std::vector<SourceSpan> spans) { unrepresented_ = std::move(spans); }
+
 private:
     std::vector<Node> nodes_;
 
@@ -365,6 +406,12 @@ private:
     std::vector<NodeAnnotation> annotations_;
     NodeId root_ = kInvalidNode;
     std::string formatName_;
+
+    /// \brief What went wrong while shaping. Usually empty.
+    std::vector<ShapeFailure> failures_;
+
+    /// \brief What the provider left out. Empty unless it dropped something.
+    std::vector<SourceSpan> unrepresented_;
 };
 
 }  // namespace nmxd

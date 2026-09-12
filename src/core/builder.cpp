@@ -284,8 +284,26 @@ Result<Tree, ParseError> TreeBuilder::finish() {
         }
     }
 
+    // A failure's owner was a handle; now it is a node. A failure under a
+    // property is charged to the node that property belongs to.
+    std::vector<ShapeFailure> failures;
+    failures.reserve(failures_.size());
+    for (PendingFailure& pending : failures_) {
+        ShapeFailure failure;
+        failure.span = pending.span;
+        failure.message = std::move(pending.message);
+        const Ref owner = at(pending.owner).owner();
+        if (owner.valid()) {
+            failure.owner = placed[owner.id().index];
+        }
+        failures.push_back(std::move(failure));
+    }
+    tree.setFailures(std::move(failures));
+    tree.setUnrepresented(std::move(unrepresented_));
+
     nodes_.clear();
     properties_.clear();
+    failures_.clear();
 
     tree.finalize();
     computeHashes(tree, token_);
@@ -335,6 +353,14 @@ RefId TreeBuilder::addProperty(RefId parent, std::string_view name, std::string_
         properties_[parent.index].parts.push_back(index);
     }
     return RefId{index, RefKind::Property};
+}
+
+bool TreeBuilder::represents(DomId element) const noexcept {
+    return element < represented_.size() && represented_[element];
+}
+
+void TreeBuilder::recordFailure(RefId owner, SourceSpan span, std::string message) {
+    failures_.push_back(PendingFailure{owner, span, std::move(message)});
 }
 
 void TreeBuilder::represent(DomId element) {

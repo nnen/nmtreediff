@@ -87,6 +87,7 @@ enum class ParseError {
     UnsupportedEncoding,  ///< The encoding is one this provider cannot read.
     Empty,                ///< The document holds no content.
     Cancelled,            ///< Parsing stopped because the token was signalled.
+    ShapeFailed,          ///< Shaping raised an error and built nothing.
 };
 
 /// \brief Converts a parse error into a phrase suitable for a message.

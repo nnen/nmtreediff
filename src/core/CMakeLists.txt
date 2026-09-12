@@ -3,6 +3,8 @@
 
 add_library(nmxd_core STATIC
     builder.cpp
+    dom.cpp
+    shape.cpp
     config.cpp
     lua_config.cpp
     lua_provider.cpp

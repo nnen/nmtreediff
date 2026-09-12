@@ -17,6 +17,8 @@
 
 namespace nmxd {
 
+class DomNode;
+class DomProperty;
 class TreeBuilder;
 
 /// \brief Identifies an element of the document a provider read, before it
@@ -122,6 +124,17 @@ public:
     ///          kept either way.
     Ref child(std::string_view name = {});
 
+    /// \brief Adds a child made from a source element.
+    ///
+    /// \param element The element to represent.
+    ///
+    /// \returns The new child, named after the element, with its span, and
+    ///          with the element recorded as its source.
+    ///
+    /// \remarks The short form for the common case, and what makes the
+    ///          element count as represented rather than dropped.
+    Ref child(const DomNode& element);
+
     /// \brief Adds a scalar property.
     ///
     /// \param name The property's name.
@@ -132,6 +145,16 @@ public:
     /// \remarks A property of a node, or a part of a property. Names may
     ///          repeat: calling this twice with one name makes two properties.
     Ref property(std::string_view name, std::string_view value = {});
+
+    /// \brief Adds a copy of a source property, parts and all.
+    ///
+    /// \param source The property to copy.
+    ///
+    /// \returns The new property.
+    ///
+    /// \remarks Name, value, form, span and every part at every depth, copied
+    ///          with a worklist rather than recursion.
+    Ref property(const DomProperty& source);
 
     /// \brief Adds a property that will hold named parts.
     ///
@@ -279,6 +302,29 @@ public:
     ///          ascending order.
     [[nodiscard]] std::vector<DomId> unrepresented(std::size_t sourceCount) const;
 
+    /// \brief Reports whether a source element has a handle made from it.
+    ///
+    /// \param element The element to ask about.
+    [[nodiscard]] bool represents(DomId element) const noexcept;
+
+    /// \brief Records that a shaping job failed.
+    ///
+    /// \param owner The handle the job was building under, or none.
+    /// \param span The element the job was working on, or empty.
+    /// \param message What went wrong.
+    ///
+    /// \remarks Kept here rather than on the context, because the owner is a
+    ///          builder handle and only finish() knows which node it became.
+    void recordFailure(RefId owner, SourceSpan span, std::string message);
+
+    /// \brief Returns how many failures have been recorded.
+    [[nodiscard]] std::size_t failureCount() const noexcept { return failures_.size(); }
+
+    /// \brief Records the source bytes no handle accounted for.
+    ///
+    /// \param spans Disjoint spans in ascending order, handed to the tree.
+    void setUnrepresented(std::vector<SourceSpan> spans) { unrepresented_ = std::move(spans); }
+
     /// \brief Assembles the tree.
     ///
     /// \returns The tree, finalised and hashed, or ParseError::Empty when no
@@ -338,11 +384,20 @@ private:
     /// \brief Assembles every property from the arena and attaches it.
     void placeProperties(Tree& tree, const std::vector<NodeId>& placed);
 
+    /// \brief A failure whose owner is still a builder handle.
+    struct PendingFailure {
+        RefId owner;
+        SourceSpan span;
+        std::string message;
+    };
+
     std::string formatName_;
     std::stop_token token_;
     std::vector<BuiltNode> nodes_;
     std::vector<BuiltProperty> properties_;
     std::vector<bool> represented_;
+    std::vector<PendingFailure> failures_;
+    std::vector<SourceSpan> unrepresented_;
 };
 
 }  // namespace nmxd
