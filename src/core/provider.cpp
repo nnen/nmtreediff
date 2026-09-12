@@ -8,7 +8,86 @@
 #include <numeric>
 #include <string>
 
+#include "core/dom.h"
+#include "core/hash.h"
+#include "core/shape.h"
+
 namespace nmxd {
+
+namespace {
+
+/// \brief Unpacks a colour a handle recorded.
+///
+/// \param rgb The colour as 0xRRGGBB.
+[[nodiscard]] Color unpackAccent(std::uint32_t rgb) {
+    return Color{static_cast<std::uint8_t>((rgb >> 16) & 0xFF),
+                 static_cast<std::uint8_t>((rgb >> 8) & 0xFF),
+                 static_cast<std::uint8_t>(rgb & 0xFF), 255};
+}
+
+}  // namespace
+
+std::uint32_t accentForKind(std::string_view kind) noexcept {
+    // Mid-toned, so that the diff status tinted on top stays legible.
+    const std::uint64_t h = hashBytes(kind);
+    const auto r = static_cast<std::uint32_t>(110 + (h & 0x3F));
+    const auto g = static_cast<std::uint32_t>(110 + ((h >> 8) & 0x3F));
+    const auto b = static_cast<std::uint32_t>(110 + ((h >> 16) & 0x3F));
+    return (r << 16) | (g << 8) | b;
+}
+
+void IFormatProvider::shape(ShapeContext& context) const {
+    copyDocument(context);
+}
+
+Result<Tree, ParseError> IFormatProvider::parse(const SourceFile& source,
+                                                std::stop_token token) const {
+    auto document = read(source, token);
+    if (!document.ok()) {
+        return fail(document.error());
+    }
+    // The document stays alive for the whole pass, because the DOM is a view
+    // over it and every handle the shape makes points into it.
+    const Tree read = std::move(document).value();
+    if (read.empty()) {
+        return fail(ParseError::Empty);
+    }
+    const Dom dom(read);
+    return shapeTree(dom, std::string(name()),
+                     [this](ShapeContext& context) { shape(context); }, token);
+}
+
+IdentityKey IFormatProvider::identity(const Tree& tree, NodeId id) const {
+    const NodeAnnotation& annotation = tree.annotation(id);
+    if (annotation.identity.empty()) {
+        return IdentityKey{};
+    }
+    return IdentityKey{annotation.strongIdentity, annotation.identity};
+}
+
+NodeStyle IFormatProvider::style(const Tree& tree, NodeId id) const {
+    const Node& node = tree.node(id);
+    const NodeAnnotation& annotation = tree.annotation(id);
+
+    NodeStyle style;
+    style.title = annotation.title.empty() ? node.kind : annotation.title;
+    style.subtitle = annotation.subtitle;
+
+    // The first candidate the node has, so cards are distinguishable without
+    // opening them and a format that shapes nothing still gets a second line.
+    if (style.subtitle.empty()) {
+        for (const std::string_view candidate : subtitleProperties()) {
+            if (const Property* p = node.findProperty(candidate)) {
+                style.subtitle = p->value;
+                break;
+            }
+        }
+    }
+
+    style.accent = unpackAccent(annotation.accent != 0 ? annotation.accent
+                                                       : accentForKind(node.kind));
+    return style;
+}
 
 const char* describe(ParseError error) noexcept {
     switch (error) {

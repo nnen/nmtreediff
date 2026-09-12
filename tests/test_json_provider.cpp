@@ -439,3 +439,83 @@ TEST_CASE("the synthetic properties sort last", "[json]") {
     CHECK(root.properties[order[2]].name == "hp");
     CHECK(root.properties[order[3]].name == "#type");
 }
+
+TEST_CASE("a root array of scalars hangs from the root as its value", "[json][array]") {
+    // The rule for arrays makes no exception for the outermost one: a root
+    // list of values is a sequence property on the root node, so a root list
+    // and a nested one diff the same way rather than one being a set of node
+    // moves and the other one changed property.
+    const auto provider = nmxd::makeGenericJsonProvider();
+    const Tree tree = parseOrFail(*provider, makeSource("[1, 2, 3]"));
+
+    CHECK(tree.size() == 1);
+    const Node& root = tree.node(tree.root());
+    CHECK(root.kind == "$");
+    const Property* value = root.findProperty(kValueProperty);
+    REQUIRE(value != nullptr);
+    CHECK(value->form == PropertyForm::Sequence);
+    REQUIRE(value->children.size() == 3);
+    CHECK(value->children[2].value == "3");
+    CHECK(value->children[2].name.empty());
+
+    // A root array holding an object stays a node with item nodes under it.
+    const Tree objects = parseOrFail(*provider, makeSource(R"([{"a": 1}, 2])"));
+    CHECK(objects.size() == 3);
+    CHECK(objects.node(1).kind == "item");
+    CHECK(objects.node(2).findProperty(kValueProperty)->value == "2");
+}
+
+TEST_CASE("an empty array is an empty sequence, not an empty string", "[json][array]") {
+    const auto provider = nmxd::makeGenericJsonProvider();
+    const Tree emptyList = parseOrFail(*provider, makeSource(R"({"tags": []})"));
+    const Tree emptyText = parseOrFail(*provider, makeSource(R"({"tags": ""})"));
+
+    const Property* list = emptyList.node(0).findProperty("tags");
+    REQUIRE(list != nullptr);
+    CHECK(list->form == PropertyForm::Sequence);
+    CHECK(list->children.empty());
+    CHECK(emptyText.node(0).findProperty("tags")->form == PropertyForm::Scalar);
+    CHECK(emptyList.node(0).contentHash != emptyText.node(0).contentHash);
+}
+
+TEST_CASE("read() keeps every array a node, and shape() decides which fold", "[json][dom]") {
+    // What a script built on JSON is handed: the document as written, every
+    // array a node with an item per element, so it has one shape to reason
+    // about and folds per key or not at all.
+    const auto provider = nmxd::makeGenericJsonProvider();
+    auto raw = provider->read(makeSource(R"({"tags": ["a", "b"], "n": 1})"), {});
+    REQUIRE(raw.ok());
+    const Tree& read = raw.value();
+
+    REQUIRE(read.size() == 4);
+    CHECK(read.node(0).findProperty("n")->value == "1");
+    CHECK(read.node(0).findProperty("tags") == nullptr);
+    CHECK(read.node(1).kind == "tags");
+    CHECK(read.node(1).findProperty("#type")->value == "array");
+    CHECK(read.node(2).kind == "item");
+    CHECK(read.node(2).findProperty(kValueProperty)->value == "\"a\"");
+    CHECK(read.node(3).findProperty(kValueProperty)->value == "\"b\"");
+    CHECK(read.node(1).childrenOrdered);
+    CHECK_FALSE(read.node(0).childrenOrdered);
+    CHECK(read.unrepresented().empty());
+}
+
+TEST_CASE("a document nested thousands of levels deep is read without recursing",
+          "[json][deep]") {
+    // Generated data reaches this and hand-authored data does not, which is
+    // why no sample caught the crash. The reader keeps a stack of open
+    // containers rather than a call frame per level.
+    constexpr int kDepth = 5000;
+    std::string text;
+    for (int level = 0; level < kDepth; ++level) {
+        text += R"({"a":)";
+    }
+    text += "1";
+    text.append(static_cast<std::size_t>(kDepth), '}');
+
+    const auto provider = nmxd::makeGenericJsonProvider();
+    const Tree tree = parseOrFail(*provider, makeSource(text));
+    CHECK(tree.size() == static_cast<std::size_t>(kDepth));
+    CHECK(tree.node(tree.size() - 1).depth == static_cast<std::uint32_t>(kDepth - 1));
+    CHECK(tree.node(tree.size() - 1).findProperty("a")->value == "1");
+}

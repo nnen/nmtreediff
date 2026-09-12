@@ -101,6 +101,11 @@ public:
         return rankFromList(propertyViews_, propertyName);
     }
 
+    Result<Tree, ParseError> read(const SourceFile& source, std::stop_token token) const override {
+        // The base format reads the bytes; a script never does.
+        return base_.read(source, std::move(token));
+    }
+
     Result<Tree, ParseError> parse(const SourceFile& source,
                                    std::stop_token token) const override {
         // The base format reads the bytes. Everything below is shaping, which
@@ -125,33 +130,6 @@ public:
 
         Shaper shaper(generic, state.get(), *shape, *this);
         return shaper.run(token);
-    }
-
-    IdentityKey identity(const Tree& tree, NodeId id) const override {
-        // Answered while parsing, because asking a script per node during
-        // matching would cross into an interpreter on the hot path.
-        const NodeAnnotation& annotation = tree.annotation(id);
-        if (annotation.identity.empty()) {
-            return IdentityKey{};
-        }
-        return IdentityKey{annotation.strongIdentity, annotation.identity};
-    }
-
-    NodeStyle style(const Tree& tree, NodeId id) const override {
-        const Node& node = tree.node(id);
-        const NodeAnnotation& annotation = tree.annotation(id);
-
-        NodeStyle style;
-        style.title = annotation.title.empty() ? node.kind : annotation.title;
-        style.subtitle = annotation.subtitle;
-
-        // Derived from the kind rather than asked for, so two nodes of one kind
-        // always agree and a script never has to think about colour.
-        const std::uint64_t h = hashBytes(node.kind);
-        style.accent = Color{static_cast<std::uint8_t>(110 + (h & 0x3F)),
-                             static_cast<std::uint8_t>(110 + ((h >> 8) & 0x3F)),
-                             static_cast<std::uint8_t>(110 + ((h >> 16) & 0x3F)), 255};
-        return style;
     }
 
 private:

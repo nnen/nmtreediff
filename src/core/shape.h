@@ -133,6 +133,17 @@ private:
                                                  const ShapeContext::Job& shape,
                                                  std::stop_token token = {});
 
+/// \brief Copies the document into the builder one to one.
+///
+/// \param context The pass to copy within.
+///
+/// \remarks What a generic format means by shaping: every element a node of
+///          the same kind, every property carried over, child order as the
+///          source recorded it. One pass over the document in arena order,
+///          which is pre-order, so a parent's handle always exists before its
+///          children need it and nothing is queued or recursed.
+void copyDocument(ShapeContext& context);
+
 /// \brief Works out which source bytes no handle accounted for.
 ///
 /// \param dom The document that was shaped.

@@ -433,3 +433,57 @@ TEST_CASE("a wrapper keeps both itself and the nodes inside it", "[bt]") {
     REQUIRE(wrapper != nullptr);
     CHECK(wrapper->value == "all");
 }
+
+TEST_CASE("a property with a value keeps its value and reports the elements it drops",
+          "[bt][dropped]") {
+    // A <property> carrying a value attribute is that value, and whatever
+    // elements sit inside it are not read. They used to vanish; now the tree
+    // says which bytes it did not account for, so the text view can show them.
+    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const std::string text =
+        "<behaviortree><node id=\"n1\" type=\"Wait\">"
+        "<property name=\"speed\" value=\"1.0\"><range min=\"0\"/></property>"
+        "</node></behaviortree>";
+    const Tree tree = parseOrFail(*provider, makeSource(text));
+
+    const Node& node = tree.node(1);
+    CHECK(node.findProperty("speed")->value == "1.0");
+    REQUIRE(tree.unrepresented().size() == 1);
+    const auto& gone = tree.unrepresented()[0];
+    CHECK(text.substr(gone.begin, gone.end - gone.begin) == "<range min=\"0\"/>");
+    CHECK(tree.failures().empty());
+}
+
+TEST_CASE("a fully folded document leaves nothing unrepresented", "[bt][dropped]") {
+    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const Tree tree = parseOrFail(*provider, makeSource(
+        "<behaviortree><node id=\"n1\" type=\"Sequence\">"
+        "<property name=\"transform\"><position x=\"1\"/><scale x=\"2\"/></property>"
+        "<children><node id=\"n2\" type=\"Wait\"/></children>"
+        "</node></behaviortree>"));
+    CHECK(tree.unrepresented().empty());
+    CHECK(tree.size() == 3);
+    CHECK(provider->identity(tree, 2).strong);
+    CHECK(provider->identity(tree, 2).value == "n2");
+    CHECK(provider->style(tree, 1).title == "Sequence");
+}
+
+TEST_CASE("a behaviour tree nested thousands of levels deep shapes without recursing",
+          "[bt][deep]") {
+    constexpr int kDepth = 5000;
+    std::string text = "<behaviortree>";
+    for (int level = 0; level < kDepth; ++level) {
+        text += "<node id=\"n" + std::to_string(level) + "\" type=\"Sequence\">";
+    }
+    text += "<property name=\"deep\"><a><b><c/></b></a></property>";
+    for (int level = 0; level < kDepth; ++level) {
+        text += "</node>";
+    }
+    text += "</behaviortree>";
+
+    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const Tree tree = parseOrFail(*provider, makeSource(text));
+    CHECK(tree.size() == static_cast<std::size_t>(kDepth) + 1);
+    CHECK(tree.node(tree.size() - 1).findProperty("deep")->form == PropertyForm::Record);
+    CHECK(tree.unrepresented().empty());
+}

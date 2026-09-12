@@ -161,32 +161,7 @@ Ref Ref::property(const DomProperty& source) {
     if (!valid() || !source.valid()) {
         return {};
     }
-    const Property& top = *source.get();
-    Ref made = property(top.name, top.value);
-    made.setSpan(top.span);
-    if (top.form != PropertyForm::Scalar) {
-        builder_->property(made.id_).form = top.form;
-    }
-
-    // Parts are copied breadth by breadth with a worklist, so a property
-    // nested to any depth costs memory rather than a call frame per level.
-    // Each entry pairs a source property with the handle its parts go under.
-    std::vector<std::pair<const Property*, RefId>> pending;
-    if (top.hasParts()) {
-        pending.emplace_back(&top, made.id_);
-    }
-    while (!pending.empty()) {
-        const auto [from, into] = pending.back();
-        pending.pop_back();
-        for (const Property& part : from->children) {
-            const RefId copied = builder_->addProperty(into, part.name, part.value, part.form);
-            builder_->property(copied).span = part.span;
-            if (part.hasParts()) {
-                pending.emplace_back(&part, copied);
-            }
-        }
-    }
-    return made;
+    return property(*source.get());
 }
 
 // ---- Dom ------------------------------------------------------------------

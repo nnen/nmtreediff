@@ -61,12 +61,9 @@ public:
     std::span<const std::string_view> defaultExtensions() const override { return {}; }
     int score(const SourceFile&) const override { return 0; }
 
-    nmxd::Result<Tree, nmxd::ParseError> parse(const SourceFile&, std::stop_token) const override {
+    nmxd::Result<Tree, nmxd::ParseError> read(const SourceFile&, std::stop_token) const override {
         return nmxd::fail(nmxd::ParseError::Empty);
     }
-
-    nmxd::IdentityKey identity(const Tree&, nmxd::NodeId) const override { return {}; }
-    nmxd::NodeStyle style(const Tree&, nmxd::NodeId) const override { return {}; }
 
     GraphDirection graphDirection() const override { return direction_; }
 

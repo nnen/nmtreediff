@@ -7,6 +7,7 @@
 #include "core/diff.h"
 #include "core/match.h"
 #include "core/registry.h"
+#include "core/shape.h"
 #include "core/source.h"
 #include "formats/bt_xml.h"
 #include "formats/xml_generic.h"
@@ -39,20 +40,21 @@ public:
     }
     int score(const SourceFile& source) const override { return inner_->score(source); }
 
-    nmxd::Result<Tree, nmxd::ParseError> parse(const SourceFile& source,
-                                               std::stop_token token) const override {
-        return inner_->parse(source, token);
+    nmxd::Result<Tree, nmxd::ParseError> read(const SourceFile& source,
+                                              std::stop_token token) const override {
+        return inner_->read(source, token);
     }
 
-    nmxd::IdentityKey identity(const Tree& tree, NodeId id) const override {
-        if (const auto* property = tree.node(id).findProperty("id")) {
-            return nmxd::IdentityKey{true, property->value};
+    // The copy generic XML would make, plus a strong key from every `id`.
+    void shape(nmxd::ShapeContext& context) const override {
+        nmxd::copyDocument(context);
+        const nmxd::Tree& read = context.dom().tree();
+        for (nmxd::DomId id = 0; id < read.size(); ++id) {
+            if (const auto* property = read.node(id).findProperty("id")) {
+                context.out().at(nmxd::RefId{id, nmxd::RefKind::Node})
+                    .setIdentity(property->value, nmxd::Identity::Strong);
+            }
         }
-        return nmxd::IdentityKey{false, tree.node(id).kind};
-    }
-
-    nmxd::NodeStyle style(const Tree& tree, NodeId id) const override {
-        return inner_->style(tree, id);
     }
 
 private:

@@ -99,6 +99,52 @@ Ref Ref::sequence(std::string_view name) {
     return made;
 }
 
+Ref Ref::property(const Property& source) {
+    if (!valid()) {
+        return {};
+    }
+    Ref made = property(source.name, source.value);
+    made.setSpan(source.span);
+    if (source.form != PropertyForm::Scalar) {
+        builder_->property(made.id_).form = source.form;
+    }
+
+    // Parts are copied with a worklist, so a property nested to any depth
+    // costs memory rather than a call frame per level. Each entry pairs a
+    // source property with the handle its parts go under.
+    std::vector<std::pair<const Property*, RefId>> pending;
+    if (source.hasParts()) {
+        pending.emplace_back(&source, made.id_);
+    }
+    while (!pending.empty()) {
+        const auto [from, into] = pending.back();
+        pending.pop_back();
+        for (const Property& part : from->children) {
+            const RefId copied = builder_->addProperty(into, part.name, part.value, part.form);
+            builder_->property(copied).span = part.span;
+            if (part.hasParts()) {
+                pending.emplace_back(&part, copied);
+            }
+        }
+    }
+    return made;
+}
+
+Ref& Ref::setForm(PropertyForm form) {
+    if (!valid()) {
+        return *this;
+    }
+    if (isNode()) {
+        throw BuildError("a node has no form; only a property does");
+    }
+    TreeBuilder::BuiltProperty& property = builder_->property(id_);
+    if (form == PropertyForm::Scalar && !property.parts.empty()) {
+        throw BuildError("a property with parts cannot become a scalar");
+    }
+    property.form = form;
+    return *this;
+}
+
 Ref Ref::item(std::string_view value) {
     if (!valid()) {
         return {};

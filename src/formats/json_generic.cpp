@@ -9,10 +9,14 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include <simdjson.h>
 
+#include "core/builder.h"
+#include "core/dom.h"
 #include "core/hash.h"
+#include "core/shape.h"
 
 namespace nmxd {
 
@@ -124,15 +128,38 @@ bool isArray(const Node& node) {
     return type != nullptr && type->value == kArrayType;
 }
 
-/// \brief Walks one parsed document and fills a Tree from it.
+/// \brief Reports whether a node is an object.
 ///
-/// \remarks Kept as a class rather than a set of free functions because every
+/// \param node The node to inspect.
+///
+/// \returns `true` when the node was built from a JSON object.
+bool isObject(const Node& node) {
+    const Property* type = node.findProperty(kTypeProperty);
+    return type != nullptr && type->value == kObjectType;
+}
+
+/// \brief Subtitle candidates, in order of preference.
+///
+/// \remarks A scalar element's own value first, then the identifying members,
+///          then the container type, so a card always has a second line and
+///          it is the most telling one the node has.
+constexpr std::array<std::string_view, 6> kSubtitleProperties{"#value", "id",  "name",
+                                                              "type",   "key", "#type"};
+
+/// \brief Walks one parsed document and fills a Tree from it, as written.
+///
+/// \remarks Every object and every array becomes a node and every array
+///          element becomes an `item` node, scalar or not. Deciding which
+///          arrays are really lists of values is shape()'s job, over the tree
+///          this produces.
+///
+///          Kept as a class rather than a set of free functions because every
 ///          step needs the same four things: the tree being filled, the buffer
 ///          the spans are offsets into, the document whose cursor says where
 ///          parsing has reached, and the stop token.
-class Builder {
+class Reader {
 public:
-    /// \brief Prepares to build one tree.
+    /// \brief Prepares to read one document.
     ///
     /// \param tree The tree to fill.
     /// \param buffer The padded copy of the document being walked.
@@ -140,19 +167,19 @@ public:
     ///        non-zero only when a byte order mark was skipped.
     /// \param document The document cursor, used to find where a container
     ///        ended.
-    /// \param token Checked periodically while building.
-    Builder(Tree& tree, std::string_view buffer, std::uint32_t origin, ondemand::document& document,
-            const std::stop_token& token)
+    /// \param token Checked periodically while reading.
+    Reader(Tree& tree, std::string_view buffer, std::uint32_t origin, ondemand::document& document,
+           const std::stop_token& token)
         : tree_(tree), buffer_(buffer), origin_(origin), document_(document), token_(token) {}
 
-    /// \brief Builds the whole tree from the document root.
+    /// \brief Reads the whole tree from the document root.
     ///
     /// \returns simdjson::SUCCESS, or the first error the walk ran into.
     ///
     /// \remarks A document holding nothing but a scalar is a valid JSON
     ///          document and becomes a single node, so that a file consisting
     ///          of one number still diffs instead of being refused.
-    simdjson::error_code buildRoot() {
+    simdjson::error_code readRoot() {
         ondemand::json_type type{};
         if (const auto error = document_.type().get(type)) {
             return error;
@@ -175,7 +202,11 @@ public:
         if (const auto error = document_.get_value().get(root)) {
             return error;
         }
-        return build(kInvalidNode, std::string(kRootKind), root.raw_json_token().data(), root);
+        if (const auto error =
+                open(kInvalidNode, std::string(kRootKind), root.raw_json_token().data(), root, type)) {
+            return error;
+        }
+        return walk();
     }
 
     /// \brief Reports whether the walk stopped because it was cancelled.
@@ -184,74 +215,75 @@ public:
     [[nodiscard]] bool cancelled() const noexcept { return cancelled_; }
 
 private:
-    /// \brief Builds one node and everything below it.
+    /// \brief One container whose members are still being read.
     ///
-    /// \param parent The parent node's id, or kInvalidNode for the root.
-    /// \param kind The kind to give the new node.
-    /// \param spanBegin Where the node starts in the buffer, which is the key
-    ///        token for a member of an object and the value token otherwise.
-    /// \param value The value to convert. Consumed by this call.
+    /// \remarks On Demand hands a container out as a forward-only iterator,
+    ///          so a stack of these is the parser's own shape: the innermost
+    ///          open container on top, its iterator advanced only once the
+    ///          member it points at has been fully consumed.
+    struct Frame {
+        /// \brief The node standing for the container.
+        NodeId id = kInvalidNode;
+        /// \brief Whether the container is an object rather than an array.
+        bool isObject = false;
+        /// \brief The members of an object.
+        ondemand::object_iterator objectIt;
+        ondemand::object_iterator objectEnd;
+        /// \brief The elements of an array.
+        ondemand::array_iterator arrayIt;
+        ondemand::array_iterator arrayEnd;
+    };
+
+    /// \brief Reads every container on the stack until it is empty.
     ///
     /// \returns simdjson::SUCCESS, or the first error the walk ran into.
-    simdjson::error_code build(NodeId parent, std::string kind, const char* spanBegin,
-                               ondemand::value value) {
-        if (tree_.size() % kCancelCheckInterval == 0 && token_.stop_requested()) {
-            cancelled_ = true;
-            return simdjson::SUCCESS;
-        }
-
-        ondemand::json_type type{};
-        if (const auto error = value.type().get(type)) {
-            return error;
-        }
-
-        const std::uint32_t begin = offsetOf(spanBegin);
-        const NodeId id = tree_.add(parent, std::move(kind), SourceSpan{begin, begin});
-
-        switch (type) {
-            case ondemand::json_type::object: {
-                // Reordering the members of an object changes nothing about
-                // the document, so a reordering there is not a move and is not
-                // reported as one. Reordering an array changes the document.
-                tree_.node(id).childrenOrdered = false;
-                tree_.addProperty(id, std::string(kTypeProperty), std::string(kObjectType));
-                if (const auto error = buildObject(id, value)) {
-                    return error;
-                }
-                break;
+    ///
+    /// \remarks The loop looks at the top frame, reads its next member, and
+    ///          either records a scalar and moves on, or opens a container as
+    ///          a new frame above it. A frame with nothing left closes its
+    ///          node's span, pops, and advances the iterator below it past the
+    ///          container that was just consumed. No call frame per level.
+    simdjson::error_code walk() {
+        while (!stack_.empty()) {
+            if (tree_.size() % kCancelCheckInterval == 0 && token_.stop_requested()) {
+                cancelled_ = true;
+                return simdjson::SUCCESS;
             }
-            case ondemand::json_type::array: {
-                tree_.addProperty(id, std::string(kTypeProperty), std::string(kArrayType));
-                ondemand::array array;
-                if (const auto error = value.get_array().get(array)) {
-                    return error;
+
+            Frame& frame = stack_.back();
+            const bool exhausted =
+                frame.isObject ? !(frame.objectIt != frame.objectEnd) : !(frame.arrayIt != frame.arrayEnd);
+            if (exhausted) {
+                tree_.node(frame.id).span.end = cursor();
+                stack_.pop_back();
+                if (!stack_.empty()) {
+                    advance(stack_.back());
                 }
-                if (const auto error = buildArrayElements(id, array)) {
-                    return error;
-                }
-                break;
+                continue;
             }
-            default: {
-                // A scalar array element. Its own value is all it has, so it
-                // becomes the one property rather than a nameless node.
-                const std::string_view raw = trimRight(value.raw_json_token());
-                tree_.addProperty(id, std::string(kValueProperty), std::string(raw),
-                                  SourceSpan{offsetOf(raw.data()), endOf(raw)});
-                tree_.node(id).span.end = endOf(raw);
-                return validateScalar(type, value);
+
+            const auto error = frame.isObject ? readMember(frame) : readElement(frame);
+            if (error) {
+                return error;
             }
         }
-
-        // Only now that every child is placed, because adding one invalidates
-        // any reference taken before it.
-        tree_.node(id).span.end = cursor();
         return simdjson::SUCCESS;
     }
 
-    /// \brief Adds an object's members to a node.
+    /// \brief Steps a frame's iterator past the member just consumed.
     ///
-    /// \param id The node standing for the object.
-    /// \param value The object.
+    /// \param frame The frame to advance.
+    static void advance(Frame& frame) {
+        if (frame.isObject) {
+            ++frame.objectIt;
+        } else {
+            ++frame.arrayIt;
+        }
+    }
+
+    /// \brief Reads the member an object frame is pointing at.
+    ///
+    /// \param frame The object frame.
     ///
     /// \returns simdjson::SUCCESS, or the first error the walk ran into.
     ///
@@ -259,221 +291,123 @@ private:
     ///          and a member holding a scalar becomes a property. That is what
     ///          keeps the node view showing structure rather than one card per
     ///          string.
-    simdjson::error_code buildObject(NodeId id, ondemand::value& value) {
-        ondemand::object object;
-        if (const auto error = value.get_object().get(object)) {
+    simdjson::error_code readMember(Frame& frame) {
+        ondemand::field member;
+        if (const auto error = (*frame.objectIt).get(member)) {
             return error;
         }
 
-        for (auto memberResult : object) {
-            ondemand::field member;
-            if (const auto error = std::move(memberResult).get(member)) {
-                return error;
-            }
+        // Both have to be read before the value is touched, because each is
+        // recovered from where the cursor currently stands.
+        const std::string_view key = member.escaped_key();
+        const char* keyBegin = member.key_raw_json_token().data();
 
-            // Both have to be read before the value is touched, because each is
-            // recovered from where the cursor currently stands.
-            const std::string_view key = member.escaped_key();
-            const char* keyBegin = member.key_raw_json_token().data();
-
-            ondemand::value memberValue = member.value();
-            ondemand::json_type memberType{};
-            if (const auto error = memberValue.type().get(memberType)) {
-                return error;
-            }
-
-            if (memberType == ondemand::json_type::array) {
-                ondemand::array array;
-                if (const auto error = memberValue.get_array().get(array)) {
-                    return error;
-                }
-                bool asProperty = false;
-                if (const auto error = arrayBecomesProperty(array, asProperty)) {
-                    return error;
-                }
-
-                if (asProperty) {
-                    Property property;
-                    property.name = std::string(key);
-                    if (const auto error = collectArrayProperty(property, array)) {
-                        return error;
-                    }
-                    property.span = SourceSpan{offsetOf(keyBegin), cursor()};
-                    tree_.addProperty(id, std::move(property));
-                } else if (const auto error =
-                               buildArrayNode(id, std::string(key), keyBegin, array)) {
-                    return error;
-                }
-                if (cancelled_) {
-                    return simdjson::SUCCESS;
-                }
-            } else if (memberType == ondemand::json_type::object) {
-                if (const auto error = build(id, std::string(key), keyBegin, memberValue)) {
-                    return error;
-                }
-                if (cancelled_) {
-                    return simdjson::SUCCESS;
-                }
-            } else {
-                const std::string_view raw = trimRight(memberValue.raw_json_token());
-                tree_.addProperty(id, std::string(key), std::string(raw),
-                                  SourceSpan{offsetOf(keyBegin), endOf(raw)});
-                if (const auto error = validateScalar(memberType, memberValue)) {
-                    return error;
-                }
-            }
+        ondemand::value value = member.value();
+        ondemand::json_type type{};
+        if (const auto error = value.type().get(type)) {
+            return error;
         }
+
+        if (type == ondemand::json_type::object || type == ondemand::json_type::array) {
+            // The frame below advances once this container has been consumed,
+            // which is when its own frame closes.
+            return open(frame.id, std::string(key), keyBegin, value, type);
+        }
+
+        const std::string_view raw = trimRight(value.raw_json_token());
+        tree_.addProperty(frame.id, std::string(key), std::string(raw),
+                          SourceSpan{offsetOf(keyBegin), endOf(raw)});
+        if (const auto error = validateScalar(type, value)) {
+            return error;
+        }
+        advance(frame);
         return simdjson::SUCCESS;
     }
 
-    /// \brief Reports whether an array should become one property.
+    /// \brief Reads the element an array frame is pointing at.
     ///
-    /// \param array The array to look at, left rewound afterwards.
-    /// \param answer Set to `true` when the array holds no object.
-    ///
-    /// \returns simdjson::SUCCESS, or the first error the walk ran into.
-    ///
-    /// \remarks An array becomes a property when every element is a scalar,
-    ///          or is itself an array that becomes one. An array holding an
-    ///          object stays a node, because an object has named fields a reader
-    ///          will want matched against their counterparts, and matching is
-    ///          what nodes are for.
-    ///
-    ///          The recursive half is what makes a four by four transform matrix
-    ///          one property with parts rather than sixteen anonymous nodes four
-    ///          levels deep.
-    ///
-    ///          This costs a second pass over the array. On Demand parsing is
-    ///          forward only, so the alternative was to build optimistically and
-    ///          unpick it on meeting an object, which is more code and more ways
-    ///          to be wrong.
-    simdjson::error_code arrayBecomesProperty(ondemand::array& array, bool& answer) {
-        answer = true;
-        for (auto elementResult : array) {
-            ondemand::value element;
-            if (const auto error = std::move(elementResult).get(element)) {
-                return error;
-            }
-            ondemand::json_type type{};
-            if (const auto error = element.type().get(type)) {
-                return error;
-            }
-
-            if (type == ondemand::json_type::object) {
-                answer = false;
-            } else if (type == ondemand::json_type::array) {
-                ondemand::array nested;
-                if (const auto error = element.get_array().get(nested)) {
-                    return error;
-                }
-                bool nestedAnswer = true;
-                if (const auto error = arrayBecomesProperty(nested, nestedAnswer)) {
-                    return error;
-                }
-                answer = answer && nestedAnswer;
-            }
-        }
-
-        // Walked to the end even once the answer is known, because leaving the
-        // iterator part way through is what would make the rewind unreliable.
-        bool rewound = false;
-        return array.reset().get(rewound);
-    }
-
-    /// \brief Collects an array into one property with parts.
-    ///
-    /// \param into The property to fill in.
-    /// \param array The array to read.
+    /// \param frame The array frame.
     ///
     /// \returns simdjson::SUCCESS, or the first error the walk ran into.
     ///
-    /// \remarks The parts have no names, because a position in a list is not
-    ///          a name. They are marked as a sequence, so reordering them is a
-    ///          change while reordering a record's fields is not.
-    simdjson::error_code collectArrayProperty(Property& into, ondemand::array& array) {
-        into.form = PropertyForm::Sequence;
-        for (auto elementResult : array) {
-            ondemand::value element;
-            if (const auto error = std::move(elementResult).get(element)) {
-                return error;
-            }
-            ondemand::json_type type{};
-            if (const auto error = element.type().get(type)) {
-                return error;
-            }
-
-            Property part;
-            if (type == ondemand::json_type::array) {
-                ondemand::array nested;
-                if (const auto error = element.get_array().get(nested)) {
-                    return error;
-                }
-                const char* begin = element.raw_json_token().data();
-                if (const auto error = collectArrayProperty(part, nested)) {
-                    return error;
-                }
-                part.span = SourceSpan{offsetOf(begin), cursor()};
-            } else {
-                const std::string_view raw = trimRight(element.raw_json_token());
-                part.value = std::string(raw);
-                part.span = SourceSpan{offsetOf(raw.data()), endOf(raw)};
-                if (const auto error = validateScalar(type, element)) {
-                    return error;
-                }
-            }
-            into.children.push_back(std::move(part));
+    /// \remarks Every element becomes a node, scalar or not. A scalar
+    ///          element's own value is all it has, so it becomes the one
+    ///          property rather than a nameless node.
+    simdjson::error_code readElement(Frame& frame) {
+        ondemand::value element;
+        if (const auto error = (*frame.arrayIt).get(element)) {
+            return error;
         }
+        const char* begin = element.raw_json_token().data();
+        ondemand::json_type type{};
+        if (const auto error = element.type().get(type)) {
+            return error;
+        }
+
+        if (type == ondemand::json_type::object || type == ondemand::json_type::array) {
+            return open(frame.id, std::string(kElementKind), begin, element, type);
+        }
+
+        const std::string_view raw = trimRight(element.raw_json_token());
+        const NodeId id = tree_.add(frame.id, std::string(kElementKind),
+                                    SourceSpan{offsetOf(raw.data()), endOf(raw)});
+        tree_.addProperty(id, std::string(kValueProperty), std::string(raw),
+                          SourceSpan{offsetOf(raw.data()), endOf(raw)});
+        if (const auto error = validateScalar(type, element)) {
+            return error;
+        }
+        advance(frame);
         return simdjson::SUCCESS;
     }
 
-    /// \brief Adds an array that stays a node, given the array itself.
+    /// \brief Adds a container as a node and pushes it as the open frame.
     ///
-    /// \param parent The node the array hangs from.
-    /// \param kind The member key the array appeared under.
-    /// \param spanBegin Where the member starts in the source.
-    /// \param array The array, already obtained by the caller.
+    /// \param parent The parent node's id, or kInvalidNode for the root.
+    /// \param kind The kind to give the new node.
+    /// \param spanBegin Where the node starts in the buffer, which is the key
+    ///        token for a member of an object and the value token otherwise.
+    /// \param value The container. Consumed by the frame over time.
+    /// \param type Whether it is an object or an array.
     ///
-    /// \returns simdjson::SUCCESS, or the first error the walk ran into.
-    ///
-    /// \remarks Separate from build() because deciding whether an array is a
-    ///          property means obtaining it first, and On Demand hands a value
-    ///          out once.
-    simdjson::error_code buildArrayNode(NodeId parent, std::string kind, const char* spanBegin,
-                                        ondemand::array& array) {
+    /// \returns simdjson::SUCCESS, or the error obtaining the container gave.
+    simdjson::error_code open(NodeId parent, std::string kind, const char* spanBegin,
+                              ondemand::value& value, ondemand::json_type type) {
         const std::uint32_t begin = offsetOf(spanBegin);
         const NodeId id = tree_.add(parent, std::move(kind), SourceSpan{begin, begin});
-        tree_.addProperty(id, std::string(kTypeProperty), std::string(kArrayType));
-        if (const auto error = buildArrayElements(id, array)) {
-            return error;
-        }
-        tree_.node(id).span.end = cursor();
-        return simdjson::SUCCESS;
-    }
 
-    /// \brief Adds an array's elements to a node.
-    ///
-    /// \param id The node standing for the array.
-    /// \param value The array.
-    ///
-    /// \returns simdjson::SUCCESS, or the first error the walk ran into.
-    ///
-    /// \remarks Every element becomes a node, scalar or not, because position
-    ///          in an array is meaningful and a value that only exists as a
-    ///          property cannot be reported as having moved.
-    simdjson::error_code buildArrayElements(NodeId id, ondemand::array& array) {
-        for (auto elementResult : array) {
-            ondemand::value element;
-            if (const auto error = std::move(elementResult).get(element)) {
+        Frame frame;
+        frame.id = id;
+        frame.isObject = type == ondemand::json_type::object;
+        if (frame.isObject) {
+            // Reordering the members of an object changes nothing about the
+            // document, so a reordering there is not a move and is not
+            // reported as one. Reordering an array changes the document.
+            tree_.node(id).childrenOrdered = false;
+            tree_.addProperty(id, std::string(kTypeProperty), std::string(kObjectType));
+            ondemand::object object;
+            if (const auto error = value.get_object().get(object)) {
                 return error;
             }
-            const char* begin = element.raw_json_token().data();
-            if (const auto error = build(id, std::string(kElementKind), begin, element)) {
+            if (const auto error = object.begin().get(frame.objectIt)) {
                 return error;
             }
-            if (cancelled_) {
-                return simdjson::SUCCESS;
+            if (const auto error = object.end().get(frame.objectEnd)) {
+                return error;
+            }
+        } else {
+            tree_.addProperty(id, std::string(kTypeProperty), std::string(kArrayType));
+            ondemand::array array;
+            if (const auto error = value.get_array().get(array)) {
+                return error;
+            }
+            if (const auto error = array.begin().get(frame.arrayIt)) {
+                return error;
+            }
+            if (const auto error = array.end().get(frame.arrayEnd)) {
+                return error;
             }
         }
+        stack_.push_back(frame);
         return simdjson::SUCCESS;
     }
 
@@ -573,10 +507,11 @@ private:
     std::uint32_t origin_ = 0;
     ondemand::document& document_;
     const std::stop_token& token_;
+    std::vector<Frame> stack_;
     bool cancelled_ = false;
 };
 
-/// \brief Treats every object, array and array element as a node.
+/// \brief Reads JSON as written, then folds lists of values into properties.
 class GenericJsonProvider final : public IFormatProvider {
 public:
     std::string_view name() const override { return "json"; }
@@ -610,7 +545,7 @@ public:
         return 0;
     }
 
-    Result<Tree, ParseError> parse(const SourceFile& source, std::stop_token token) const override {
+    Result<Tree, ParseError> read(const SourceFile& source, std::stop_token token) const override {
         if (source.empty()) {
             return fail(ParseError::Empty);
         }
@@ -649,12 +584,11 @@ public:
         Tree tree;
         tree.setFormatName(std::string(name()));
 
-        Builder builder(tree, std::string_view(buffer.data(), buffer.size()), origin, document,
-                        token);
-        if (builder.buildRoot() != simdjson::SUCCESS) {
+        Reader reader(tree, std::string_view(buffer.data(), buffer.size()), origin, document, token);
+        if (reader.readRoot() != simdjson::SUCCESS) {
             return fail(ParseError::NotWellFormed);
         }
-        if (builder.cancelled()) {
+        if (reader.cancelled()) {
             return fail(ParseError::Cancelled);
         }
         // On Demand parsing stops as soon as the root value is complete, so a
@@ -668,52 +602,56 @@ public:
         return tree;
     }
 
-    IdentityKey identity(const Tree& tree, NodeId id) const override {
-        // Generic JSON has no identifier it can trust. A member key is a hint
-        // and nothing more, and an array element has not even that: its
-        // position is the only thing naming it, and position is what the
-        // matcher is trying to work out.
-        const Node& node = tree.node(id);
-        if (node.kind == kElementKind) {
-            return IdentityKey{};
+    /// \brief Folds arrays of values into sequence properties.
+    ///
+    /// \param context The document as read, and the builder.
+    ///
+    /// \remarks The rule, stated precisely because it decides what every JSON
+    ///          file turns into: an array becomes a sequence property when
+    ///          every element is a scalar or an array that is itself a
+    ///          sequence property, and a node otherwise. A four by four
+    ///          transform matrix is then one property with parts rather than
+    ///          sixteen anonymous nodes four levels deep, while an array
+    ///          holding an object stays a node, because an object has named
+    ///          fields a reader will want matched against their counterparts.
+    ///
+    ///          The root array is no exception: it hangs from the root node as
+    ///          its `#value`, so a root list and a nested one diff alike.
+    ///
+    ///          One pass in arena order. An element under a node is a node or
+    ///          a sequence; an element under a sequence is an item. Whether an
+    ///          array qualifies is read from a table filled backwards first,
+    ///          so no element is looked at twice and nothing recurses.
+    void shape(ShapeContext& context) const override {
+        const Dom& dom = context.dom();
+        const Tree& raw = dom.tree();
+        TreeBuilder& out = context.out();
+        if (raw.empty()) {
+            return;
         }
-        return IdentityKey{false, node.kind};
+
+        const std::vector<bool> holdsObject = objectsBelow(raw);
+        std::vector<RefId> made(raw.size());
+        for (DomId id = 0; id < raw.size(); ++id) {
+            const DomNode element = dom.at(id);
+            const Node& node = raw.node(id);
+            const DomNode parent = element.parent();
+            const bool foldable = isArray(node) && !holdsObject[id];
+
+            Ref ref;
+            if (!parent.valid()) {
+                ref = placeRoot(out, element, node, foldable);
+            } else {
+                Ref above = out.at(made[parent.id()]);
+                ref = above.isNode() ? placeUnderNode(above, element, node, raw, foldable)
+                                     : placeItem(above, element, node);
+            }
+            made[id] = ref.id();
+        }
     }
 
-    NodeStyle style(const Tree& tree, NodeId id) const override {
-        const Node& node = tree.node(id);
-
-        NodeStyle style;
-        style.title = node.kind;
-
-        if (const Property* value = node.findProperty(kValueProperty)) {
-            style.subtitle = value->value;
-        } else {
-            for (const auto candidate : kLeadingProperties) {
-                if (const Property* p = node.findProperty(candidate)) {
-                    style.subtitle = p->value;
-                    break;
-                }
-            }
-            if (style.subtitle.empty()) {
-                style.subtitle = isArray(node) ? std::string(kArrayType) : std::string(kObjectType);
-            }
-        }
-
-        // Colour derived from the member key, so every node under "enemies"
-        // looks alike and one under "props" looks different. Array elements
-        // borrow their parent's key, because their own kind is the same
-        // throughout the document and would otherwise paint every array in a
-        // file the same colour.
-        std::string_view palette = node.kind;
-        if (node.kind == kElementKind && node.parent != kInvalidNode) {
-            palette = tree.node(node.parent).kind;
-        }
-        const std::uint64_t h = hashBytes(palette);
-        style.accent = Color{static_cast<std::uint8_t>(110 + (h & 0x3F)),
-                             static_cast<std::uint8_t>(110 + ((h >> 8) & 0x3F)),
-                             static_cast<std::uint8_t>(110 + ((h >> 16) & 0x3F)), 255};
-        return style;
+    std::span<const std::string_view> subtitleProperties() const override {
+        return kSubtitleProperties;
     }
 
     int propertyRank(const Tree& tree, NodeId id, std::string_view propertyName) const override {
@@ -725,6 +663,111 @@ public:
         return rankFromList(kLeadingProperties, propertyName);
     }
 
+private:
+    /// \brief Works out, for every node, whether an object sits at or below it.
+    ///
+    /// \param raw The tree as read.
+    ///
+    /// \returns One answer per node, indexed by id.
+    ///
+    /// \remarks Children always have a higher index than their parent, so one
+    ///          backward pass answers every node from its children's answers.
+    static std::vector<bool> objectsBelow(const Tree& raw) {
+        std::vector<bool> holds(raw.size(), false);
+        for (std::size_t i = raw.size(); i-- > 0;) {
+            const Node& node = raw.node(static_cast<NodeId>(i));
+            bool any = isObject(node);
+            for (const NodeId child : node.children) {
+                any = any || holds[child];
+            }
+            holds[i] = any;
+        }
+        return holds;
+    }
+
+    /// \brief Places the document's outermost value.
+    ///
+    /// \param out The builder.
+    /// \param element The root element.
+    /// \param node The same, as the tree holds it.
+    /// \param foldable Whether the root is an array that qualifies as a
+    ///        sequence.
+    ///
+    /// \returns The handle the root's children attach to: the root node, or
+    ///          its `#value` sequence when the root is a list of values.
+    static Ref placeRoot(TreeBuilder& out, const DomNode& element, const Node& node,
+                         bool foldable) {
+        Ref root = out.root(element.name(), element.span());
+        root.setSource(element.id());
+        copyProperties(root, element);
+        root.setChildrenOrdered(node.childrenOrdered);
+        if (!foldable) {
+            return root;
+        }
+        Ref sequence = root.sequence(kValueProperty);
+        sequence.setSpan(element.span());
+        return sequence;
+    }
+
+    /// \brief Places an element whose parent became a node.
+    ///
+    /// \param above The parent's handle.
+    /// \param element The element to place.
+    /// \param node The same, as the tree holds it.
+    /// \param raw The tree as read, for the parent's kind.
+    /// \param foldable Whether the element is an array that qualifies as a
+    ///        sequence.
+    ///
+    /// \returns The new node, or the new sequence property.
+    static Ref placeUnderNode(Ref& above, const DomNode& element, const Node& node,
+                              const Tree& raw, bool foldable) {
+        if (foldable) {
+            Ref sequence = above.sequence(element.name());
+            sequence.setSpan(element.span());
+            sequence.setSource(element.id());
+            return sequence;
+        }
+
+        Ref made = above.child(element);
+        copyProperties(made, element);
+        made.setChildrenOrdered(node.childrenOrdered);
+        // An element's own kind is the same throughout the document, so it
+        // borrows its parent's key for colour; otherwise every array in a file
+        // would be painted alike.
+        if (node.kind == kElementKind) {
+            made.setAccent(accentForKind(raw.node(node.parent).kind));
+        }
+        return made;
+    }
+
+    /// \brief Places an element whose parent became a sequence property.
+    ///
+    /// \param above The sequence.
+    /// \param element The element to place, which is an item of the array.
+    /// \param node The same, as the tree holds it.
+    ///
+    /// \returns The new item: a scalar with the element's value, or a nested
+    ///          sequence.
+    static Ref placeItem(Ref& above, const DomNode& element, const Node& node) {
+        Ref item;
+        if (isArray(node)) {
+            item = above.child();
+            item.setForm(PropertyForm::Sequence);
+        } else {
+            const Property* value = node.findProperty(kValueProperty);
+            item = above.item(value != nullptr ? std::string_view(value->value) : std::string_view{});
+        }
+        item.setSpan(element.span());
+        item.setSource(element.id());
+        return item;
+    }
+
+    /// \brief Copies an element's properties onto its node.
+    static void copyProperties(Ref& into, const DomNode& element) {
+        for (const DomProperty property : element.properties()) {
+            into.property(property);
+        }
+    }
 };
 
 }  // namespace

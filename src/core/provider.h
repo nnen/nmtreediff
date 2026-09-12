@@ -17,6 +17,8 @@
 
 namespace nmxd {
 
+class ShapeContext;
+
 /// \brief The version of the format provider interface this build publishes.
 ///
 /// \remarks This is the studio-facing surface. A provider written against
@@ -157,29 +159,65 @@ public:
     ///          defaultExtensions().
     [[nodiscard]] bool claimsExtension(const SourceFile& source) const;
 
+    /// \brief Reads a source file into the document as written.
+    ///
+    /// \param source The file to read.
+    /// \param token Checked periodically; reading gives up when a stop is
+    ///        requested.
+    ///
+    /// \returns The document as a tree, finalised and hashed, or a
+    ///          ParseError.
+    ///
+    /// \remarks Bytes to structure and nothing more: every element a node,
+    ///          every attribute a property, in the shape the file has. What
+    ///          the document means is shape()'s question. A format built on
+    ///          another one borrows that format's read() and answers only the
+    ///          second question.
+    ///
+    ///          Called on a worker thread and must not touch shared mutable
+    ///          state. Must not recurse on the document's depth.
+    [[nodiscard]] virtual Result<Tree, ParseError> read(const SourceFile& source,
+                                                        std::stop_token token) const = 0;
+
+    /// \brief Says what a document means, by building the tree it stands for.
+    ///
+    /// \param context The document, the builder, and the queue.
+    ///
+    /// \remarks This is where a provider collapses format detail: a
+    ///          behavior-tree format builds a tree holding only its node
+    ///          elements and folds the rest into properties, and nothing above
+    ///          learns that this happened. The provider owns the walk; the
+    ///          context offers a queue so that it need not recurse.
+    ///
+    ///          The default copies the document one to one, which is what a
+    ///          generic format means by it.
+    virtual void shape(ShapeContext& context) const;
+
     /// \brief Parses a source file into a tree.
     ///
     /// \param source The file to parse.
     /// \param token Checked periodically; parsing gives up when a stop is
     ///        requested.
     ///
-    /// \returns The parsed tree, finalised and hashed, or a ParseError.
+    /// \returns The shaped tree, finalised and hashed, or a ParseError.
     ///
-    /// \remarks Called on a worker thread and must not touch shared mutable
-    ///          state. This is where a provider collapses format detail: a
-    ///          behavior-tree format builds a tree holding only its node
-    ///          elements and folds the rest into properties, and nothing above
-    ///          learns that this happened.
+    /// \remarks read(), then shape() over the result, then the finished tree.
+    ///          A provider whose shape() is the identity may return read()
+    ///          directly rather than copy a tree to change nothing.
     [[nodiscard]] virtual Result<Tree, ParseError> parse(const SourceFile& source,
-                                                         std::stop_token token) const = 0;
+                                                         std::stop_token token) const;
 
     /// \brief Returns the identity key for one node.
     ///
     /// \param tree The tree the node belongs to.
     /// \param id The node to key.
     ///
-    /// \returns The key, which may be strong or only a hint.
-    [[nodiscard]] virtual IdentityKey identity(const Tree& tree, NodeId id) const = 0;
+    /// \returns The key the provider recorded while shaping, or none.
+    ///
+    /// \remarks Not virtual. A key is a fact about a node that shape()
+    ///          recorded through Ref::setIdentity(), and this reads it. One
+    ///          mechanism for one fact.
+    [[nodiscard]] IdentityKey identity(const Tree& tree, NodeId id) const;
 
     /// \brief Returns how one node should be presented.
     ///
@@ -188,9 +226,27 @@ public:
     ///
     /// \returns The title, subtitle, colour and icon for the node.
     ///
-    /// \remarks Must be deterministic: the two sides of a diff style their
-    ///          nodes independently and have to agree.
-    [[nodiscard]] virtual NodeStyle style(const Tree& tree, NodeId id) const = 0;
+    /// \remarks Not virtual. The title is what shape() recorded through
+    ///          Ref::setTitle(), or the kind. The subtitle is what it
+    ///          recorded, or the first property named by subtitleProperties()
+    ///          that the node has. The accent is what it recorded, or a colour
+    ///          derived from the kind, so two nodes of one kind always agree.
+    ///          Deterministic by construction, which the two sides of a diff
+    ///          rely on.
+    [[nodiscard]] NodeStyle style(const Tree& tree, NodeId id) const;
+
+    /// \brief Returns the properties that may stand as a node's subtitle.
+    ///
+    /// \returns Names in order of preference, backed by storage that outlives
+    ///          the call.
+    ///
+    /// \remarks The first of these a node has becomes its second line when
+    ///          shape() set none. Declared rather than computed per node, so
+    ///          a format that copies a document one to one pays nothing per
+    ///          node for its cards. The default names nothing.
+    [[nodiscard]] virtual std::span<const std::string_view> subtitleProperties() const {
+        return {};
+    }
 
     /// \brief Returns the display rank of one property.
     ///
@@ -254,6 +310,19 @@ public:
         return fail(SerializeError::NotSupported);
     }
 };
+
+/// \brief Derives a colour from a kind, packed as 0xRRGGBB.
+///
+/// \param kind The node's kind, or whatever the colour should follow.
+///
+/// \returns A mid-toned colour, the same for one kind in every run and on
+///          both sides of a diff, and never zero.
+///
+/// \remarks The colour style() derives when a handle recorded none. A
+///          provider that wants a node coloured after something other than
+///          its own kind records this through Ref::setAccent(), so the two
+///          paths cannot drift apart.
+[[nodiscard]] std::uint32_t accentForKind(std::string_view kind) noexcept;
 
 /// \brief Settles which direction a graph is drawn in.
 ///

@@ -156,6 +156,28 @@ public:
     ///          with a worklist rather than recursion.
     Ref property(const DomProperty& source);
 
+    /// \brief Adds a copy of a property value, parts and all.
+    ///
+    /// \param source The property to copy.
+    ///
+    /// \returns The new property.
+    ///
+    /// \remarks For a provider that assembled a property first and hands it
+    ///          over whole. Copied with a worklist rather than recursion.
+    Ref property(const Property& source);
+
+    /// \brief Sets a property's form outright.
+    ///
+    /// \param form The form to give it.
+    ///
+    /// \throws BuildError on a node, or when making a property with parts a
+    ///         scalar.
+    ///
+    /// \remarks child() promotes a scalar as parts arrive; this is for the
+    ///          case with no parts to promote through, an empty array being
+    ///          the usual one.
+    Ref& setForm(PropertyForm form);
+
     /// \brief Adds a property that will hold named parts.
     ///
     /// \param name The property's name.
@@ -307,6 +329,16 @@ public:
     /// \param element The element to ask about.
     [[nodiscard]] bool represents(DomId element) const noexcept;
 
+    /// \brief Marks a source element as represented.
+    ///
+    /// \param element The element to mark.
+    ///
+    /// \remarks Ref::setSource() does this for the element a handle came
+    ///          from. A provider that folds a whole subtree into one property
+    ///          marks the rest of that subtree here, since the property has
+    ///          one source and the subtree has many.
+    void represent(DomId element);
+
     /// \brief Records that a shaping job failed.
     ///
     /// \param owner The handle the job was building under, or none.
@@ -372,9 +404,6 @@ private:
     /// \brief Appends a property under a node or a property.
     RefId addProperty(RefId parent, std::string_view name, std::string_view value,
                       PropertyForm form);
-
-    /// \brief Marks a source element as represented.
-    void represent(DomId element);
 
     /// \brief Renumbers the nodes into document order and adds them to a tree.
     ///

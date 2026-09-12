@@ -115,6 +115,34 @@ Result<Tree, ParseError> shapeTree(const Dom& dom, std::string formatName,
     return out.finish();
 }
 
+void copyDocument(ShapeContext& context) {
+    const Dom& dom = context.dom();
+    TreeBuilder& out = context.out();
+    if (dom.size() == 0) {
+        return;
+    }
+
+    // Arena order is pre-order, so by the time an element comes up its
+    // parent's handle is already in the table.
+    std::vector<RefId> made(dom.size());
+    for (DomId id = 0; id < dom.size(); ++id) {
+        const DomNode element = dom.at(id);
+        const DomNode parent = element.parent();
+        Ref ref;
+        if (parent.valid()) {
+            ref = out.at(made[parent.id()]).child(element);
+        } else {
+            ref = out.root(element.name(), element.span());
+            ref.setSource(element.id());
+        }
+        for (const DomProperty property : element.properties()) {
+            ref.property(property);
+        }
+        ref.setChildrenOrdered(dom.tree().node(id).childrenOrdered);
+        made[id] = ref.id();
+    }
+}
+
 std::vector<SourceSpan> unrepresentedSpans(const Dom& dom, const TreeBuilder& out) {
     // A byte belongs to the innermost element whose span holds it, so the
     // question per byte is whether that element was represented. Sweep the

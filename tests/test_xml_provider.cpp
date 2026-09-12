@@ -170,14 +170,16 @@ TEST_CASE("malformed and empty documents are refused with a reason", "[xml]") {
 
 TEST_CASE("identity is a hint, never an anchor, for generic XML", "[xml]") {
     // An `id` attribute in arbitrary XML might be a stable key or might be a
-    // colour swatch name. A format that knows its own schema says strong.
+    // colour swatch name, so generic XML records no identity at all and the
+    // matcher works from structure. A format that knows its own schema says
+    // strong.
     const auto provider = nmxd::makeGenericXmlProvider();
     const Tree tree = parseOrFail(kBehaviorTree, *provider);
 
     const Node& outer = tree.node(tree.node(tree.root()).children[0]);
     const auto key = provider->identity(tree, outer.id);
     CHECK_FALSE(key.strong);
-    CHECK(key.value == "node#a1b2");
+    CHECK(key.value.empty());
 }
 
 TEST_CASE("style is stable and identifies the node", "[xml]") {
@@ -233,4 +235,28 @@ TEST_CASE("a file with no clue still resolves to the fallback", "[registry]") {
     const auto* provider = registry.resolve(plain);
     REQUIRE(provider != nullptr);
     CHECK(provider->name() == "xml");
+}
+
+TEST_CASE("a document nested thousands of levels deep is read without recursing",
+          "[xml][deep]") {
+    // Generated data reaches this and hand-authored data does not, which is
+    // why no sample caught the crash. The reader keeps an explicit stack of
+    // open elements rather than a call frame per level.
+    constexpr int kDepth = 20000;
+    std::string text;
+    for (int level = 0; level < kDepth; ++level) {
+        text += "<e>";
+    }
+    text += "leaf";
+    for (int level = 0; level < kDepth; ++level) {
+        text += "</e>";
+    }
+
+    const auto provider = nmxd::makeGenericXmlProvider();
+    const Tree tree = parseOrFail(text, *provider);
+    CHECK(tree.size() == static_cast<std::size_t>(kDepth));
+    const Node& deepest = tree.node(tree.size() - 1);
+    CHECK(deepest.depth == static_cast<std::uint32_t>(kDepth - 1));
+    CHECK(deepest.findProperty(nmxd::kTextProperty)->value == "leaf");
+    CHECK(tree.node(tree.root()).span.end == text.size());
 }

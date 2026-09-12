@@ -5,40 +5,40 @@
 
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
-#include <pugixml.hpp>
-
-#include "core/hash.h"
-#include "formats/xml_spans.h"
+#include "core/builder.h"
+#include "core/dom.h"
+#include "core/shape.h"
+#include "formats/xml_generic.h"
 
 namespace nmxd {
 
 namespace {
 
 /// \brief The element name that becomes a node.
-constexpr const char* kNodeElement = "node";
+constexpr std::string_view kNodeElement = "node";
 
 /// \brief The element name that becomes a property of its parent node.
-constexpr const char* kPropertyElement = "property";
+constexpr std::string_view kPropertyElement = "property";
 
 /// \brief The attribute naming a folded property.
-constexpr const char* kNameAttribute = "name";
+constexpr std::string_view kNameAttribute = "name";
 
 /// \brief The attribute holding a folded property's value.
-constexpr const char* kValueAttribute = "value";
+constexpr std::string_view kValueAttribute = "value";
 
 /// \brief The attribute holding a node's stable identifier.
-constexpr const char* kIdAttribute = "id";
+constexpr std::string_view kIdAttribute = "id";
 
 /// \brief The attribute holding the kind of behaviour a node performs.
-constexpr const char* kTypeAttribute = "type";
+constexpr std::string_view kTypeAttribute = "type";
 
 /// \brief The kind given to a node element with no type attribute.
-constexpr const char* kUntypedKind = "node";
+constexpr std::string_view kUntypedKind = "node";
 
 /// \brief Attribute names worth seeing first on a node card.
 ///
@@ -49,6 +49,9 @@ constexpr const char* kUntypedKind = "node";
 ///          editor shows.
 constexpr std::array<std::string_view, 3> kLeadingProperties{"id", "type", "name"};
 
+/// \brief The attribute a card's second line comes from.
+constexpr std::array<std::string_view, 1> kSubtitleProperties{"name"};
+
 /// \brief Extensions this format claims outright.
 constexpr std::array<std::string_view, 2> kExtensions{".bt", ".btree"};
 
@@ -58,41 +61,138 @@ constexpr std::array<std::string_view, 2> kExtensions{".bt", ".btree"};
 ///          every candidate file and has to stay cheap.
 constexpr std::string_view kRootTag = "<behaviortree";
 
-/// \brief Reports whether text begins with a prefix.
-///
-/// \param text The text to test.
-/// \param prefix The prefix to look for.
-///
-/// \returns `true` when \p text starts with \p prefix.
-bool startsWith(std::string_view text, std::string_view prefix) {
-    return text.size() >= prefix.size() && text.compare(0, prefix.size(), prefix) == 0;
-}
-
-/// \brief Reports whether an element has a given name.
-///
-/// \param element The element to test.
-/// \param name The name to compare against.
-///
-/// \returns `true` when the names match exactly. XML is case-sensitive and so
-///          is this.
-bool isNamed(const pugi::xml_node& element, const char* name) {
-    return std::string_view(element.name()) == name;
-}
-
 /// \brief Reports whether an element is a `<property>` this provider folds.
 ///
 /// \param element The element to test.
 ///
-/// \returns `true` for a `<property>` element carrying a name attribute.
+/// \returns `true` for a `<property>` element carrying a non-empty name
+///          attribute.
 ///
 /// \remarks A `<property>` with no name has nothing to be called, so it is
 ///          walked through as an ordinary container rather than folded into
 ///          something anonymous.
-bool isFoldableProperty(const pugi::xml_node& element) {
-    return isNamed(element, kPropertyElement) && !element.attribute(kNameAttribute).empty();
+bool isFoldableProperty(const DomNode& element) {
+    if (element.name() != kPropertyElement) {
+        return false;
+    }
+    const auto name = element.attribute(kNameAttribute);
+    return name.has_value() && !name->empty();
+}
+
+/// \brief Reports whether a property of the source element is an attribute.
+///
+/// \param property The property to test.
+///
+/// \returns `false` for the text content the XML reader records under
+///          `#text`, and `true` for everything else.
+bool isAttribute(const DomProperty& property) {
+    return property.name() != kTextProperty;
+}
+
+/// \brief Copies an element's attributes onto a handle.
+///
+/// \param into The node or property to copy onto.
+/// \param element The element whose attributes to copy.
+void copyAttributes(Ref& into, const DomNode& element) {
+    for (const DomProperty property : element.properties()) {
+        if (isAttribute(property)) {
+            into.property(property);
+        }
+    }
+}
+
+/// \brief Starts a property standing for an element.
+///
+/// \param element The element to represent.
+/// \param name What to call the property.
+///
+/// \returns The property with a part per attribute and no other parts yet.
+Property startProperty(const DomNode& element, std::string name) {
+    Property property;
+    property.name = std::move(name);
+    property.span = element.span();
+    for (const DomProperty attribute : element.properties()) {
+        if (!isAttribute(attribute)) {
+            continue;
+        }
+        Property part;
+        part.name = std::string(attribute.name());
+        part.value = std::string(attribute.value());
+        part.span = attribute.span();
+        property.children.push_back(std::move(part));
+    }
+    return property;
+}
+
+/// \brief Settles a property's form once its parts are all in.
+///
+/// \param property The property to settle.
+/// \param element The element it stands for.
+///
+/// \remarks An element with one attribute and nothing else reads as a value
+///          rather than as a record with one field, which keeps the common
+///          case a single line. An element with nothing inside but text is
+///          that text. Anything else is a record, never a sequence: these
+///          parts are named, so their order carries nothing.
+void settleProperty(Property& property, const DomNode& element) {
+    if (property.children.empty()) {
+        property.value = std::string(element.text());
+        return;
+    }
+    if (property.children.size() == 1 && !property.children.front().hasParts()) {
+        property.value = std::move(property.children.front().value);
+        property.children.clear();
+        return;
+    }
+    property.form = PropertyForm::Record;
+}
+
+/// \brief Turns an element and everything inside it into one property.
+///
+/// \param element The element to represent.
+/// \param name What to call the resulting property.
+///
+/// \returns The property. Its parts are the element's attributes and its
+///          child elements, each turned into a property the same way.
+///
+/// \remarks Post-order with an explicit stack: a frame holds an element and
+///          the property it is becoming, takes its children one at a time,
+///          and is settled and handed to the frame below once the last child
+///          is in. A property nested to any depth costs memory rather than
+///          the process.
+Property foldSubtree(const DomNode& element, std::string name) {
+    struct Frame {
+        DomNode element;
+        std::size_t next = 0;
+        Property property;
+    };
+
+    std::vector<Frame> stack;
+    stack.push_back(Frame{element, 0, startProperty(element, std::move(name))});
+    while (true) {
+        Frame& frame = stack.back();
+        if (frame.next < frame.element.childCount()) {
+            const DomNode child = frame.element.childAt(frame.next++);
+            stack.push_back(Frame{child, 0, startProperty(child, std::string(child.name()))});
+            continue;
+        }
+
+        settleProperty(frame.property, frame.element);
+        Property done = std::move(frame.property);
+        stack.pop_back();
+        if (stack.empty()) {
+            return done;
+        }
+        stack.back().property.children.push_back(std::move(done));
+    }
 }
 
 /// \brief Treats only `<node>` elements as nodes and folds their properties in.
+///
+/// \remarks A shape over the generic XML reading. The XML provider does the
+///          bytes; this says what the elements mean, in one pass over the
+///          document in arena order, which is pre-order, so a node's handle
+///          always exists before anything under it is placed.
 class BehaviorTreeProvider final : public IFormatProvider {
 public:
     std::string_view name() const override { return "bt"; }
@@ -116,80 +216,65 @@ public:
         return 0;
     }
 
-    Result<Tree, ParseError> parse(const SourceFile& source, std::stop_token token) const override {
-        if (source.empty()) {
-            return fail(ParseError::Empty);
-        }
-
-        const std::string_view text = source.text();
-        if (startsWith(text, "\xFF\xFE") || startsWith(text, "\xFE\xFF")) {
-            return fail(ParseError::UnsupportedEncoding);
-        }
-
-        pugi::xml_document document;
-        const pugi::xml_parse_result result = document.load_buffer(
-            text.data(), text.size(), pugi::parse_default, pugi::encoding_utf8);
-        if (!result) {
-            return fail(ParseError::NotWellFormed);
-        }
-
-        const pugi::xml_node root = document.first_child();
-        if (root.type() != pugi::node_element) {
-            return fail(ParseError::NotWellFormed);
-        }
-
-        Tree tree;
-        tree.setFormatName(std::string(name()));
-
-        // The document element becomes the root node whatever it is called, so
-        // that a tree always has somewhere to hang and the version attribute
-        // stays visible.
-        const NodeId rootId = addElement(tree, kInvalidNode, root, text, std::string(root.name()));
-        collect(tree, rootId, root, text, token);
-        if (token.stop_requested()) {
-            return fail(ParseError::Cancelled);
-        }
-        closeSpan(tree, rootId, root, text);
-
-        tree.finalize();
-        computeHashes(tree, token);
-        return tree;
+    Result<Tree, ParseError> read(const SourceFile& source, std::stop_token token) const override {
+        // The bytes are XML, and generic XML already reads them as written.
+        return xml_->read(source, std::move(token));
     }
 
-    IdentityKey identity(const Tree& tree, NodeId id) const override {
-        // The whole reason this format exists as its own provider. An `id` here
-        // is a GUID the editor generated, not a name someone typed, so two
-        // nodes carrying the same one are the same node however far apart they
-        // have moved. That is a promise generic XML cannot make about an
-        // attribute called `id`, which is why it returns a weak key instead.
-        const Node& node = tree.node(id);
-        if (const Property* identifier = node.findProperty(kIdAttribute)) {
-            if (!identifier->value.empty()) {
-                return IdentityKey{true, identifier->value};
+    void shape(ShapeContext& context) const override {
+        const Dom& dom = context.dom();
+        TreeBuilder& out = context.out();
+        if (dom.size() == 0) {
+            return;
+        }
+
+        // Where each element's children attach: the node the element became,
+        // or, for an element that became a property, the node above it.
+        std::vector<RefId> owners(dom.size());
+
+        // A folded property represents its whole subtree at once, so the
+        // walk skips past everything inside it. Arena order is pre-order, so
+        // that subtree is the contiguous run after the element.
+        DomId skipThrough = 0;
+
+        for (DomId id = 0; id < dom.size(); ++id) {
+            if (id != 0 && id <= skipThrough) {
+                continue;
+            }
+            const DomNode element = dom.at(id);
+            const DomNode parent = element.parent();
+
+            if (!parent.valid()) {
+                // The document element becomes the root node whatever it is
+                // called, so that a tree always has somewhere to hang and the
+                // version attribute stays visible.
+                Ref root = out.root(element.name(), element.span());
+                root.setSource(id);
+                copyAttributes(root, element);
+                owners[id] = root.id();
+                continue;
+            }
+
+            Ref owner = out.at(owners[parent.id()]);
+            if (element.name() == kNodeElement) {
+                owners[id] = addNode(owner, element).id();
+            } else if (isFoldableProperty(element)) {
+                skipThrough = id + dom.tree().node(id).descendantCount;
+                foldProperty(out, owner, element, skipThrough);
+            } else {
+                // Not a node and not a property pair, but nothing is dropped:
+                // the element becomes a property of the node above it, and the
+                // walk carries on inside so any nodes it holds still surface
+                // where they belong. Keeping only one of those two would lose
+                // either the wrapper or its contents.
+                foldUnknown(owner, element);
+                owners[id] = owner.id();
             }
         }
-        return IdentityKey{};
     }
 
-    NodeStyle style(const Tree& tree, NodeId id) const override {
-        const Node& node = tree.node(id);
-
-        NodeStyle style;
-        // The kind is already the type attribute, so a card reads "Sequence"
-        // rather than "node".
-        style.title = node.kind;
-        if (const Property* label = node.findProperty(kNameAttribute)) {
-            style.subtitle = label->value;
-        }
-
-        // Colour by behaviour type, so every Selector in a document looks alike
-        // and a MoveTo looks different, consistently between runs and between
-        // the two sides of a diff.
-        const std::uint64_t h = hashBytes(node.kind);
-        style.accent = Color{static_cast<std::uint8_t>(110 + (h & 0x3F)),
-                             static_cast<std::uint8_t>(110 + ((h >> 8) & 0x3F)),
-                             static_cast<std::uint8_t>(110 + ((h >> 16) & 0x3F)), 255};
-        return style;
+    std::span<const std::string_view> subtitleProperties() const override {
+        return kSubtitleProperties;
     }
 
     int propertyRank(const Tree& tree, NodeId id, std::string_view propertyName) const override {
@@ -207,277 +292,99 @@ public:
     }
 
 private:
-    /// \brief Adds one element as a node, with its attributes as properties.
+    /// \brief Adds one `<node>` element as a node.
     ///
-    /// \param tree The tree being built.
-    /// \param parent The parent node's id, or kInvalidNode for the root.
+    /// \param owner The node above it.
     /// \param element The element to convert.
-    /// \param text The whole document, used to recover spans.
-    /// \param kind The kind to give the node.
     ///
-    /// \returns The new node's id, whose span still has to be closed once its
-    ///          children are placed.
-    static NodeId addElement(Tree& tree, NodeId parent, const pugi::xml_node& element,
-                             std::string_view text, std::string kind) {
-        // offset_debug points at the element name, one byte past the '<'.
-        const auto nameOffset = static_cast<std::uint32_t>(element.offset_debug());
-        const std::uint32_t begin = nameOffset > 0 ? nameOffset - 1 : 0;
-        const std::uint32_t startTagEnd = endOfTag(text, begin);
+    /// \returns The new node.
+    ///
+    /// \remarks The type attribute becomes the kind, which is what makes the
+    ///          matcher refuse to pair a Sequence with a MoveTo and what makes
+    ///          a card readable. The `id` is a GUID the editor generated, not a
+    ///          name someone typed, so two nodes carrying the same one are the
+    ///          same node however far apart they have moved: a promise generic
+    ///          XML cannot make about an attribute called `id`.
+    static Ref addNode(Ref& owner, const DomNode& element) {
+        const auto type = element.attribute(kTypeAttribute);
+        Ref node = owner.child(type.has_value() && !type->empty() ? *type : kUntypedKind);
+        node.setSpan(element.span());
+        node.setSource(element.id());
+        copyAttributes(node, element);
 
-        const NodeId id = tree.add(parent, std::move(kind), SourceSpan{begin, startTagEnd});
-
-        const auto spans = scanAttributeSpans(text, begin, startTagEnd);
-        std::size_t spanIndex = 0;
-        for (const pugi::xml_attribute& attribute : element.attributes()) {
-            const SourceSpan span = spanIndex < spans.size() ? spans[spanIndex] : SourceSpan{};
-            ++spanIndex;
-            tree.addProperty(id, attribute.name(), attribute.value(), span);
+        const auto identifier = element.attribute(kIdAttribute);
+        if (identifier.has_value() && !identifier->empty()) {
+            node.setIdentity(*identifier, Identity::Strong);
         }
-        return id;
+        return node;
     }
 
-    /// \brief Walks an element's children, folding properties and nesting nodes.
+    /// \brief Folds one `<property>` element into its owning node.
     ///
-    /// \param tree The tree being built.
-    /// \param owner The node that folded properties belong to.
-    /// \param element The element whose children to walk.
-    /// \param text The whole document, used to recover spans.
-    /// \param token Checked before each element.
+    /// \param out The builder, for marking the subtree represented.
+    /// \param owner The node to attach the property to.
+    /// \param element The `<property>` element.
+    /// \param lastInside The id of the last element inside it, or its own.
     ///
-    /// \remarks An element that is neither a node nor a foldable property is
-    ///          kept as a property of the node above and walked through, so a
-    ///          wrapper such as `<children>` neither breaks the tree nor
-    ///          disappears from it. Nothing this format fails to recognise is
-    ///          dropped, because a diff tool that silently loses content is the
-    ///          one thing a reviewer cannot forgive.
-    static void collect(Tree& tree, NodeId owner, const pugi::xml_node& element,
-                        std::string_view text, const std::stop_token& token) {
-        if (token.stop_requested()) {
+    /// \remarks A property whose content is elements is a property with
+    ///          parts. Reading it as text would find nothing there and
+    ///          quietly lose everything inside, which is the one failure this
+    ///          format must not have. The name and value attributes are the
+    ///          element's own bookkeeping rather than part of what it
+    ///          describes, so they are not repeated among the parts.
+    ///
+    ///          A property that carries a value attribute is that value, and
+    ///          any elements inside it are not read. They are then reported
+    ///          as unrepresented rather than silently gone.
+    static void foldProperty(TreeBuilder& out, Ref& owner, const DomNode& element,
+                             DomId lastInside) {
+        const std::string name(*element.attribute(kNameAttribute));
+        const auto value = element.attribute(kValueAttribute);
+
+        if (!value.has_value() && element.childCount() > 0) {
+            Property nested = foldSubtree(element, name);
+            std::erase_if(nested.children, [](const Property& part) {
+                return part.name == kNameAttribute || part.name == kValueAttribute;
+            });
+            owner.property(nested);
+            for (DomId inside = element.id(); inside <= lastInside; ++inside) {
+                out.represent(inside);
+            }
             return;
         }
 
-        for (const pugi::xml_node& child : element.children()) {
-            if (child.type() != pugi::node_element) {
-                continue;
-            }
-
-            if (isNamed(child, kNodeElement)) {
-                // The type attribute becomes the kind, which is what makes the
-                // matcher refuse to pair a Sequence with a MoveTo and what
-                // makes a card readable.
-                const pugi::xml_attribute type = child.attribute(kTypeAttribute);
-                std::string kind = type.empty() ? std::string(kUntypedKind) : type.value();
-
-                const NodeId id = addElement(tree, owner, child, text, std::move(kind));
-                collect(tree, id, child, text, token);
-                if (token.stop_requested()) {
-                    return;
-                }
-                closeSpan(tree, id, child, text);
-            } else if (isFoldableProperty(child)) {
-                foldProperty(tree, owner, child, text);
-            } else {
-                // Not a node and not a property pair, but nothing is dropped:
-                // the element becomes a property of the node above it, and the
-                // walk carries on inside so any nodes it holds still surface
-                // where they belong. Keeping only one of those two would lose
-                // either the wrapper or its contents.
-                foldUnknown(tree, owner, child, text);
-                collect(tree, owner, child, text, token);
-            }
-        }
-    }
-
-    /// \brief Reports whether an element has an element inside it.
-    ///
-    /// \param element The element to look at.
-    ///
-    /// \returns `true` when at least one child is an element.
-    static bool holdsElements(const pugi::xml_node& element) {
-        for (const pugi::xml_node& child : element.children()) {
-            if (child.type() == pugi::node_element) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /// \brief Returns the span covering a whole element.
-    ///
-    /// \param element The element to measure.
-    /// \param text The whole document.
-    ///
-    /// \returns The span from the opening angle bracket to the end of the
-    ///          closing tag, or of the tag itself when it closes itself.
-    static SourceSpan spanOfElement(const pugi::xml_node& element, std::string_view text) {
-        const auto nameOffset = static_cast<std::uint32_t>(element.offset_debug());
-        const std::uint32_t begin = nameOffset > 0 ? nameOffset - 1 : 0;
-        const std::uint32_t startTagEnd = endOfTag(text, begin);
-        const std::uint32_t end =
-            isSelfClosing(text, startTagEnd) ? startTagEnd : endOfClosingTag(text, startTagEnd);
-        return SourceSpan{begin, end};
-    }
-
-    /// \brief Turns an element into a property, parts and all.
-    ///
-    /// \param element The element to represent.
-    /// \param name What to call the resulting property.
-    /// \param text The whole document, used to recover spans.
-    ///
-    /// \returns The property. Its parts are the element's attributes and its
-    ///          child elements, each turned into a property the same way.
-    ///
-    /// \remarks Recursive, because an element's content can be elements and
-    ///          nothing may be dropped. Used where nothing else will visit
-    ///          those children: a `<property>` element's content is read here
-    ///          and nowhere else, while an element the format does not
-    ///          recognise is walked into separately and so is folded shallowly.
-    ///
-    ///          An element with one attribute and nothing else reads as a value
-    ///          rather than as a record with one field, which keeps the common
-    ///          case a single line.
-    ///
-    ///          A record, never a sequence: these parts are named, so their
-    ///          order carries nothing and reordering them is not a change.
-    static Property asProperty(const pugi::xml_node& element, std::string name,
-                               std::string_view text) {
-        Property property;
-        property.name = std::move(name);
-        property.span = spanOfElement(element, text);
-
-        for (const pugi::xml_attribute& attribute : element.attributes()) {
-            Property part;
-            part.name = attribute.name();
-            part.value = attribute.value();
-            property.children.push_back(std::move(part));
-        }
-        for (const pugi::xml_node& child : element.children()) {
-            if (child.type() == pugi::node_element) {
-                property.children.push_back(asProperty(child, child.name(), text));
-            }
-        }
-
-        if (property.children.empty()) {
-            // Nothing inside but text, if anything.
-            const char* content = element.child_value();
-            property.value = content == nullptr ? "" : content;
-        } else if (property.children.size() == 1 && property.children.front().children.empty()) {
-            property.value = property.children.front().value;
-            property.children.clear();
-        } else {
-            property.form = PropertyForm::Record;
-        }
-        return property;
+        Ref made = owner.property(name, value.has_value() ? *value : element.text());
+        made.setSpan(element.span());
+        made.setSource(element.id());
     }
 
     /// \brief Keeps an element this format does not recognise.
     ///
-    /// \param tree The tree being built.
     /// \param owner The node to attach the property to.
     /// \param element The element that is neither a node nor a property.
-    /// \param text The whole document, used to recover spans.
     ///
     /// \remarks Named after the element and holding a part per attribute, so
     ///          a wrapper carrying something of its own keeps it. An element
     ///          with nothing but a name still leaves a property behind, because
     ///          its presence is a fact about the file and its removal is a
     ///          change worth reporting.
-    static void foldUnknown(Tree& tree, NodeId owner, const pugi::xml_node& element,
-                            std::string_view text) {
-        // Attributes only, deliberately. The walk carries on into this
-        // element's children straight after this, so recording them here as
-        // well would represent everything inside it twice.
-        Property folded;
-        folded.name = element.name();
-        folded.span = spanOfElement(element, text);
-        for (const pugi::xml_attribute& attribute : element.attributes()) {
-            Property part;
-            part.name = attribute.name();
-            part.value = attribute.value();
-            folded.children.push_back(std::move(part));
-        }
+    ///
+    ///          Attributes only, deliberately. The walk carries on into this
+    ///          element's children straight after this, so recording them here
+    ///          as well would represent everything inside it twice.
+    static void foldUnknown(Ref& owner, const DomNode& element) {
+        Property folded = startProperty(element, std::string(element.name()));
         if (folded.children.size() == 1) {
-            folded.value = folded.children.front().value;
+            folded.value = std::move(folded.children.front().value);
             folded.children.clear();
         } else if (!folded.children.empty()) {
             folded.form = PropertyForm::Record;
         }
-        tree.addProperty(owner, std::move(folded));
+        Ref made = owner.property(folded);
+        made.setSource(element.id());
     }
 
-    /// \brief Folds one `<property>` element into its owning node.
-    ///
-    /// \param tree The tree being built.
-    /// \param owner The node to attach the property to.
-    /// \param element The `<property>` element.
-    /// \param text The whole document, used to recover spans.
-    ///
-    /// \remarks The span covers the whole element rather than an attribute,
-    ///          because that is what a reader would expect to see highlighted
-    ///          for a property that is written as an element. A property whose
-    ///          name collides with one of the node's own attributes is kept
-    ///          rather than dropped, so nothing in the file goes unreported.
-    static void foldProperty(Tree& tree, NodeId owner, const pugi::xml_node& element,
-                             std::string_view text) {
-        const auto nameOffset = static_cast<std::uint32_t>(element.offset_debug());
-        const std::uint32_t begin = nameOffset > 0 ? nameOffset - 1 : 0;
-        const std::uint32_t startTagEnd = endOfTag(text, begin);
-        const std::uint32_t end =
-            isSelfClosing(text, startTagEnd) ? startTagEnd : endOfClosingTag(text, startTagEnd);
-
-        std::string name = element.attribute(kNameAttribute).value();
-
-        // A property whose content is elements is a property with parts. Reading
-        // it as text would find nothing there and quietly lose everything
-        // inside, which is the one failure this format must not have.
-        const pugi::xml_attribute value = element.attribute(kValueAttribute);
-        if (value.empty() && holdsElements(element)) {
-            Property nested = asProperty(element, std::move(name), text);
-            // The name and value attributes are the element's own bookkeeping
-            // rather than part of what it describes.
-            nested.children.erase(
-                std::remove_if(nested.children.begin(), nested.children.end(),
-                               [](const Property& part) {
-                                   return part.name == kNameAttribute ||
-                                          part.name == kValueAttribute;
-                               }),
-                nested.children.end());
-            tree.addProperty(owner, std::move(nested));
-            return;
-        }
-
-        const char* content = value.empty() ? element.child_value() : value.value();
-        tree.addProperty(owner, std::move(name), content == nullptr ? "" : content,
-                         SourceSpan{begin, end});
-    }
-
-    /// \brief Extends a node's span to cover everything inside it.
-    ///
-    /// \param tree The tree being built.
-    /// \param id The node to close.
-    /// \param element The element the node came from.
-    /// \param text The whole document.
-    ///
-    /// \remarks Called only after every child is placed, because adding one
-    ///          invalidates any reference taken before it.
-    static void closeSpan(Tree& tree, NodeId id, const pugi::xml_node& element,
-                          std::string_view text) {
-        const auto nameOffset = static_cast<std::uint32_t>(element.offset_debug());
-        const std::uint32_t begin = nameOffset > 0 ? nameOffset - 1 : 0;
-        const std::uint32_t startTagEnd = endOfTag(text, begin);
-
-        Node& node = tree.node(id);
-        if (isSelfClosing(text, startTagEnd)) {
-            node.span.end = startTagEnd;
-            return;
-        }
-
-        // Searching from the last child rather than from the start tag, so a
-        // closing tag belonging to a descendant is not mistaken for this one.
-        const std::uint32_t searchFrom =
-            node.children.empty() ? startTagEnd : tree.node(node.children.back()).span.end;
-        node.span.end = endOfClosingTag(text, searchFrom);
-    }
+    std::unique_ptr<IFormatProvider> xml_ = makeGenericXmlProvider();
 };
 
 }  // namespace

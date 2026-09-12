@@ -91,7 +91,7 @@ public:
         return 0;
     }
 
-    Result<Tree, ParseError> parse(const SourceFile& source, std::stop_token token) const override {
+    Result<Tree, ParseError> read(const SourceFile& source, std::stop_token token) const override {
         if (source.empty()) {
             return fail(ParseError::Empty);
         }
@@ -111,16 +111,14 @@ public:
             return fail(ParseError::NotWellFormed);
         }
 
-        Tree tree;
-        tree.setFormatName(std::string(name()));
-
         const pugi::xml_node root = document.first_child();
         if (root.type() != pugi::node_element) {
             return fail(ParseError::NotWellFormed);
         }
 
-        build(tree, kInvalidNode, root, text, token);
-        if (token.stop_requested()) {
+        Tree tree;
+        tree.setFormatName(std::string(name()));
+        if (!walk(tree, root, text, token)) {
             return fail(ParseError::Cancelled);
         }
 
@@ -129,43 +127,15 @@ public:
         return tree;
     }
 
-    IdentityKey identity(const Tree& tree, NodeId id) const override {
-        // Generic XML has no identifier it can trust. An `id` attribute might
-        // be a stable key or might be a colour swatch name, so it stays a hint
-        // and the matcher falls back to structure. A format that knows its own
-        // schema returns a strong key instead.
-        const Node& node = tree.node(id);
-        std::string key = node.kind;
-        if (const Property* p = node.findProperty("id")) {
-            key += "#";
-            key += p->value;
-        }
-        return IdentityKey{false, std::move(key)};
+    Result<Tree, ParseError> parse(const SourceFile& source, std::stop_token token) const override {
+        // Generic XML means exactly what it reads, so the shape is the
+        // identity and copying a tree to change nothing would be the wrong
+        // default for the most common file the tool opens.
+        return read(source, token);
     }
 
-    NodeStyle style(const Tree& tree, NodeId id) const override {
-        const Node& node = tree.node(id);
-
-        NodeStyle style;
-        style.title = node.kind;
-
-        // The first identifying attribute present, so cards are distinguishable
-        // without opening them.
-        for (const auto candidate : kLeadingProperties) {
-            if (const Property* p = node.findProperty(candidate)) {
-                style.subtitle = p->value;
-                break;
-            }
-        }
-
-        // Colour derived from the element name, so every <node> in a document
-        // looks alike and a <property> looks different, consistently between
-        // runs and between the two sides of a diff.
-        const std::uint64_t h = hashBytes(node.kind);
-        style.accent = Color{static_cast<std::uint8_t>(110 + (h & 0x3F)),
-                             static_cast<std::uint8_t>(110 + ((h >> 8) & 0x3F)),
-                             static_cast<std::uint8_t>(110 + ((h >> 16) & 0x3F)), 255};
-        return style;
+    std::span<const std::string_view> subtitleProperties() const override {
+        return kLeadingProperties;
     }
 
     int propertyRank(const Tree& tree, NodeId id, std::string_view propertyName) const override {
@@ -178,19 +148,75 @@ public:
     }
 
 private:
-    /// \brief Builds one node and everything below it.
+    /// \brief One element whose children are still being placed.
+    struct Frame {
+        /// \brief The element.
+        pugi::xml_node element;
+        /// \brief The node it became.
+        NodeId id = kInvalidNode;
+        /// \brief Offset just past its start tag.
+        std::uint32_t startTagEnd = 0;
+        /// \brief The next child to look at.
+        pugi::xml_node next;
+        /// \brief Whether any child so far was an element.
+        bool hasElementChild = false;
+    };
+
+    /// \brief Builds every node from the document element down.
+    ///
+    /// \param tree The tree being built.
+    /// \param root The document element.
+    /// \param text The whole document, used to recover spans.
+    /// \param token Checked per element.
+    ///
+    /// \returns `false` when the token stopped the walk.
+    ///
+    /// \remarks Pre-order with an explicit stack of frames rather than a call
+    ///          per element, so a document nested thousands of levels deep
+    ///          costs memory rather than the process. A frame opens its node
+    ///          on the way in, and closes its span on the way out once every
+    ///          child is placed.
+    static bool walk(Tree& tree, const pugi::xml_node& root, std::string_view text,
+                     const std::stop_token& token) {
+        std::vector<Frame> stack;
+        stack.push_back(open(tree, kInvalidNode, root, text));
+
+        while (!stack.empty()) {
+            Frame& frame = stack.back();
+
+            // Skip past whatever is not an element: text, comments and the
+            // like are not nodes.
+            while (frame.next && frame.next.type() != pugi::node_element) {
+                frame.next = frame.next.next_sibling();
+            }
+            if (frame.next) {
+                if (token.stop_requested()) {
+                    return false;
+                }
+                const pugi::xml_node child = frame.next;
+                frame.next = child.next_sibling();
+                frame.hasElementChild = true;
+                const NodeId parent = frame.id;
+                stack.push_back(open(tree, parent, child, text));
+                continue;
+            }
+
+            close(tree, frame, text);
+            stack.pop_back();
+        }
+        return true;
+    }
+
+    /// \brief Adds one element as a node, with its attributes as properties.
     ///
     /// \param tree The tree being built.
     /// \param parent The parent node's id, or kInvalidNode for the root.
     /// \param element The element to convert.
     /// \param text The whole document, used to recover spans.
-    /// \param token Checked before each element.
-    static void build(Tree& tree, NodeId parent, const pugi::xml_node& element,
-                      std::string_view text, const std::stop_token& token) {
-        if (token.stop_requested()) {
-            return;
-        }
-
+    ///
+    /// \returns The frame to keep until the element's children are placed.
+    static Frame open(Tree& tree, NodeId parent, const pugi::xml_node& element,
+                      std::string_view text) {
         // offset_debug points at the element name, one byte past the '<'.
         const auto nameOffset = static_cast<std::uint32_t>(element.offset_debug());
         const std::uint32_t begin = nameOffset > 0 ? nameOffset - 1 : 0;
@@ -209,39 +235,47 @@ private:
             tree.addProperty(id, attribute.name(), attribute.value(), span);
         }
 
-        bool hasElementChild = false;
-        for (const pugi::xml_node& child : element.children()) {
-            if (child.type() == pugi::node_element) {
-                hasElementChild = true;
-                build(tree, id, child, text, token);
-            }
-        }
+        Frame frame;
+        frame.element = element;
+        frame.id = id;
+        frame.startTagEnd = startTagEnd;
+        frame.next = element.first_child();
+        return frame;
+    }
 
-        // Text content only becomes a property on a leaf. On a node that also
-        // has element children, mixed content is not what any of the target
-        // formats mean, and folding it in would invent a difference.
-        if (!hasElementChild) {
-            const char* value = element.child_value();
+    /// \brief Finishes a node once every child is placed.
+    ///
+    /// \param tree The tree being built.
+    /// \param frame The element and the node it became.
+    /// \param text The whole document.
+    ///
+    /// \remarks Text content only becomes a property on a leaf. On a node
+    ///          that also has element children, mixed content is not what any
+    ///          of the target formats mean, and folding it in would invent a
+    ///          difference. The span then closes either at the self-closing
+    ///          tag or just past the closing tag.
+    static void close(Tree& tree, const Frame& frame, std::string_view text) {
+        if (!frame.hasElementChild) {
+            const char* value = frame.element.child_value();
             if (value != nullptr && *value != '\0') {
-                const pugi::xml_node textNode = element.first_child();
+                const pugi::xml_node textNode = frame.element.first_child();
                 const auto textOffset = static_cast<std::uint32_t>(textNode.offset_debug());
                 SourceSpan span{textOffset, textOffset};
                 span.end = textOffset + static_cast<std::uint32_t>(std::string_view(value).size());
-                tree.addProperty(id, std::string(kTextProperty), value, span);
+                tree.addProperty(frame.id, std::string(kTextProperty), value, span);
             }
         }
 
-        // Now that every child is placed, the element ends either at its own
-        // self-closing tag or just past its closing tag.
-        Node& node = tree.node(id);
-        const bool selfClosing = isSelfClosing(text, startTagEnd);
-        if (selfClosing) {
-            node.span.end = startTagEnd;
-        } else {
-            const std::uint32_t searchFrom =
-                node.children.empty() ? startTagEnd : tree.node(node.children.back()).span.end;
-            node.span.end = endOfClosingTag(text, searchFrom);
+        Node& node = tree.node(frame.id);
+        if (isSelfClosing(text, frame.startTagEnd)) {
+            node.span.end = frame.startTagEnd;
+            return;
         }
+        // Searching from the last child rather than from the start tag, so a
+        // closing tag belonging to a descendant is not mistaken for this one.
+        const std::uint32_t searchFrom =
+            node.children.empty() ? frame.startTagEnd : tree.node(node.children.back()).span.end;
+        node.span.end = endOfClosingTag(text, searchFrom);
     }
 };
 
