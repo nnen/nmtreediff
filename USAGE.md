@@ -240,7 +240,8 @@ Teaching it your own format
 ---------------------------
 
 A format of your own needs no compiler. A script sits on top of XML or JSON:
-that format does the parsing, and your script decides what the result means.
+that format reads the file, and your script decides what the result means by
+building the tree it stands for.
 
 ```lua
 provider "bt" {
@@ -248,18 +249,30 @@ provider "bt" {
   base = "xml",
   extensions = { ".bt", ".btree" },
 
-  -- Only <node> elements are nodes.
-  is_node = function(element) return element.name == "node" end,
-  -- <property name= value=/> describes the node it sits in.
-  fold_into_parent = function(element) return element.name == "property" end,
-
-  -- What it does, not what the element is called.
-  kind = function(element) return element.attr.type end,
-  -- The editor's GUID, which makes this the same node however far it moved.
-  identity = function(element) return element.attr.id, "strong" end,
+  shape = function(doc, out)
+    local function visit(element, parent)
+      if element.name == "node" then
+        -- What it does, not what the element is called, and the editor's
+        -- GUID, which makes this the same node however far it moved.
+        local node = parent:child(element):set_name(element.attr.type or "node")
+        node:set_identity(element.attr.id, "strong")
+        for attribute in element:properties() do node:property(attribute) end
+        for child in element:children() do out:next(visit, child, node) end
+      else
+        -- <property name= value=/> describes the node it sits in.
+        parent:property(element):set_name(element.attr.name or element.name)
+              :set_value(element.attr.value or element.text)
+      end
+    end
+    local root = out:root(doc.root)
+    for child in doc.root:children() do out:next(visit, child, root) end
+  end,
 }
 ```
 
+`doc` is the file as XML read it and `out` is the tree going out. The script
+walks the document itself; `out:next` queues a call instead of making it, so a
+deeply nested file costs memory rather than the stack.
 `testdata/sample/behaviortree.lua` is a complete worked example. Every entry a
 script may write is listed under [Lua API reference](#lua-api-reference), and
 [docs/PROVIDERS.md](docs/PROVIDERS.md) covers writing a format in C++.
@@ -346,11 +359,7 @@ The body may hold these entries. Every one is optional.
 | `extensions` | list of strings | none |
 | `graph_direction` | string | inherit |
 | `property_order` | list of strings | none |
-| `is_node` | function | every element is a node |
-| `fold_into_parent` | function | no element folds |
-| `kind` | function | the element's own name |
-| `identity` | function | no identity |
-| `title` | function | the node's kind |
+| `shape` | function | the document is copied one to one |
 
 **`display_name`** is the name shown to a person, in the format list and in the
 window.
@@ -376,70 +385,156 @@ only. It decides what the node card, the details panel and the change list show
 first, and it never affects matching, which compares properties as an unordered
 set whatever this says.
 
-### The shaping functions
+### The shape function
 
-The five function entries are the script's opinion about what the parsed file
-means. Each takes one element table and is called once per element while the
-document is read, never once per frame.
+`shape(doc, out)` is the script's opinion about what the parsed file means.
+It is called once per document while the document is read, never once per
+frame, with the document as the base format read it and the builder the tree
+goes out through. A declaration with no `shape` reads exactly like the format
+it sits on.
 
-The element table has exactly two fields:
+**The script owns the walk.** Nothing here walks the document for you, and
+nothing stops a function calling itself for each child if you write it that
+way. What the builder offers instead is a queue: `out:next(fn, ...)` runs `fn`
+with those arguments once the current call returns and before anything queued
+earlier, and `out:later(fn, ...)` runs it after everything queued earlier.
+Everything one call queues with `next` runs in the order it was queued, so
+queueing one call per child visits the children first to last. A document
+nested thousands of levels deep then costs memory rather than the interpreter's
+stack, which is why `next` is the idiom every example uses.
 
-- `element.name` is the element's name as the base format produced it. For XML
-  that is the tag name. For JSON it is the member key the value appeared under,
-  `$` for the document's outermost value and `item` for every element of an
-  array. Generic JSON also records a node's `#type` property, which says
-  whether it is an object or an array.
-- `element.attr` maps a property name to its value, both strings. A property
-  that has parts rather than a single value appears with an empty value, and
-  the parts are not reachable from the script.
+**Build order is free.** Sibling order is the order of `child` and `property`
+calls on one parent handle, and nothing else, so a queued walk, a breadth-first
+one and a plain recursion all build the same tree.
 
-The table describes the element as the base format parsed it, before any
-shaping. Children are not reachable from it, so a decision about an element is
-made from that element alone.
+**An error in one call is not the end of the document.** Whatever the call
+built stays, whatever it never queued is missing, and the failure is recorded
+against the first element and the first handle among the call's arguments,
+which is why the idiom is `out:next(visit, element, parent)`. The text view
+marks the element, the node view marks the card, and a headless report lists
+the message and exits 2. An error inside `shape` itself before any node exists
+fails the parse, since a tree of zero nodes is not a partial result.
 
-**`is_node(element)`** returns true when the element is a node of its own.
-Absent, it answers true, so every element is a node until a script says
-otherwise. The document's outermost element is a node whatever this says: a
-script decides what is inside a document, not whether there is one.
+**Content may be left out, and the tool says so.** An element no handle was
+made from is dropped, its bytes are marked in the text view and counted in the
+report, and the run is not failed for it. Making a handle from an element,
+through `out:root(element)`, `ref:child(element)` or `ref:property(element)`,
+is what counts the element as represented.
 
-**`fold_into_parent(element)`** returns true when the element describes the node
-above it rather than standing on its own. It is asked only about elements
-`is_node` rejected. A folded element becomes one property of the nearest node
-above, with a part for each of its attributes and each element inside it, and
-the walk stops there. Absent, it answers false.
+#### The document
 
-An element that is neither a node nor folded keeps both halves: its own name and
-attributes become a property of the node above, and the walk carries on into
-its children, which attach to that same node. This is why nothing in a file can
-go missing, whatever a script does or fails to say.
+| Entry | What it is |
+| --- | --- |
+| `doc.root` | The outermost element |
+| `doc.size` | How many elements the document has |
+| `doc.base_format` | The name of the format that read it |
+| `doc:at(id)` | The element with that id |
 
-A folded element's property is named after its `name` attribute where it has a
-non-empty one, and after the element itself otherwise. Its `name` and `value`
-attributes are the element's own bookkeeping and are not repeated among the
-parts.
+An element is what the base format read: the tag name for XML; for JSON the
+member key, `$` for the outermost value and `item` for every element of an
+array, with every array a node and every element of it an `item`. Generic
+JSON's own folding of scalar arrays into properties is not applied for a
+script, which folds what it wants.
 
-**`kind(element)`** returns what sort of node this is, which is the word shown
-on the card and the word the colour is derived from. Two nodes of one kind
-always get one colour, so a script never chooses a colour. A return that is not
-a string leaves the element's own name in place.
+| Entry | What it is |
+| --- | --- |
+| `element.name` | The element's name as the base format read it |
+| `element.text` | Its text content, or empty |
+| `element.id` | Its id, for `doc:at` |
+| `element.depth` | Distance from the root, which is zero |
+| `element.attr[name]` | The value of the first property with that name, or nil |
+| `element.parent` | The enclosing element, or nil for the root |
+| `element.first_child`, `element.last_child` | The first and last child, or nil |
+| `element.next_sibling`, `element.prev_sibling` | The neighbours, or nil |
+| `element.child_count` | How many children it has |
+| `element:child_at(i)` | The i-th child, one-based |
+| `element:children()` | An iterator over the children, in document order |
+| `element.property_count` | How many properties it has, repeats included |
+| `element:property_at(i)` | The i-th property, one-based |
+| `element:property(name)` | The first property with that name, or nil |
+| `element:properties()` | An iterator over every property, repeats included |
+| `element:properties(name)` | An iterator over every property with that name |
 
-**`identity(element)`** returns what makes this the same node across two
-versions, and optionally a second string saying how far that reaches. Return
-`"strong"` as the second value to say the identity may travel: two nodes
-carrying it are the same node however far apart they have moved, and a node
-survives even a change of kind. A strong key that appears more than once on
-either side identifies nothing and anchors nothing, rather than being guessed
-at. Any other second value, or none, gives a weak key, which is only a hint the
-matcher is free to ignore, and today it does: only a strong key changes
-matching. An empty or non-string first return means no identity, and the node
-is matched on shape alone.
+`element.attr` is a shortcut and it is honest only for a scalar and for a
+record or sequence that carries a value; a property that is only parts answers
+with an empty string. Names may repeat, and the shortcut answers the first.
+XML records a leaf's text under the property `#text`, so a loop over
+`properties()` sees it among the attributes.
 
-**`title(element)`** returns the card's title, and optionally a subtitle as a
-second string. A non-string first return leaves the title as the node's kind.
+| Entry | What it is |
+| --- | --- |
+| `property.name` | The property's name |
+| `property.value` | Its value, in any form |
+| `property.form` | `"scalar"`, `"record"` or `"sequence"` |
+| `property.part_count` | How many parts it has |
+| `property:part_at(i)` | The i-th part, one-based |
+| `property:part(name)` | The first part with that name, or nil |
+| `property:parts()` | An iterator over the parts |
 
-An error raised inside any of these is caught and read as no answer: the default
-applies, and the comparison carries on. A script that is wrong about one element
-does not fail the run.
+#### The builder
+
+| Entry | What it does |
+| --- | --- |
+| `out:root(kind)` or `out:root(element)` | Creates the root node, once |
+| `out:at(id)` | Rehydrates a handle from `ref.id` |
+| `out.node_count` | How many nodes exist so far |
+| `out.pending` | How many queued calls are waiting |
+| `out.cancelled` | Whether the comparison was cancelled |
+| `out:next(fn, ...)` | Queues a call to run before what is already queued |
+| `out:later(fn, ...)` | Queues a call to run after what is already queued |
+
+#### The handle
+
+Every node and every property the builder hands out is one kind of handle, and
+`child` does the right thing wherever the handle stands:
+
+| Standing on | `ref:child(name)` | `ref:child()` |
+| --- | --- | --- |
+| A node | a child node of that kind | an error: a node needs a kind |
+| A scalar property | promotes it to a record and adds a named part | promotes it to a sequence and adds an item |
+| A record | a named part | an error |
+| A sequence | a named item | an unnamed item |
+
+Promotion keeps the scalar's value. The `property` family always makes a
+property, wherever it is called: a property of a node, or a part of a
+property. Every setter returns the handle, so calls chain.
+
+| Entry | What it does |
+| --- | --- |
+| `ref:child(name)`, `ref:child()` | See the table above |
+| `ref:child(element)` | The same, named after the element, with its span and source |
+| `ref:property(name, value)` | A scalar property; call twice for two of one name |
+| `ref:property(property)` | A copy of a document property, parts and all |
+| `ref:property(element)` | An empty scalar named after an element, with its span and source |
+| `ref:record(name)` | A property that will hold named parts |
+| `ref:sequence(name)` | A property that will hold positional parts |
+| `ref:item(value)` | An unnamed item; a sequence only |
+| `ref.kind` | `"node"` or `"property"` |
+| `ref.form` | The property's form, or `"scalar"` for a node |
+| `ref.is_node` | Whether it is a node |
+| `ref.id` | An id `out:at` accepts, for carrying across a queued call |
+| `ref.parent` | The enclosing node or property, or nil for the root |
+| `ref.owner` | The nearest enclosing node, itself when it is one |
+| `ref:set_name(s)` | The kind of a node, or the name of a property |
+| `ref:set_value(s)` | A property's value; an error on a node |
+| `ref:set_form(word)` | `"scalar"`, `"record"` or `"sequence"` outright, for a property with no parts to promote through |
+| `ref:set_children_ordered(b)` | Whether sibling order under a node means anything; an error on a property |
+| `ref:set_identity(value, "strong")` | What makes a node the same node across versions; nil for none |
+| `ref:set_title(title, subtitle)` | The card's two lines; the kind when unset |
+| `ref:set_accent(rgb)` | The card's colour as a number, `0xRRGGBB`; derived from the kind when unset |
+
+**`set_identity`** returns `"strong"` as the second value to say the identity
+may travel: two nodes carrying it are the same node however far apart they have
+moved, and a node survives even a change of kind. A strong key that appears
+more than once on either side identifies nothing and anchors nothing, rather
+than being guessed at. Any other second value, or none, gives a weak key,
+which is only a hint the matcher is free to ignore, and today it does. A nil
+value sets no identity, so `set_identity(element.attr.id, "strong")` reads
+naturally on an element without one.
+
+There is no span type in a script. A span arrives only with the element or
+property a handle was made from, and a node made from a name alone has none,
+which is the right answer for a span that cannot be computed honestly.
 
 ```lua
 provider "bt-lua" {
@@ -449,11 +544,24 @@ provider "bt-lua" {
   graph_direction = "left_to_right",
   property_order = { "id", "type", "name" },
 
-  is_node          = function(element) return element.name == "node" end,
-  fold_into_parent = function(element) return element.name == "property" end,
-  kind             = function(element) return element.attr.type end,
-  identity         = function(element) return element.attr.id, "strong" end,
-  title            = function(element) return element.attr.type, element.attr.name end,
+  shape = function(doc, out)
+    local function visit(element, owner)
+      if element.name == "node" then
+        local node = owner:child(element):set_name(element.attr.type or "node")
+        node:set_identity(element.attr.id, "strong")
+        for attribute in element:properties() do node:property(attribute) end
+        for child in element:children() do out:next(visit, child, node) end
+      elseif element.name == "property" then
+        owner:property(element):set_name(element.attr.name)
+             :set_value(element.attr.value or element.text)
+      else
+        owner:property(element)
+        for child in element:children() do out:next(visit, child, owner) end
+      end
+    end
+    local root = out:root(doc.root)
+    for child in doc.root:children() do out:next(visit, child, root) end
+  end,
 }
 ```
 
@@ -506,7 +614,15 @@ Add `--report json` for a machine-readable version of the same thing. Add
 | --- | --- |
 | 0 | The files are identical, or `--exit-code` was not given |
 | 1 | The files differ, and `--exit-code` was given |
-| 2 | Something went wrong: a file would not open, would not parse, or an option was rejected |
+| 2 | Something went wrong: a file would not open, would not parse, an option was rejected, or a scripted format raised an error while shaping |
+
+A format may leave content out of the tree, and a scripted format may fail on
+an element. The text report says so after the change list, one `warning:`
+line per side for dropped content and one `failed:` line per failure with the
+file, the line and the message, and the JSON report carries the same under
+`dropped` and `failures`. Dropping never changes the exit status; a failure
+always makes it 2, whatever `--exit-code` says, because a script that raised
+is a bug and a build job must not read the comparison as sound.
 
 The text report ends with a list of what happened to each node, one per line:
 
@@ -610,6 +726,17 @@ extension in a configuration file.
 **A file will not parse.** The message says why. The tool reports a file it
 cannot read rather than showing you half of it, because half a tree compared
 against a whole one is worse than an error.
+
+**Part of the file is marked grey in the text view.** The format left it out
+of the tree. That is the format's decision, made in its script or its code,
+and the mark is there so you can see what the node view is not showing. Turn
+the marks off under View if the format is one you trust.
+
+**Part of the file is marked violet, and a card has a violet corner.** A
+scripted format raised an error on that element. What the script built before
+the error is shown and what it never got to is missing, so a change reported
+under that card may be an artefact of the failure. The status bar counts these
+and a headless report prints the message.
 
 **The report says the match was reduced.** A very large pair trims the more
 expensive matching passes to stay responsive. Some moves will be reported as a

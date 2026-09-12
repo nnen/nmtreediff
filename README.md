@@ -117,7 +117,7 @@ Repository contents
 | [REQUIREMENTS.md](REQUIREMENTS.md) | What the tool has to do. The source of truth. |
 | [CODE_GUIDELINES.md](CODE_GUIDELINES.md) | How the code is written: documentation, comments, constants and function length. |
 | [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Architecture, data model, provider interface and matching algorithm, with the reasoning behind each choice. |
-| [docs/PROVIDERS.md](docs/PROVIDERS.md) | How to teach the tool a format of your own. Carries the provider interface version, which is 1. |
+| [docs/PROVIDERS.md](docs/PROVIDERS.md) | How to teach the tool a format of your own. Carries the provider interface version, which is 2. |
 | [Doxyfile](Doxyfile) | Configuration for the API reference. Undocumented code is an error, so the `docs` target fails rather than quietly producing a thinner reference. |
 | [testdata/sample/providers.lua](testdata/sample/providers.lua) | A sample configuration script. |
 | [testdata/sample/behaviortree.lua](testdata/sample/behaviortree.lua) | The behaviour-tree format written in script rather than compiled in. |
