@@ -44,6 +44,7 @@ Contents
     - [What goes missing, and saying so](#what-goes-missing-and-saying-so)
     - [The Lua surface](#the-lua-surface)
     - [Order of work](#order-of-work)
+    - [What landed, and where it differs from the above](#what-landed-and-where-it-differs-from-the-above)
 
 1. Three constraints that shape everything
 ------------------------------------------
@@ -1778,3 +1779,46 @@ moves are named where they happen.
    and the report counts with the exit rule.
 7. docs/PROVIDERS.md and the scripting section of USAGE.md rewritten,
    `kProviderInterfaceVersion` to 2.
+
+### What landed, and where it differs from the above
+
+The seven steps landed in seven commits on `feature/dom-format-provider`,
+each with the corpus passing. Four things came out differently from the
+design as written, and each is worth knowing before reading the code against
+this section.
+
+**`read()` returns a `Tree`, not a `Dom`.** A `Dom` is a view over a tree and
+owns nothing, so the thing `read()` hands back has to be the tree itself. The
+default `parse()` holds that tree for the length of the pass and builds the
+view over it. Nothing else about the split changed.
+
+**`next()` batches.** Prepending one job at a time reversed every sibling list,
+because a job that queues one call per child put the last child first. What
+one job queues with `next()` now goes to the front as a block, in queued
+order, once that job finishes. The claim that the two drains build identical
+trees holds because of this, not despite it.
+
+**No span in Lua at all.** `element.span` was listed and is not there; a span
+travels only with the element or property a handle is made from. Two
+overloads arrived to make that sufficient: `out:root(element)` and
+`ref:property(element)`, each setting the name, the span and the source. The
+compiled behaviour-tree provider and the script build the same tree span for
+span, which is the test that says the surface is complete.
+
+**Generic XML skips its shape.** Its shape is the identity, and copying a
+million-node tree to change nothing was the wrong default for the most common
+file the tool opens, so it returns `read()` from `parse()`. The default
+`parse()` is what every other provider uses. `style()` stayed non-virtual as
+decided, but with a declarative `subtitleProperties()` beside it so that a
+format which copies a document pays nothing per node for its cards.
+
+Two smaller ones. `Property` gained a destructor that flattens before
+destroying, because the compiler's destroyed a nested property one call frame
+per level and the deep test found it. And a Lua failure keeps the first line
+of its message rather than sol2's traceback, since the message lands in every
+report line and every mark.
+
+The corpus did not move. No golden case held a root array of scalars or an
+empty array, so the two moves this section predicted were never exercised;
+the unit tests cover both instead. Step 4 closed the parse half of F16; the
+matching and layout passes named there still recurse and stay under F16.
