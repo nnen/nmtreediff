@@ -35,6 +35,15 @@ Contents
 13. [Risks and open questions](#13-risks-and-open-questions)
 14. [Field review, and what it filed](#14-field-review-and-what-it-filed)
     - [Second pass: an engineering review](#second-pass-an-engineering-review)
+15. [The DOM provider interface](#15-the-dom-provider-interface)
+    - [Reading and shaping](#reading-and-shaping)
+    - [The output handle](#the-output-handle)
+    - [The work queue](#the-work-queue)
+    - [Properties: forms, values and repeated names](#properties-forms-values-and-repeated-names)
+    - [What generic JSON builds, and what YAML would](#what-generic-json-builds-and-what-yaml-would)
+    - [What goes missing, and saying so](#what-goes-missing-and-saying-so)
+    - [The Lua surface](#the-lua-surface)
+    - [Order of work](#order-of-work)
 
 1. Three constraints that shape everything
 ------------------------------------------
@@ -1275,3 +1284,497 @@ particular is the same finding as F3 seen from another side: the scripted
 surface was built to carry the sample behaviour tree and has not been widened
 since the data model grew properties with parts. Widening it once, deliberately,
 is cheaper than answering it one function at a time.
+
+15. The DOM provider interface
+------------------------------
+
+**Provider interface version 2.** This section supersedes four statements made
+earlier in this plan, and says so here rather than editing them, because the
+reasoning that led to each is worth keeping. Section 6 says no interface change
+is expected and `kProviderInterfaceVersion` stays at 1; it goes to 2. Section 6
+says nothing a provider does not recognise may be dropped; a provider may now
+drop content, and the tool shows where. Section 5 gives a property a bool
+`ordered`; it gets a three-way form and may carry a value in any form. And
+section 6's scripted surface, the five shaping functions, is replaced whole.
+
+Four findings from section 14 drive this, and they are one finding seen from
+four sides. F21: a script sees a flattened view of one element and cannot look
+one level down. F3: a script cannot say a node's children are unordered. F15:
+repeated property names collapse in the change list. F16: a document six
+thousand levels deep crashes the process, because the parsers, the shaper and
+several matching passes recurse on depth. The five shaping functions were a
+visitor: the tool walked the document and asked the script a question per
+element. Every one of the four is a limit of who holds the walk. So the walk
+moves to the provider, the provider is handed the document rather than an
+element, and the tool's own part becomes non-recursive by construction.
+
+### Reading and shaping
+
+`parse()` splits in two. `read()` turns bytes into the document as written, and
+`shape()` says what that document means. The default `parse()` is `read()`,
+then `shape()`, then `finish()`, and a provider rarely overrides it.
+
+```cpp
+class IFormatProvider {
+    // Bytes to DOM. Only a format that really reads bytes implements this.
+    virtual Result<Dom, ParseError> read(const SourceFile&, std::stop_token) const;
+
+    // DOM to tree. This is where a format says what its elements mean.
+    virtual void shape(ShapeContext&) const;
+
+    // read, shape, finish. The default is what every provider wants.
+    virtual Result<Tree, ParseError> parse(const SourceFile&, std::stop_token) const;
+
+    // No longer virtual. Each reads what shape() recorded on the node.
+    IdentityKey identity(const Tree&, NodeId) const;
+    NodeStyle style(const Tree&, NodeId) const;
+    bool childrenOrdered(const Tree&, NodeId) const;
+};
+```
+
+A scripted provider is then the same shape as a compiled one: it names a base
+format whose `read()` it borrows and supplies its own `shape()`. The "base
+provider" special case in `lua_provider.cpp` goes away, and so does the test
+that a compiled and a scripted behaviour-tree provider produce identical trees
+being a test of two parsers. It becomes a test of two shapers over one DOM,
+which is what it was always trying to be.
+
+**The DOM is a façade, not a copy.** `Dom` is a read-only view over the tree
+the base `read()` produced, and `DomNode` is an index into that arena with
+navigation mapped onto what `Node` already carries. Nothing is built alongside
+it. That matters because a million-element document is already a memory
+problem as a tree, and holding a second representation of it during shaping
+would double the problem for no gain. The consequence is that a script sees the
+base format's reading of the file, `#text`, `#value` and `#type` included, and
+the documentation names that rather than hiding it.
+
+```cpp
+class DomNode {
+    bool valid() const;
+    DomId id() const;
+    std::string_view name() const;
+    SourceSpan span() const;
+    std::string_view text() const;
+
+    DomNode parent() const;
+    DomNode firstChild() const;
+    DomNode lastChild() const;
+    DomNode nextSibling() const;
+    DomNode prevSibling() const;
+    std::size_t childCount() const;
+    DomNode childAt(std::size_t) const;
+    ChildRange children() const;
+
+    std::size_t propertyCount() const;
+    DomProperty propertyAt(std::size_t) const;        // document order, repeats included
+    DomProperty property(std::string_view) const;     // the first with that name
+    PropRange properties() const;
+    PropRange properties(std::string_view) const;     // every one with that name
+};
+
+class DomProperty {
+    std::string_view name() const;
+    std::string_view value() const;
+    PropertyForm form() const;
+    SourceSpan span() const;
+    std::size_t partCount() const;
+    DomProperty partAt(std::size_t) const;
+    PartRange parts() const;
+};
+
+class Dom {
+    DomNode root() const;
+    DomNode at(DomId) const;
+    std::size_t size() const;
+    std::string_view baseFormat() const;
+};
+```
+
+There is deliberately no traversal helper on the DOM. Navigation is by handle
+and the provider owns the walk. The tool's side of the bargain is that nothing
+it does with a document recurses: `read()` in each built-in, the renumbering in
+`finish()`, hashing, the matching passes F16 names and the layout. Every one is
+an explicit stack. USAGE.md now says so, in the section on when a script runs,
+and the corpus gets a case a few thousand levels deep so the sentence has a
+test behind it.
+
+**Every built-in moves onto this.** All three parsers recurse today, not only
+the behaviour tree: `xml_generic.cpp` per element, `json_generic.cpp` through
+`build`, `buildObject` and `buildArrayNode` and again in the scalar-array
+lookahead, and `bt_xml.cpp` in three places. pugixml's own parser is iterative
+and its nodes carry parent and sibling links, so the XML walk is a stack of
+`xml_node`. simdjson On Demand is a forward-only cursor, so the JSON walk is a
+stack of open containers, which is the shape that parser wants anyway. The
+behaviour-tree provider stops parsing bytes at all and becomes a `shape()` over
+the XML `read()`, which is also the worked example in docs/PROVIDERS.md.
+
+**Visitor-style providers stay possible.** `shape()` is the one virtual. A
+provider that would rather answer questions than hold a walk derives from an
+adapter that owns a stack-driven pre-order over the DOM and calls `enter()` and
+`leave()` with whatever context travels down the branch. It builds through the
+same handle and never touches the queue. The five functions this section
+retires were such a visitor, and if a studio wants the short form back it is one
+adapter and one binding on top of the same DOM.
+
+### The output handle
+
+One handle type, for nodes and properties alike. That is the whole point: a
+caller holding a handle does not track whether it stands on a node or inside a
+property, because `child()` does the right thing wherever it stands.
+
+```cpp
+enum class RefKind { Node, Property };
+enum class PropertyForm { Scalar, Record, Sequence };
+enum class Identity { Weak, Strong };
+
+class Ref {
+    bool valid() const;
+    RefKind kind() const;
+    bool isNode() const;
+    PropertyForm form() const;             // property only
+    RefId id() const;                      // savable across queued jobs
+
+    // The polymorphic one. See the table below.
+    Ref child(std::string_view name = {});
+    Ref child(const DomNode&);             // kind, span and source from the element
+
+    // Always a property: of a node, or a part of a property.
+    Ref property(std::string_view name, std::string_view value = {});
+    Ref property(const DomProperty&);      // name, value, form, parts, span, source
+    Ref record(std::string_view name);
+    Ref sequence(std::string_view name);
+    Ref item(std::string_view value = {}); // sequence only, appends
+
+    Ref parent() const;                    // the enclosing node or property
+    Ref owner() const;                     // nearest enclosing node, itself when one
+
+    Ref& setName(std::string_view);        // kind on a node, name on a property
+    Ref& setValue(std::string_view);
+    Ref& setSpan(SourceSpan);              // compiled providers only; Lua has no span type
+    Ref& setChildrenOrdered(bool);         // node only; answers F3
+    Ref& setIdentity(std::string_view value, Identity = Identity::Weak);
+    Ref& setTitle(std::string_view title, std::string_view subtitle = {});
+    Ref& setAccent(std::uint32_t rgb);
+};
+
+class TreeBuilder {
+    TreeBuilder(std::string formatName, std::stop_token);
+    Ref root(std::string_view kind, SourceSpan = {});
+    Ref at(RefId) const;
+    std::size_t nodeCount() const;
+    Result<Tree, ParseError> finish();     // renumber, flatten, finalize, hash
+};
+```
+
+What `child()` does depends on where the handle stands and on whether a name
+was given, and nothing else:
+
+| Standing on | `child("name")` | `child()` |
+| --- | --- | --- |
+| Node | a child node of that kind | error: a node needs a kind |
+| Scalar property | promotes to a record, adds a named part | promotes to a sequence, adds an item |
+| Record | a named part | error |
+| Sequence | a named item | an unnamed item |
+
+Promotion keeps the scalar's value, because any form may carry one; nothing is
+dropped by building on top of it. `identity()`, `style()` and
+`childrenOrdered()` on the provider become plain readers of what the handle
+recorded, with the kind as the fallback title and a hash of the kind as the
+fallback accent, which is what every built-in derives anyway. One mechanism for
+one fact rather than two.
+
+**Build order is free.** The builder keeps nodes and properties in its own
+arenas with parent links and per-parent child lists. Sibling order is the order
+of `child()` and `property()` calls on that one parent handle and nothing else,
+so two jobs building under different parents cannot affect each other. Handles
+stay valid because nothing lives in the nested `Property::children` vectors
+until `finish()`, which renumbers nodes into document order in one stack-based
+pass, folds the property arena into the tree by walking it backwards, then
+finalizes and hashes as now. The tree's arena invariants survive and a provider
+never learns they exist. This property is load-bearing for everything below
+and is tested on its own, with a deliberately shuffled build.
+
+### The work queue
+
+The provider controls the walk completely. There is no way to stop one from
+recursing if it insists, and a Lua function that calls itself gets whatever
+depth Lua's own stack affords. What the tool provides is a way to queue a call
+instead of making it, and a drain that runs the queue until it is empty,
+checking the stop token between jobs.
+
+```cpp
+using Job = std::function<void(ShapeContext&)>;
+
+class ShapeContext {
+    const Dom& dom() const;
+    TreeBuilder& out();
+
+    void later(Job);          // append: breadth-first drain
+    void next(Job);           // prepend: depth-first drain
+    std::size_t pending() const;
+    bool cancelled() const;   // true once the token is signalled; the drain stops
+};
+```
+
+The queue belongs to the context, not the builder. A visitor adapter never uses
+it and the builder never knows it exists.
+
+`next` is the documented idiom and the one the sample scripts use. Because the
+build order is free the two drains produce identical trees, and the difference
+is the peak size of the queue: depth-first holds about one root-to-leaf path of
+pending jobs, breadth-first holds a whole level. A pending job costs a closure
+and two handles, only while pending, where a DOM element costs its arena record
+plus an attribute record each plus the strings, for the whole pass. The
+pathological case of one parent with a million children makes the two drains
+equal, and there the DOM already lost, so the queue is not the thing to
+optimise.
+
+Cancellation lands between jobs, which replaces the every-thousand-elements
+check the shaper does today. A script that queues one job for a whole document
+still needs the instruction-count hook, which stays.
+
+### Properties: forms, values and repeated names
+
+This is the part that reaches beyond the provider interface, and it lands
+first because the corpus has to absorb it before anything else moves.
+
+**Three forms, not a flag.** The `ordered` bool says how parts compare and says
+nothing when there are none, so today `[]`, `{}` as a property and `""` are
+one `Property`. Worse, `hashProperty` ignores `ordered` on a property with no
+parts while `propertiesDiffer` checks it, so an array turning into a record
+hashes identically and then reports as modified.
+
+```cpp
+struct Property {
+    std::string name;
+    std::string value;                   // allowed in every form
+    PropertyForm form = PropertyForm::Scalar;
+    std::vector<Property> children;      // empty for Scalar
+    SourceSpan span;
+
+    bool hasParts() const noexcept;
+    const Property* find(std::string_view) const noexcept;   // the first
+    PartRange findAll(std::string_view) const noexcept;      // all, in order
+};
+```
+
+The form is folded into the hash before the parts, so the three empties stop
+colliding. A record with a value and no parts therefore hashes differently
+from a scalar with the same value, which is the same rule that separates `[]`
+from `""` and only bites when one provider writes one thing two ways, which is
+that provider's bug rather than a false change.
+
+**Any form may carry a value.** A record holding `speed="1.0"` and a `range`
+part is what `<property name="speed" value="1.0"><range min="0"/></property>`
+means, and today the shaper has to choose one half. Hashing and comparison
+already fold name, then value, then parts, so this costs them nothing. It costs
+the details panel: `drawProperty` in `app_window.cpp` treats parts as meaning
+no value, and `drawPropertyParts` writes a header of `name [3]` or `name {}`
+with nowhere for a value or a before-and-after arrow. The header renders the
+value the way the scalar path does, then the parts underneath.
+
+**Repeated names, at every level.** A node may hold two properties named `tag`
+and a record two parts named `tag`; a sequence property holding two items is
+structurally distinct from that, and so is a node holding two `item` children.
+Hashing and the matcher's fingerprints already treat a property list as a
+multiset of hashes and need nothing. `changedPropertyNames()` in `diff.cpp` is
+F15 exactly: it maps name to one property and keeps the first, so the fix
+groups both sides by name and compares each group as a multiset of property
+hashes, reporting the name once when the groups differ. `propertiesDiffer`
+has the same bug one level down in its record branch. So does `propertyDiffers`
+in `app_window.cpp`, which is a copy of the former; it becomes one function
+exported from core so the panel cannot disagree with the change list, which
+is the promise its own comment makes. `findProperty` stays as "the first one
+named this", since that is what every caller of it wants.
+
+The change list stays keyed by name, so it says `tag` changed rather than
+which of three did. Saying which means a changed property carrying an index,
+and that is a details-panel question left for later.
+
+### What generic JSON builds, and what YAML would
+
+Section 6's rule stands: an array becomes a sequence property when every
+element is a scalar or an array that is itself a sequence property, and a node
+otherwise. What changes is where it lives. `read()` for JSON produces the
+document as written, every array a node with `#type` of array and one `item`
+child per element, and generic JSON's own `shape()` applies the rule. A
+scripted provider with `base = "json"` replaces that `shape()`, sees the raw
+form, and folds per key or not at all, which is the control a studio needs
+when one array is a tag list and another a list of entities. The lookahead
+stops being a walk: a node's descendants are a contiguous run of the arena, so
+"contains no object" is a linear scan of that run.
+
+The root array stops being an exception. At the raw level it is a node like any
+other, and generic JSON's `shape()` gives the root one `#value` property holding
+the sequence, so a root array and a nested one diff identically. That moves the
+golden cases for a root array and is the one corpus change this rule brings.
+
+An empty array becomes reachable as a difference for the first time:
+`"tags": []` is an empty sequence, distinct from `"tags": ""`.
+
+**YAML would reuse all of it.** The raw DOM for YAML is the same shape as for
+JSON, so a script written against `base = "json"` shapes a YAML file
+unchanged and the scalar-sequence rule is one shared `shape()` rather than two.
+Four YAML features have no JSON counterpart and each is a `read()` decision:
+anchors and aliases stay as written, the alias a scalar `*name` and the anchor
+a `#anchor` property, because expanding them normalises and gives two nodes one
+span; a multi-document stream is a `$` root with one `document` child per
+section; tags are a `#tag` property; a complex key serialises to its source
+text. Duplicate mapping keys survive because the model now allows them. The
+parser has to be non-recursive and report byte offsets, which points at
+rapidyaml rather than yaml-cpp, but that is a dependency choice and not a model
+one.
+
+### What goes missing, and saying so
+
+Two things can now remove content from the tree that could not before, and
+both are shown rather than refused.
+
+**Dropped content.** A provider may leave an element out. The tool records
+which DOM elements no handle was ever made from, which is why `child()` and
+`property()` take a DOM element or property directly: the link is made where
+the handle is, so it cannot be forgotten, and the shorter call is the common
+case. There is no `drop()`: a computed complement answers the reader's
+question, what in this file the format does not show, whether the omission was
+deliberate or not, and intent only matters to the script author.
+
+Granularity is the element, not the attribute. A script that lifts `type` into
+the kind and `name` into the title has used both without making a property of
+either, and an attribute-level highlight would flag them. An attribute is
+dropped when its element is. An XML node span covers the whole element, so a
+dropped wrapper whose inner nodes were kept must have every represented
+descendant's span subtracted, which `finish()` does with a sort and a sweep and
+hands the text view a sorted, disjoint list.
+
+**Failed jobs.** An error inside a job does not fail the parse. The drain
+catches it at the job boundary; whatever the job built stays, whatever it never
+queued is simply unrepresented, and the failure is recorded against a span. The
+job's arguments supply that span: the first DOM element or property among them
+gives the location and the first handle gives the node the missing content
+would have hung from, so the idiom `out:next(visit, element, parent)` yields
+both for free. A failure inside a function a job called directly fails that job,
+so a script that recurses fails at the granularity it recursed from. The
+`cancelled` error is the exception and aborts the drain as now. If `shape` and
+the drain end with no root there is nothing to show, and the parse fails with
+the first recorded message.
+
+```cpp
+struct ShapeFailure {
+    SourceSpan span;         // empty when the job named no element
+    DomId element;           // kInvalidDom when none
+    RefId owner;             // the handle the job was building under, if any
+    std::string message;     // the Lua error, with line where Lua knows it
+};
+
+const std::vector<SourceSpan>& Tree::unrepresented() const;
+const std::vector<ShapeFailure>& Tree::failures() const;
+```
+
+Collection is always on; a bit per DOM element and one sweep at `finish()` is
+small next to the DOM. The choice is the reader's: the text view marks dropped
+and failed spans under two toggles and two colours, since "this format ignores
+comments" and "this script broke here" are different news. The node view puts a
+marker on a failure's owner card, because a change reported under that node may
+be an artefact of the failure. A headless report lists each failure with line
+and message and prints both counts, and fails the run on the failed count only.
+Dropping is a format's decision; failing is a bug. A script error at
+configuration time still stops the run with exit code 2, since that is a broken
+script rather than a broken element.
+
+### The Lua surface
+
+The five shaping functions become one `shape` function handed the document and
+the builder. The behaviour-tree provider, rewritten:
+
+```lua
+provider "bt" {
+  display_name = "Behavior tree",
+  base = "xml",
+  extensions = { ".bt" },
+  property_order = { "id", "type", "name" },
+
+  shape = function(doc, out)
+    local function visit(element, parent)
+      if element.name == "node" then
+        local node = parent:child(element)
+        node:set_name(element.attr.type or element.name)
+        node:set_identity(element.attr.id, "strong")
+        node:set_title(element.attr.type, element.attr.name)
+        for child in element:children() do
+          out:next(visit, child, node)
+        end
+      else
+        local prop = parent:property(element.attr.name or element.name,
+                                     element.attr.value)
+        for child in element:children() do
+          out:next(visit, child, prop)
+        end
+      end
+    end
+
+    visit(doc.root, out:root("behaviortree"))
+  end,
+}
+```
+
+Replacing `out:next` with `visit` is a valid script that recurses; replacing it
+with `out:later` walks breadth-first. All three build the same tree.
+
+```
+doc.root, doc.size, doc.base_format, doc:at(id)
+
+element.name, element.span, element.text, element.id
+element.attr[name]              -- value of the first with that name, or nil
+element:property(name)          -- handle to the first, or nil
+element:properties(name)        -- iterator over every one, in document order
+element:properties()            -- iterator over all, repeats included
+element.parent, element.first_child, element.last_child,
+element.next_sibling, element.prev_sibling, element.child_count
+element:child_at(i), element:children()
+
+prop.name, prop.value, prop.form, prop.span, prop.part_count
+prop:part_at(i), prop:parts()
+
+out:root(kind), out:at(id), out.node_count, out.pending, out.cancelled
+out:later(fn, ...), out:next(fn, ...)
+
+ref:child(name), ref:child(element)
+ref:property(name, value), ref:property(prop)
+ref:record(name), ref:sequence(name), ref:item(value)
+ref.kind, ref.form, ref.is_node, ref.parent, ref.owner, ref.id
+ref:set_name(s), ref:set_value(s), ref:set_children_ordered(b)
+ref:set_identity(value, "strong"), ref:set_title(title, subtitle), ref:set_accent(rgb)
+```
+
+`element.attr` is kept as a first-wins shortcut because every script in the
+corpus reads attributes that never repeat, and it is honest for records with a
+value; the accessors beside it are for everything else. There is no `set_span`
+and no span type in Lua: a span arrives only with the element or property a
+handle was made from, and a synthetic node has none, which docs/PROVIDERS.md
+already says is the right answer for a span that cannot be computed honestly.
+
+A queued job pins its arguments for the length of the drain. That is the cost
+the section on the queue already accounts for, and it is why `next` is the
+idiom.
+
+### Order of work
+
+Each step leaves a green build with the golden corpus passing, and the corpus
+moves are named where they happen.
+
+1. `PropertyForm`, values in every form, repeated names, the shared comparison,
+   and the form in the hash. Corpus moves where `[]` stops colliding with `""`.
+   Closes F15.
+2. `TreeBuilder` with any-order construction and `finish()`, tested alone with a
+   shuffled build and a deep synthetic tree.
+3. `Dom` as a façade over `Tree`, `ShapeContext`, and the drain.
+4. The three built-in parsers as non-recursive `read()` plus `shape()`, the
+   behaviour tree as a `shape()` over XML, and the JSON root array through
+   `#value`. Corpus moves for root arrays. Closes the parse half of F16; the
+   matching and layout half is its own work and stays under F16.
+5. The Lua surface, the sample script rewritten, and the test that it matches
+   the compiled behaviour tree over one DOM. Closes F3 and F21.
+6. Dropped and failed spans, the two text-view toggles, the node-view marker,
+   and the report counts with the exit rule.
+7. docs/PROVIDERS.md and the scripting section of USAGE.md rewritten,
+   `kProviderInterfaceVersion` to 2.

@@ -475,6 +475,12 @@ A long-running script is interrupted when the comparison is cancelled, roughly
 every ten thousand Lua instructions. That surfaces as an error named
 `cancelled`, which a script should not try to catch.
 
+Nothing in the tool walks a document by recursion. A file nested thousands of
+levels deep is read, shaped, hashed and drawn with an explicit stack or queue
+at every step, so its depth costs memory rather than the process. A script is
+held to the same rule: when it has work to do for each element under another,
+it queues that work rather than calling itself, and the tool drains the queue.
+
 ### Where mistakes are reported
 
 Every mistake in a script is reported at once, with the file and, where Lua
