@@ -79,9 +79,15 @@ sol::object makeIterator(sol::this_state lua, Step step) {
 /// \brief Raises a Lua error from a failed script call, keeping its message.
 ///
 /// \param result The failed call.
+///
+/// \remarks The first line only. Lua's message carries the chunk and line,
+///          which is what a failure needs; the traceback sol2 appends below it
+///          would put a stack dump into every report line and every card
+///          tooltip for one wrong element.
 [[noreturn]] void rethrow(const sol::protected_function_result& result) {
     const sol::error error = result;
-    throw std::runtime_error(error.what());
+    const std::string message = error.what();
+    throw std::runtime_error(message.substr(0, message.find('\n')));
 }
 
 /// \brief Queues a script function with its arguments.

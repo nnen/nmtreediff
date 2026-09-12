@@ -445,6 +445,13 @@ void AppWindow::drawMenuBar() {
 
         ImGui::Separator();
         drawDirectionMenu();
+
+        // What the format did not carry into the tree, and where a script
+        // failed, are marked in the text view. Two toggles rather than one,
+        // because the two are different news and a reader may want either.
+        ImGui::Separator();
+        ImGui::MenuItem("Mark dropped content", nullptr, &textView_.showDropped());
+        ImGui::MenuItem("Mark failed jobs", nullptr, &textView_.showFailed());
         ImGui::EndMenu();
     }
 
@@ -964,6 +971,25 @@ void AppWindow::drawStatusBar(const DiffSnapshot& snapshot) {
         if (tree.quality != MatchQuality::Full) {
             ImGui::TextColored(ImVec4(0.88f, 0.69f, 0.32f, 1.0f), "Reduced: %s",
                                describe(tree.quality));
+        }
+    }
+
+    // What the format left out and where a script failed, stated per side,
+    // and only when there is something to state. A tree that says nothing
+    // was dropped or failed leaves this line out rather than saying zero.
+    if (snapshot.leftTree && snapshot.rightTree) {
+        const std::size_t droppedLeft = snapshot.leftTree->unrepresented().size();
+        const std::size_t droppedRight = snapshot.rightTree->unrepresented().size();
+        const std::size_t failedLeft = snapshot.leftTree->failures().size();
+        const std::size_t failedRight = snapshot.rightTree->failures().size();
+        if (droppedLeft + droppedRight > 0) {
+            ImGui::TextColored(ImVec4(0.62f, 0.66f, 0.76f, 1.0f),
+                               "Dropped by the format: %zu stretch%s left, %zu right", droppedLeft,
+                               droppedLeft == 1 ? "" : "es", droppedRight);
+        }
+        if (failedLeft + failedRight > 0) {
+            ImGui::TextColored(ImVec4(0.78f, 0.42f, 0.84f, 1.0f),
+                               "Failed shaping jobs: %zu left, %zu right", failedLeft, failedRight);
         }
     }
 

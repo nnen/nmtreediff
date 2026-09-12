@@ -110,7 +110,37 @@ struct CardPaint {
     bool collapsed = false;  ///< Whether this card is standing in for its subtree.
     bool hoverable = false;  ///< Whether the canvas has the mouse.
     bool withText = false;   ///< Whether the zoom is close enough for text.
+    bool failed = false;     ///< Whether a shaping job failed under this node.
 };
+
+/// \brief Colour of the mark on a card a shaping job failed under.
+///
+/// \remarks Violet, which no diff status uses, so a broken script is never
+///          read as a change. The same colour the text view marks the
+///          element in.
+constexpr ImU32 kFailedMark = IM_COL32(190, 90, 210, 255);
+
+/// \brief Side of the failure mark, in layout units before zoom.
+constexpr float kFailedMarkSize = 7.0f;
+
+/// \brief Draws the mark that says a shaping job failed under a card.
+///
+/// \param draw The draw list to add to.
+/// \param topLeft The card's top left corner, in screen pixels.
+/// \param bottomRight The card's bottom right corner, in screen pixels.
+/// \param zoom Screen pixels per layout unit.
+///
+/// \remarks A small triangle in the top right corner, because a change
+///          reported under this node may be an artefact of the failure rather
+///          than of the file, and a reader should see that before trusting
+///          the card.
+void drawFailedMark(ImDrawList* draw, const ImVec2& topLeft, const ImVec2& bottomRight,
+                    float zoom) {
+    const float side = std::max(4.0f, kFailedMarkSize * zoom);
+    const ImVec2 corner(bottomRight.x - 1.0f, topLeft.y + 1.0f);
+    draw->AddTriangleFilled(corner, ImVec2(corner.x - side, corner.y),
+                            ImVec2(corner.x, corner.y + side), kFailedMark);
+}
 
 /// \brief Reports whether a graph direction runs left to right.
 ///
@@ -294,6 +324,9 @@ void drawCardText(ImDrawList* draw, const TreeLayout& layout, const LayoutNode& 
     if (paint.withText) {
         drawCardText(draw, layout, card, topLeft, ink, paint.zoom);
     }
+    if (paint.failed) {
+        drawFailedMark(draw, topLeft, bottomRight, paint.zoom);
+    }
 
     // A collapsed card says how much it stands for, so nothing is hidden
     // without the reader being told it is there.
@@ -359,6 +392,7 @@ void NodeView::draw(const DiffSnapshot& snapshot, Selection& selection) {
         // A card id from the old layout names a different card in this one.
         menuTarget_ = kInvalidLayout;
         collapseUnchanged(snapshot);
+        noteFailures(snapshot);
     }
 
     if (ImGui::SmallButton("Fit")) {
@@ -497,6 +531,7 @@ void NodeView::drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot
         paint.collapsed = collapsed_.count(id) != 0;
         paint.hoverable = hovered;
         paint.withText = drawText;
+        paint.failed = failedUnder(card);
 
         if (drawOneCard(draw, layout, card, toScreen(card.x, card.y),
                         toScreen(card.x + card.width, card.y + card.height), paint)) {
@@ -712,6 +747,31 @@ bool NodeView::hiddenByCollapse(const TreeLayout& layout, LayoutId id) const {
 }
 
 void NodeView::expandAll() { collapsed_.clear(); }
+
+void NodeView::noteFailures(const DiffSnapshot& snapshot) {
+    // One bit per node per side, filled once per layout, so a card asks a
+    // lookup rather than a search of the failure list per frame.
+    leftFailed_.clear();
+    rightFailed_.clear();
+    const auto mark = [](std::vector<bool>& flags, const Tree* tree) {
+        if (tree == nullptr) {
+            return;
+        }
+        flags.assign(tree->size(), false);
+        for (const ShapeFailure& failure : tree->failures()) {
+            if (failure.owner != kInvalidNode && failure.owner < flags.size()) {
+                flags[failure.owner] = true;
+            }
+        }
+    };
+    mark(leftFailed_, snapshot.leftTree.get());
+    mark(rightFailed_, snapshot.rightTree.get());
+}
+
+bool NodeView::failedUnder(const LayoutNode& card) const {
+    const std::vector<bool>& flags = card.side == Side::Left ? leftFailed_ : rightFailed_;
+    return card.node < flags.size() && flags[card.node];
+}
 
 void NodeView::collapseUnchanged(const DiffSnapshot& snapshot) {
     collapsed_.clear();

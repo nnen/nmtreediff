@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <optional>
 #include <unordered_set>
+#include <vector>
 
 #include "core/snapshot.h"
 #include "ui/selection.h"
@@ -161,6 +162,21 @@ private:
 
     /// \brief Cards whose children are hidden.
     std::unordered_set<LayoutId> collapsed_;
+
+    /// \brief Records which nodes a shaping job failed under, per side.
+    ///
+    /// \param snapshot The comparison being shown.
+    void noteFailures(const DiffSnapshot& snapshot);
+
+    /// \brief Reports whether a shaping job failed under a card's node.
+    ///
+    /// \param card The card to ask about.
+    [[nodiscard]] bool failedUnder(const LayoutNode& card) const;
+
+    /// \brief One flag per left node: whether a shaping job failed under it.
+    std::vector<bool> leftFailed_;
+    /// \brief One flag per right node.
+    std::vector<bool> rightFailed_;
 
     /// \brief Canvas size and origin from the last frame, for hit testing.
     float canvasX_ = 0.0f;

@@ -11,6 +11,7 @@ add_executable(nmxd_tests
     test_golden.cpp
     test_hash.cpp
     test_match.cpp
+    test_report.cpp
     test_json_provider.cpp
     test_jobs.cpp
     test_direction.cpp

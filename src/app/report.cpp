@@ -6,6 +6,7 @@
 #include "core/provider.h"
 
 #include <ostream>
+#include <utility>
 #include <string>
 #include <string_view>
 
@@ -54,6 +55,55 @@ std::string jsonEscape(std::string_view text) {
     return out;
 }
 
+/// \brief Counts the shaping jobs that failed on both sides.
+///
+/// \param snapshot The finished comparison.
+///
+/// \returns The total, or zero when the trees are not there.
+std::size_t failureCount(const DiffSnapshot& snapshot) {
+    std::size_t count = 0;
+    if (snapshot.leftTree) {
+        count += snapshot.leftTree->failures().size();
+    }
+    if (snapshot.rightTree) {
+        count += snapshot.rightTree->failures().size();
+    }
+    return count;
+}
+
+/// \brief Writes the failures of one side as JSON array entries.
+///
+/// \param out Where to write.
+/// \param side The side's name.
+/// \param source The side's file, for line numbers.
+/// \param tree The side's tree.
+/// \param first Whether nothing has been written to the array yet; cleared
+///        once something is.
+void writeJsonFailures(std::ostream& out, const char* side, const SourceFile& source,
+                       const Tree& tree, bool& first) {
+    for (const ShapeFailure& failure : tree.failures()) {
+        out << (first ? "\n" : ",\n") << "    { \"side\": \"" << side << "\", \"line\": "
+            << (failure.span.end > failure.span.begin ? source.lineAt(failure.span.begin) + 1 : 0)
+            << ", \"message\": \"" << jsonEscape(failure.message) << "\" }";
+        first = false;
+    }
+}
+
+/// \brief Writes the failures of one side as lines for a person.
+///
+/// \param out Where to write.
+/// \param source The side's file, for its label and line numbers.
+/// \param tree The side's tree.
+void writeTextFailures(std::ostream& out, const SourceFile& source, const Tree& tree) {
+    for (const ShapeFailure& failure : tree.failures()) {
+        out << "failed: " << source.label();
+        if (failure.span.end > failure.span.begin) {
+            out << ":" << source.lineAt(failure.span.begin) + 1;
+        }
+        out << ": " << failure.message << "\n";
+    }
+}
+
 }  // namespace
 
 namespace {
@@ -94,6 +144,17 @@ void writeJsonReport(std::ostream& out, const DiffSnapshot& snapshot, bool ident
         out << "    \"moved\": " << tree.moved << ",\n";
         out << "    \"unchanged\": " << tree.unchanged << "\n";
         out << "  },\n";
+    }
+    if (snapshot.leftTree && snapshot.rightTree) {
+        // What the format left out, and where a script failed. Dropping is a
+        // format's decision and only counted; a failure is a bug and listed.
+        out << "  \"dropped\": { \"left\": " << snapshot.leftTree->unrepresented().size()
+            << ", \"right\": " << snapshot.rightTree->unrepresented().size() << " },\n";
+        out << "  \"failures\": [";
+        bool first = true;
+        writeJsonFailures(out, "left", *snapshot.left, *snapshot.leftTree, first);
+        writeJsonFailures(out, "right", *snapshot.right, *snapshot.rightTree, first);
+        out << (first ? "" : "\n  ") << "],\n";
     }
     out << "  \"elapsedMillis\": " << snapshot.elapsedMillis << ",\n";
     out << "  \"left\": { \"label\": \"" << jsonEscape(snapshot.left->label())
@@ -139,6 +200,18 @@ void writeTextReport(std::ostream& out, const DiffSnapshot& snapshot, bool ident
     if (text.quality != TextDiffQuality::Full) {
         out << "warning: " << describe(text.quality) << "\n";
     }
+    if (snapshot.leftTree && snapshot.rightTree) {
+        for (const auto& [source, tree] :
+             {std::pair{snapshot.left.get(), snapshot.leftTree.get()},
+              std::pair{snapshot.right.get(), snapshot.rightTree.get()}}) {
+            const std::size_t dropped = tree->unrepresented().size();
+            if (dropped > 0) {
+                out << "warning: " << source->label() << ": the format left out " << dropped
+                    << " stretch" << (dropped == 1 ? "" : "es") << " of the file\n";
+            }
+            writeTextFailures(out, *source, *tree);
+        }
+    }
 }
 
 }  // namespace
@@ -173,6 +246,14 @@ int writeReport(std::ostream& out, const DiffSnapshot& snapshot, const Options& 
         writeJsonReport(out, snapshot, identical);
     } else {
         writeTextReport(out, snapshot, identical);
+    }
+
+    // A shaping job that raised is a bug in the format, and a build job
+    // wired to this must not read the comparison as sound. Dropped content is
+    // a format's decision and never fails the run. The report is written
+    // first either way, so the failure is on the record.
+    if (failureCount(snapshot) > 0) {
+        return 2;
     }
     if (options.useExitCode) {
         return identical ? 0 : 1;

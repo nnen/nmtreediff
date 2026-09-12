@@ -45,6 +45,51 @@ constexpr ImU32 kModifiedMark = IM_COL32(224, 176, 82, 255);
 /// \brief Width in pixels of the change overview strip.
 constexpr float kOverviewWidth = 14.0f;
 
+/// \brief Fill behind bytes the format left out of the tree.
+///
+/// \remarks A neutral grey-blue rather than a diff colour, because dropped
+///          content is a fact about the format and not about the change.
+constexpr ImU32 kDroppedFill = IM_COL32(140, 150, 175, 70);
+
+/// \brief Fill behind an element a shaping job failed on.
+///
+/// \remarks Violet, which no diff status uses, so a broken script is never
+///          mistaken for a deletion.
+constexpr ImU32 kFailedFill = IM_COL32(190, 90, 210, 90);
+
+/// \brief Draws a fill behind the part of a line that spans cover.
+///
+/// \param line The line being drawn, at the current cursor position.
+/// \param lineStart The line's offset in the file.
+/// \param spans Sorted, disjoint spans in file offsets.
+/// \param colour The fill.
+///
+/// \remarks Drawn before the text so the text lands on top. Only the spans
+///          that touch this line are measured, found by one binary search,
+///          so a file with many marks costs no more per row than one with a
+///          few.
+void fillSpans(std::string_view line, std::uint32_t lineStart, const std::vector<SourceSpan>& spans,
+               ImU32 colour) {
+    const std::uint32_t lineEnd = lineStart + static_cast<std::uint32_t>(line.size());
+    auto it = std::lower_bound(spans.begin(), spans.end(), lineStart,
+                               [](const SourceSpan& span, std::uint32_t at) { return span.end <= at; });
+
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const float height = ImGui::GetTextLineHeight();
+    for (; it != spans.end() && it->begin < lineEnd; ++it) {
+        const std::uint32_t from = std::max(it->begin, lineStart) - lineStart;
+        const std::uint32_t to = std::min(it->end, lineEnd) - lineStart;
+        if (to <= from) {
+            continue;
+        }
+        const float left = ImGui::CalcTextSize(line.data(), line.data() + from).x;
+        const float right = ImGui::CalcTextSize(line.data(), line.data() + to).x;
+        draw->AddRectFilled(ImVec2(pos.x + left, pos.y), ImVec2(pos.x + right, pos.y + height),
+                            colour, 2.0f);
+    }
+}
+
 /// \brief Chooses the cell fill for a row status.
 ///
 /// \param status The row's status.
@@ -199,6 +244,8 @@ void TextView::draw(const DiffSnapshot& snapshot, Selection& selection) {
     }
 
     followSelection(snapshot, selection);
+    refreshMarks(leftMarks_, snapshot.leftTree.get());
+    refreshMarks(rightMarks_, snapshot.rightTree.get());
 
     const float available = ImGui::GetContentRegionAvail().y;
     ImGui::BeginChild("rows", ImVec2(ImGui::GetContentRegionAvail().x - kOverviewWidth - 4.0f, 0),
@@ -306,6 +353,7 @@ void TextView::drawRows(const DiffSnapshot& snapshot, const TextDiff& diff, Sele
                 ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, fill);
             }
             if (row.leftLine != kNoLine) {
+                drawMarks(leftMarks_, left.line(row.leftLine), left.lineStart(row.leftLine));
                 drawLine(left.line(row.leftLine), leftWords, kDeletedWord);
             }
 
@@ -318,6 +366,7 @@ void TextView::drawRows(const DiffSnapshot& snapshot, const TextDiff& diff, Sele
                 ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, fill);
             }
             if (row.rightLine != kNoLine) {
+                drawMarks(rightMarks_, right.line(row.rightLine), right.lineStart(row.rightLine));
                 drawLine(right.line(row.rightLine), rightWords, kAddedWord);
             }
 
@@ -335,6 +384,49 @@ void TextView::drawRows(const DiffSnapshot& snapshot, const TextDiff& diff, Sele
     }
 
     ImGui::EndTable();
+}
+
+void TextView::refreshMarks(SideMarks& marks, const Tree* tree) {
+    if (marks.tree == tree) {
+        return;
+    }
+    marks.tree = tree;
+    marks.dropped.clear();
+    marks.failed.clear();
+    if (tree == nullptr) {
+        return;
+    }
+
+    // The tree's dropped spans are already sorted and disjoint. Failures
+    // arrive in the order they happened and may nest, so they are sorted and
+    // merged here once, when the tree changes, rather than per row.
+    marks.dropped = tree->unrepresented();
+    for (const ShapeFailure& failure : tree->failures()) {
+        if (failure.span.end > failure.span.begin) {
+            marks.failed.push_back(failure.span);
+        }
+    }
+    std::sort(marks.failed.begin(), marks.failed.end(),
+              [](const SourceSpan& a, const SourceSpan& b) { return a.begin < b.begin; });
+    std::vector<SourceSpan> merged;
+    for (const SourceSpan& span : marks.failed) {
+        if (!merged.empty() && span.begin <= merged.back().end) {
+            merged.back().end = std::max(merged.back().end, span.end);
+        } else {
+            merged.push_back(span);
+        }
+    }
+    marks.failed = std::move(merged);
+}
+
+void TextView::drawMarks(const SideMarks& marks, std::string_view line,
+                         std::uint32_t lineStart) const {
+    if (showDropped_ && !marks.dropped.empty()) {
+        fillSpans(line, lineStart, marks.dropped, kDroppedFill);
+    }
+    if (showFailed_ && !marks.failed.empty()) {
+        fillSpans(line, lineStart, marks.failed, kFailedFill);
+    }
 }
 
 void TextView::drawOverview(const TextDiff& diff, float height) {
