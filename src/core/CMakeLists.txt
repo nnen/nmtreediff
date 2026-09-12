@@ -8,6 +8,7 @@ add_library(nmxd_core STATIC
     config.cpp
     lua_config.cpp
     lua_provider.cpp
+    lua_shape.cpp
     lua_state.cpp
     diff.cpp
     layout_tree.cpp

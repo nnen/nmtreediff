@@ -6,8 +6,10 @@
 #include <cstddef>
 #include <deque>
 #include <functional>
+#include <memory>
 #include <stop_token>
 #include <string>
+#include <vector>
 
 #include "core/builder.h"
 #include "core/dom.h"
@@ -43,6 +45,12 @@ public:
 
     /// \brief Returns the builder the tree goes into.
     [[nodiscard]] TreeBuilder& out() noexcept { return *out_; }
+
+    /// \brief Returns the token the drain checks between jobs.
+    ///
+    /// \remarks For a shape that runs something of its own with a
+    ///          cancellation hook, such as a script interpreter.
+    [[nodiscard]] const std::stop_token& token() const noexcept { return token_; }
 
     /// \brief Queues a job to run after everything already queued.
     ///
@@ -93,6 +101,15 @@ public:
     /// \brief Runs whatever is queued until nothing is.
     void drain();
 
+    /// \brief Keeps something alive for the rest of the pass.
+    ///
+    /// \param holder Whatever must outlive the drain.
+    ///
+    /// \remarks A script interpreter, say: the jobs a script queues are
+    ///          closures inside it, so it cannot go away until the last of
+    ///          them has run. Released when the context is.
+    void keepAlive(std::shared_ptr<void> holder) { held_.push_back(std::move(holder)); }
+
 private:
     /// \brief A job with what it was queued against.
     struct Queued {
@@ -107,6 +124,13 @@ private:
     const Dom* dom_;
     TreeBuilder* out_;
     std::stop_token token_;
+
+    /// \brief What must outlive the drain.
+    ///
+    /// \remarks Declared before the queue so that it is destroyed after it:
+    ///          a queued job may be a closure inside what is held here.
+    std::vector<std::shared_ptr<void>> held_;
+
     std::deque<Queued> queue_;
 
     /// \brief What the running job has queued with next(), in order.

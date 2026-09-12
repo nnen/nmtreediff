@@ -15,6 +15,7 @@
 #include "core/lua_provider.h"
 #include "core/registry.h"
 #include "core/source.h"
+#include "formats/xml_generic.h"
 
 // The bridge is judged against the compiled behaviour-tree provider rather than
 // against a plausible answer. The two read the same files and must produce the
@@ -152,7 +153,6 @@ TEST_CASE("a script may claim extensions and win them", "[lua]") {
         "provider 'mine' {\n"
         "  base = 'xml',\n"
         "  extensions = { '.MINE' },\n"
-        "  is_node = function(e) return true end,\n"
         "}\n");
 
     const auto source = SourceFile::fromMemory("<r/>", "thing.mine", "thing.mine");
@@ -199,7 +199,8 @@ TEST_CASE("a script that will not stop is cancelled", "[lua][slow]") {
     const auto registry = registryWithScript(
         "provider 'spinner' {\n"
         "  base = 'xml',\n"
-        "  is_node = function(e)\n"
+        "  shape = function(doc, out)\n"
+        "    out:root(doc.root)\n"
         "    while true do end\n"
         "  end,\n"
         "}\n");
@@ -223,4 +224,195 @@ TEST_CASE("a script that will not stop is cancelled", "[lua][slow]") {
     // It gave up rather than running to the end, and it did so promptly.
     CHECK_FALSE(parsed.ok());
     CHECK(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() < 2000);
+}
+
+namespace {
+
+/// A script that copies an XML document one to one, with the walk written
+/// three ways: queued depth-first, queued breadth-first, or plain recursion.
+std::string copyingScript(const char* how) {
+    std::string script =
+        "provider 'copy' {\n"
+        "  base = 'xml',\n"
+        "  shape = function(doc, out)\n"
+        "    local function visit(element, parent)\n"
+        "      local node = parent:child(element)\n"
+        "      for attribute in element:properties() do node:property(attribute) end\n"
+        "      for child in element:children() do\n";
+    script += how;
+    script +=
+        "      end\n"
+        "    end\n"
+        "    local root = out:root(doc.root)\n"
+        "    for child in doc.root:children() do out:next(visit, child, root) end\n"
+        "  end,\n"
+        "}\n";
+    return script;
+}
+
+std::vector<std::string> kindsOf(const Tree& tree) {
+    std::vector<std::string> kinds;
+    for (const auto& node : tree.nodes()) {
+        kinds.push_back(node.kind);
+    }
+    return kinds;
+}
+
+}  // namespace
+
+TEST_CASE("a script builds the same tree queued, breadth-first or recursing", "[lua][queue]") {
+    // The script owns the walk. Handing a call to out:next, to out:later, or
+    // making it directly are three spellings of one walk, and the builder
+    // does not care which, because sibling order is call order on one parent.
+    const auto source = SourceFile::fromMemory(
+        "<r><a x='1'><a1/><a2 y='2'/></a><b/><c><c1><c11/></c1></c></r>", "t.xml", "t.xml");
+    const auto plain = nmxd::makeGenericXmlProvider()->parse(source, {});
+    REQUIRE(plain.ok());
+    const std::vector<std::string> expected = kindsOf(plain.value());
+
+    for (const char* how : {"        out:next(visit, child, node)\n",
+                            "        out:later(visit, child, node)\n",
+                            "        visit(child, node)\n"}) {
+        INFO(how);
+        const auto registry = registryWithScript(copyingScript(how));
+        const auto* provider = registry.byName("copy");
+        REQUIRE(provider != nullptr);
+        auto shaped = provider->parse(source, {});
+        REQUIRE(shaped.ok());
+        CHECK(kindsOf(shaped.value()) == expected);
+        CHECK(shaped.value().node(0).contentHash == plain.value().node(0).contentHash);
+        CHECK(shaped.value().unrepresented().empty());
+        CHECK(shaped.value().failures().empty());
+    }
+}
+
+TEST_CASE("an error in one job is recorded and the rest of the document is built",
+          "[lua][failure]") {
+    // A failure does not fail the parse. What the job built stays, what it
+    // never queued is missing, and the tree says where and why.
+    const auto registry = registryWithScript(
+        "provider 'fragile' {\n"
+        "  base = 'xml',\n"
+        "  shape = function(doc, out)\n"
+        "    local function visit(element, parent)\n"
+        "      if element.name == 'bad' then error('no bad elements here') end\n"
+        "      local node = parent:child(element)\n"
+        "      for child in element:children() do out:next(visit, child, node) end\n"
+        "    end\n"
+        "    local root = out:root(doc.root)\n"
+        "    for child in doc.root:children() do out:next(visit, child, root) end\n"
+        "  end,\n"
+        "}\n");
+    const auto* provider = registry.byName("fragile");
+    REQUIRE(provider != nullptr);
+
+    const std::string text = "<r><good/><bad><inside/></bad><after/></r>";
+    auto shaped = provider->parse(SourceFile::fromMemory(text, "t.xml", "t.xml"), {});
+    REQUIRE(shaped.ok());
+    const Tree& tree = shaped.value();
+
+    CHECK(kindsOf(tree) == std::vector<std::string>{"r", "good", "after"});
+    REQUIRE(tree.failures().size() == 1);
+    CHECK(tree.failures()[0].message.find("no bad elements here") != std::string::npos);
+    CHECK(tree.failures()[0].owner == tree.root());
+    const auto& where = tree.failures()[0].span;
+    CHECK(text.substr(where.begin, where.end - where.begin) == "<bad><inside/></bad>");
+
+    // The bad element and everything inside it is unrepresented, as one span.
+    REQUIRE(tree.unrepresented().size() == 1);
+    CHECK(tree.unrepresented()[0] == where);
+}
+
+TEST_CASE("a script that leaves elements out has their bytes reported", "[lua][dropped]") {
+    // Dropping is allowed now, and the price of that freedom is that the
+    // tree says what was dropped so the text view can show it.
+    const auto registry = registryWithScript(
+        "provider 'picky' {\n"
+        "  base = 'xml',\n"
+        "  shape = function(doc, out)\n"
+        "    local root = out:root(doc.root)\n"
+        "    for child in doc.root:children() do\n"
+        "      if child.name == 'keep' then root:child(child) end\n"
+        "    end\n"
+        "  end,\n"
+        "}\n");
+    const auto* provider = registry.byName("picky");
+    REQUIRE(provider != nullptr);
+
+    const std::string text = "<r><keep/><skip a='1'/><keep/></r>";
+    auto shaped = provider->parse(SourceFile::fromMemory(text, "t.xml", "t.xml"), {});
+    REQUIRE(shaped.ok());
+    CHECK(shaped.value().size() == 3);
+    REQUIRE(shaped.value().unrepresented().size() == 1);
+    const auto& gone = shaped.value().unrepresented()[0];
+    CHECK(text.substr(gone.begin, gone.end - gone.begin) == "<skip a='1'/>");
+}
+
+TEST_CASE("a script shapes a document thousands of levels deep through the queue",
+          "[lua][deep]") {
+    // The whole reason the queue exists: the script's visit never calls
+    // itself, so depth costs memory rather than the interpreter's stack.
+    constexpr int kDepth = 5000;
+    std::string text;
+    for (int level = 0; level < kDepth; ++level) {
+        text += "<e>";
+    }
+    for (int level = 0; level < kDepth; ++level) {
+        text += "</e>";
+    }
+
+    const auto registry =
+        registryWithScript(copyingScript("        out:next(visit, child, node)\n"));
+    const auto* provider = registry.byName("copy");
+    REQUIRE(provider != nullptr);
+    auto shaped = provider->parse(SourceFile::fromMemory(text, "t.xml", "t.xml"), {});
+    REQUIRE(shaped.ok());
+    CHECK(shaped.value().size() == static_cast<std::size_t>(kDepth));
+    CHECK(shaped.value().node(shaped.value().size() - 1).depth ==
+          static_cast<std::uint32_t>(kDepth - 1));
+}
+
+TEST_CASE("a script on JSON sees every array as a node and folds what it wants", "[lua][dom]") {
+    // The raw reading keeps every array a node, and a script folds per key.
+    // This one folds a list of tags into a sequence and leaves the rest as
+    // the reading had it, so a list of entities stays a list of nodes.
+    const auto registry = registryWithScript(
+        "provider 'tags' {\n"
+        "  base = 'json',\n"
+        "  shape = function(doc, out)\n"
+        "    local function visit(element, parent)\n"
+        "      if element.name == 'tags' then\n"
+        "        local list = parent:sequence('tags')\n"
+        "        for item in element:children() do\n"
+        "          list:item(item:property('#value').value)\n"
+        "        end\n"
+        "        return\n"
+        "      end\n"
+        "      local node = parent:child(element)\n"
+        "      for attribute in element:properties() do node:property(attribute) end\n"
+        "      for child in element:children() do out:next(visit, child, node) end\n"
+        "    end\n"
+        "    local root = out:root(doc.root)\n"
+        "    for attribute in doc.root:properties() do root:property(attribute) end\n"
+        "    for child in doc.root:children() do out:next(visit, child, root) end\n"
+        "  end,\n"
+        "}\n");
+    const auto* provider = registry.byName("tags");
+    REQUIRE(provider != nullptr);
+
+    auto shaped = provider->parse(
+        SourceFile::fromMemory(R"({"tags": ["a", "b"], "spawns": [{"x": 1}]})", "t.json",
+                               "t.json"),
+        {});
+    REQUIRE(shaped.ok());
+    const Tree& tree = shaped.value();
+    const auto* tags = tree.node(tree.root()).findProperty("tags");
+    REQUIRE(tags != nullptr);
+    CHECK(tags->form == nmxd::PropertyForm::Sequence);
+    REQUIRE(tags->children.size() == 2);
+    CHECK(tags->children[1].value == "\"b\"");
+    // The spawns array stayed a node with an item node under it.
+    CHECK(tree.size() == 3);
+    CHECK(tree.node(1).kind == "spawns");
+    CHECK(tree.node(2).kind == "item");
 }

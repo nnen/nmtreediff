@@ -164,6 +164,22 @@ Ref Ref::property(const DomProperty& source) {
     return property(*source.get());
 }
 
+Ref Ref::property(const DomNode& element) {
+    if (!valid() || !element.valid()) {
+        return {};
+    }
+    Ref made = property(element.name());
+    made.setSpan(element.span());
+    made.setSource(element.id());
+    return made;
+}
+
+Ref TreeBuilder::root(const DomNode& element) {
+    Ref made = root(element.name(), element.span());
+    made.setSource(element.id());
+    return made;
+}
+
 // ---- Dom ------------------------------------------------------------------
 
 Dom::Dom(const Tree& tree) : tree_(&tree), siblingIndex_(tree.size(), 0) {

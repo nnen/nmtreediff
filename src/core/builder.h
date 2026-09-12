@@ -156,6 +156,18 @@ public:
     ///          with a worklist rather than recursion.
     Ref property(const DomProperty& source);
 
+    /// \brief Adds a property standing for a source element.
+    ///
+    /// \param element The element the property represents.
+    ///
+    /// \returns The new scalar property, named after the element, with its
+    ///          span, and with the element recorded as its source. Its value
+    ///          is empty and its parts are for the caller to add.
+    ///
+    /// \remarks What a format that folds an element into the node above
+    ///          starts from.
+    Ref property(const DomNode& element);
+
     /// \brief Adds a copy of a property value, parts and all.
     ///
     /// \param source The property to copy.
@@ -294,6 +306,15 @@ public:
     ///
     /// \throws BuildError when a root already exists.
     Ref root(std::string_view kind, SourceSpan span = {});
+
+    /// \brief Creates the root node from a source element.
+    ///
+    /// \param element The element the root represents, usually the
+    ///        document's own.
+    ///
+    /// \returns The root, named after the element, with its span, and with
+    ///          the element recorded as its source.
+    Ref root(const DomNode& element);
 
     /// \brief Rehydrates a handle from its id.
     ///
