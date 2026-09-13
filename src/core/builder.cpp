@@ -338,6 +338,7 @@ Result<Tree, ParseError> TreeBuilder::finish() {
         ShapeFailure failure;
         failure.span = pending.span;
         failure.message = std::move(pending.message);
+        failure.detail = std::move(pending.detail);
         const Ref owner = at(pending.owner).owner();
         if (owner.valid()) {
             failure.owner = placed[owner.id().index];
@@ -405,8 +406,9 @@ bool TreeBuilder::represents(DomId element) const noexcept {
     return element < represented_.size() && represented_[element];
 }
 
-void TreeBuilder::recordFailure(RefId owner, SourceSpan span, std::string message) {
-    failures_.push_back(PendingFailure{owner, span, std::move(message)});
+void TreeBuilder::recordFailure(RefId owner, SourceSpan span, std::string message,
+                                std::string detail) {
+    failures_.push_back(PendingFailure{owner, span, std::move(message), std::move(detail)});
 }
 
 void TreeBuilder::represent(DomId element) {

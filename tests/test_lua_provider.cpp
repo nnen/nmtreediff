@@ -11,6 +11,7 @@
 
 #include "core/config.h"
 #include "core/diff.h"
+#include "core/log.h"
 #include "core/lua_config.h"
 #include "core/lua_provider.h"
 #include "core/registry.h"
@@ -358,7 +359,11 @@ TEST_CASE("an error in one job is recorded and the rest of the document is built
     REQUIRE(provider != nullptr);
 
     const std::string text = "<r><good/><bad><inside/></bad><after/></r>";
+    nmxd::Log& log = nmxd::Log::instance();
+    log.forwardTo(nullptr, nullptr);
+    const std::uint64_t logBefore = log.lastSequence();
     auto shaped = provider->parse(SourceFile::fromMemory(text, "t.xml", "t.xml"), {});
+    log.forwardTo(stdout, stderr);
     REQUIRE(shaped.ok());
     const Tree& tree = shaped.value();
 
@@ -366,6 +371,17 @@ TEST_CASE("an error in one job is recorded and the rest of the document is built
     REQUIRE(tree.failures().size() == 1);
     CHECK(tree.failures()[0].message.find("no bad elements here") != std::string::npos);
     CHECK(tree.failures()[0].owner == tree.root());
+
+    // One line for the report and the card; the whole thing, traceback
+    // included, as the detail and in the log, written once and naming the file.
+    CHECK(tree.failures()[0].message.find('\n') == std::string::npos);
+    CHECK(tree.failures()[0].detail.find("stack traceback") != std::string::npos);
+    CHECK(tree.failures()[0].detail.find("no bad elements here") != std::string::npos);
+    const auto logged = log.linesAfter(logBefore);
+    REQUIRE(logged.size() == 1);
+    CHECK(logged[0].stream == nmxd::LogStream::Err);
+    CHECK(logged[0].text.find("t.xml") != std::string::npos);
+    CHECK(logged[0].text.find("stack traceback") != std::string::npos);
     const auto& where = tree.failures()[0].span;
     CHECK(text.substr(where.begin, where.end - where.begin) == "<bad><inside/></bad>");
 

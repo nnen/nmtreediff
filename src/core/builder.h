@@ -331,6 +331,9 @@ public:
     /// \brief Returns how many nodes have been created.
     [[nodiscard]] std::size_t nodeCount() const noexcept { return nodes_.size(); }
 
+    /// \brief Returns the provider name the finished tree will record.
+    [[nodiscard]] const std::string& formatName() const noexcept { return formatName_; }
+
     /// \brief Returns how many properties and parts have been created.
     [[nodiscard]] std::size_t propertyCount() const noexcept { return properties_.size(); }
 
@@ -364,11 +367,14 @@ public:
     ///
     /// \param owner The handle the job was building under, or none.
     /// \param span The element the job was working on, or empty.
-    /// \param message What went wrong.
+    /// \param message What went wrong, in one line.
+    /// \param detail The whole of what went wrong, when there was more than
+    ///        the line; empty otherwise.
     ///
     /// \remarks Kept here rather than on the context, because the owner is a
     ///          builder handle and only finish() knows which node it became.
-    void recordFailure(RefId owner, SourceSpan span, std::string message);
+    void recordFailure(RefId owner, SourceSpan span, std::string message,
+                       std::string detail = {});
 
     /// \brief Returns how many failures have been recorded.
     [[nodiscard]] std::size_t failureCount() const noexcept { return failures_.size(); }
@@ -439,6 +445,7 @@ private:
         RefId owner;
         SourceSpan span;
         std::string message;
+        std::string detail;
     };
 
     std::string formatName_;

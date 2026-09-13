@@ -91,7 +91,16 @@ public:
         bindShapeApi(state->get());
         context.keepAlive(state);
 
-        sol::optional<sol::table> body = loadBody(state->get());
+        std::string scriptError;
+        sol::optional<sol::table> body = loadBody(state->get(), scriptError);
+        if (!scriptError.empty()) {
+            // The script that declared this provider no longer runs. The first
+            // line is the message and the whole of it is the detail, the same
+            // split a failing job gets.
+            throw ShapeError("the script failed to run: " + trimLuaError(scriptError),
+                             scriptError.find('\n') == std::string::npos ? std::string{}
+                                                                         : scriptError);
+        }
         if (!body) {
             throw std::runtime_error("the script no longer declares this provider");
         }
@@ -109,6 +118,8 @@ private:
     ///        with.
     ///
     /// \param lua The interpreter to run in.
+    /// \param error Receives what the interpreter said when the script failed
+    ///        to run; left empty when it ran.
     ///
     /// \returns The declaration's body, or nothing when the script failed or
     ///          no longer declares this provider.
@@ -117,7 +128,7 @@ private:
     ///          script is being reread for its provider declarations, and
     ///          setting the graph direction a second time from a worker thread
     ///          would be a surprise.
-    [[nodiscard]] sol::optional<sol::table> loadBody(sol::state& lua) const {
+    [[nodiscard]] sol::optional<sol::table> loadBody(sol::state& lua, std::string& error) const {
         sol::optional<sol::table> found;
 
         lua.set_function("formats", [](sol::object) {});
@@ -135,6 +146,8 @@ private:
         const sol::protected_function_result result =
             lua.safe_script(script_, sol::script_pass_on_error);
         if (!result.valid()) {
+            const sol::error failure = result;
+            error = failure.what();
             return sol::nullopt;
         }
         return found;

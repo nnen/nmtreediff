@@ -7,14 +7,39 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <stdexcept>
 #include <stop_token>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/builder.h"
 #include "core/dom.h"
 
 namespace nmxd {
+
+/// \brief A failure inside a shaping job that has more to say than one line.
+///
+/// \remarks What the Lua bridge throws when a script raises: what() is the
+///          first line, which lands in the report line and the card tooltip,
+///          and detail is the whole of what the interpreter said, traceback
+///          included, which goes to the log. A job that throws any other
+///          exception is recorded with what() alone.
+class ShapeError : public std::runtime_error {
+public:
+    /// \brief Builds the error.
+    ///
+    /// \param message The one line a listing wants.
+    /// \param detail Everything, when there was more; empty otherwise.
+    ShapeError(const std::string& message, std::string detail)
+        : std::runtime_error(message), detail_(std::move(detail)) {}
+
+    /// \brief Returns the whole message, or empty when what() was all of it.
+    [[nodiscard]] const std::string& detail() const noexcept { return detail_; }
+
+private:
+    std::string detail_;
+};
 
 /// \brief The document, the builder, and a queue for the walk.
 ///
@@ -38,7 +63,11 @@ public:
     /// \param out The builder to shape it into. Must outlive the context.
     /// \param token Checked between jobs; the drain stops when a stop is
     ///        requested.
-    ShapeContext(const Dom& dom, TreeBuilder& out, std::stop_token token = {});
+    /// \param label What to call the document in a log line about a failed
+    ///        job, usually the file's label; the builder's format name when
+    ///        empty.
+    ShapeContext(const Dom& dom, TreeBuilder& out, std::stop_token token = {},
+                 std::string label = {});
 
     /// \brief Returns the document being shaped.
     [[nodiscard]] const Dom& dom() const noexcept { return *dom_; }
@@ -121,6 +150,14 @@ private:
     /// \brief Runs one job inside a catch.
     void runOne(Queued& queued);
 
+    /// \brief Records a job's failure on the builder and writes it to the log.
+    ///
+    /// \param queued The job that failed.
+    /// \param message The one line the report and the card carry.
+    /// \param detail The whole message, or empty when the line was all of it.
+    void recordFailure(const Queued& queued, const std::string& message,
+                       const std::string& detail);
+
     const Dom* dom_;
     TreeBuilder* out_;
     std::stop_token token_;
@@ -137,6 +174,9 @@ private:
     std::vector<Queued> batch_;
     /// \brief Whether a job is running, and so whether next() batches.
     bool running_ = false;
+
+    /// \brief What a log line about a failed job calls the document.
+    std::string label_;
 };
 
 /// \brief Shapes a document into a tree with a provider's shape function.
@@ -145,6 +185,8 @@ private:
 /// \param formatName The provider name the tree records.
 /// \param shape The provider's shape function.
 /// \param token Checked between jobs and by the builder.
+/// \param label What a log line about a failed job calls the document,
+///        usually the file's label; the format name when empty.
 ///
 /// \returns The tree, or ParseError::Cancelled, or ParseError::ShapeFailed
 ///          when the pass ended with no root at all, because a tree of zero
@@ -155,7 +197,8 @@ private:
 ///          from, and finish(). What the default parse() does after read().
 [[nodiscard]] Result<Tree, ParseError> shapeTree(const Dom& dom, std::string formatName,
                                                  const ShapeContext::Job& shape,
-                                                 std::stop_token token = {});
+                                                 std::stop_token token = {},
+                                                 std::string label = {});
 
 /// \brief Copies the document into the builder one to one.
 ///

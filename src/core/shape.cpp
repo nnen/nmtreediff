@@ -3,6 +3,8 @@
 
 #include "core/shape.h"
 
+#include "core/log.h"
+
 #include <algorithm>
 #include <exception>
 #include <utility>
@@ -36,8 +38,9 @@ bool operator<(const SpanEvent& a, const SpanEvent& b) noexcept {
 
 }  // namespace
 
-ShapeContext::ShapeContext(const Dom& dom, TreeBuilder& out, std::stop_token token)
-    : dom_(&dom), out_(&out), token_(std::move(token)) {}
+ShapeContext::ShapeContext(const Dom& dom, TreeBuilder& out, std::stop_token token,
+                           std::string label)
+    : dom_(&dom), out_(&out), token_(std::move(token)), label_(std::move(label)) {}
 
 void ShapeContext::later(Job job, DomId element, RefId owner) {
     queue_.push_back(Queued{std::move(job), element, owner});
@@ -75,15 +78,27 @@ void ShapeContext::drain() {
     }
 }
 
+void ShapeContext::recordFailure(const Queued& queued, const std::string& message,
+                                 const std::string& detail) {
+    out_->recordFailure(queued.owner, dom_->at(queued.element).span(), message, detail);
+
+    // The whole of it goes to the log once, here, where it happened. The
+    // report line and the card keep the one-line message; a person fixing a
+    // script wants the traceback, and this is the only place it is written.
+    const std::string& document = label_.empty() ? out_->formatName() : label_;
+    logErr("nmxmldiff: " + document + ": shaping failed: " + (detail.empty() ? message : detail));
+}
+
 void ShapeContext::runOne(Queued& queued) {
     running_ = true;
     try {
         queued.job(*this);
+    } catch (const ShapeError& error) {
+        recordFailure(queued, error.what(), error.detail());
     } catch (const std::exception& error) {
-        out_->recordFailure(queued.owner, dom_->at(queued.element).span(), error.what());
+        recordFailure(queued, error.what(), {});
     } catch (...) {
-        out_->recordFailure(queued.owner, dom_->at(queued.element).span(),
-                            "the shaping job raised something that is not an error");
+        recordFailure(queued, "the shaping job raised something that is not an error", {});
     }
     running_ = false;
 
@@ -96,9 +111,10 @@ void ShapeContext::runOne(Queued& queued) {
 }
 
 Result<Tree, ParseError> shapeTree(const Dom& dom, std::string formatName,
-                                   const ShapeContext::Job& shape, std::stop_token token) {
+                                   const ShapeContext::Job& shape, std::stop_token token,
+                                   std::string label) {
     TreeBuilder out(std::move(formatName), token);
-    ShapeContext context(dom, out, token);
+    ShapeContext context(dom, out, token, std::move(label));
     context.run(shape);
     if (token.stop_requested()) {
         return fail(ParseError::Cancelled);

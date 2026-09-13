@@ -53,8 +53,9 @@ Result<Tree, ParseError> IFormatProvider::parse(const SourceFile& source,
         return fail(ParseError::Empty);
     }
     const Dom dom(read);
-    return shapeTree(dom, std::string(name()),
-                     [this](ShapeContext& context) { shape(context); }, token);
+    return shapeTree(
+        dom, std::string(name()), [this](ShapeContext& context) { shape(context); }, token,
+        source.label());
 }
 
 IdentityKey IFormatProvider::identity(const Tree& tree, NodeId id) const {

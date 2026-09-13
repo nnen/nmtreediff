@@ -95,14 +95,18 @@ sol::object orNil(sol::this_state state, const Handle& handle) {
 ///
 /// \param result The failed call.
 ///
-/// \remarks The first line only. Lua's message carries the chunk and line,
-///          which is what a failure needs; the traceback sol2 appends below it
-///          would put a stack dump into every report line and every card
-///          tooltip for one wrong element.
+/// \remarks The first line is the message. Lua's message carries the chunk
+///          and line, which is what a report line and a card tooltip need,
+///          and the traceback sol2 appends below it would put a stack dump
+///          into both for one wrong element. The traceback is not thrown
+///          away: it travels as the error's detail and the drain writes it to
+///          the log, which is where a person fixing the script reads it.
 [[noreturn]] void rethrow(const sol::protected_function_result& result) {
     const sol::error error = result;
     const std::string message = error.what();
-    throw std::runtime_error(message.substr(0, message.find('\n')));
+    const std::size_t lineEnd = message.find('\n');
+    throw ShapeError(message.substr(0, lineEnd),
+                     lineEnd == std::string::npos ? std::string{} : message);
 }
 
 /// \brief Queues a script function with its arguments.

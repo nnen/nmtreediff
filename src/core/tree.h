@@ -239,8 +239,16 @@ struct ShapeFailure {
     SourceSpan span;
     /// \brief The shaped node the job was building under, or kInvalidNode.
     NodeId owner = kInvalidNode;
-    /// \brief What went wrong, with a line where the script knows one.
+    /// \brief What went wrong, in one line, with a line number where the
+    ///        script knows one.
     std::string message;
+    /// \brief The whole of what went wrong, traceback included, when there
+    ///        was more than the line; empty otherwise.
+    ///
+    /// \remarks The message is what a report line and a card tooltip carry;
+    ///          this is what was written to the log when the job failed, kept
+    ///          with the tree so the two can be told apart later.
+    std::string detail;
 };
 
 /// \brief A parsed document, held as a flat arena of nodes.
