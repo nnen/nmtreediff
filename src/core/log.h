@@ -53,6 +53,8 @@ public:
     static constexpr std::size_t kCapacity = 4000;
 
     /// \brief Returns the process-wide sink.
+    ///
+    /// \returns The one instance, made on first use.
     static Log& instance();
 
     /// \brief Records a line and forwards it.
@@ -81,16 +83,22 @@ public:
     /// \returns The lines, oldest first.
     [[nodiscard]] std::vector<LogLine> linesAfter(std::uint64_t afterSequence) const;
 
-    /// \brief Returns the sequence of the last line written, or zero.
+    /// \brief Returns the sequence of the last line written.
+    ///
+    /// \returns The sequence, or zero when nothing has been written.
     [[nodiscard]] std::uint64_t lastSequence() const;
 
-    /// \brief Returns the sequence of the last error line written, or zero.
+    /// \brief Returns the sequence of the last error line written.
+    ///
+    /// \returns The sequence, or zero when no error has been written.
     ///
     /// \remarks What the Output pane watches to open itself on the first
     ///          problem without reading every line each frame.
     [[nodiscard]] std::uint64_t lastErrorSequence() const;
 
     /// \brief Returns how many lines the buffer holds.
+    ///
+    /// \returns The count, at most kCapacity.
     [[nodiscard]] std::size_t size() const;
 
     /// \brief Drops every buffered line.

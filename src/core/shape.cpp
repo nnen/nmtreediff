@@ -15,13 +15,18 @@ namespace {
 
 /// \brief One edge of an element's span, for the sweep.
 struct SpanEvent {
-    std::uint32_t position = 0;
-    DomId element = kInvalidDom;
-    bool opens = false;
+    std::uint32_t position = 0;    ///< Byte offset of the edge.
+    DomId element = kInvalidDom;   ///< The element whose span it is.
+    bool opens = false;            ///< `true` at the start of the span.
 };
 
 /// \brief Orders events by position, with a closing edge before an opening
 ///        one at the same position so that adjacent elements do not overlap.
+///
+/// \param a One event.
+/// \param b The other.
+///
+/// \returns `true` when \p a comes first in the sweep.
 ///
 /// \remarks Two elements opening at one position open outermost first, and
 ///          two closing there close innermost first. Arena order is pre-order,

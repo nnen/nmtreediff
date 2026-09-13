@@ -58,7 +58,7 @@ constexpr std::string_view kStrongWord = "strong";
 ///          record or sequence carrying a value; the accessors beside it are
 ///          for everything else.
 struct AttributeView {
-    DomNode element;
+    DomNode element;  ///< The element whose properties are read through.
 };
 
 /// \brief Makes a Lua iterator function over a counted sequence.
@@ -148,6 +148,8 @@ void queueCall(ShapeContext& context, bool front, sol::protected_function functi
 }
 
 /// \brief Binds the document handle and its element and property handles.
+///
+/// \param lua The state to bind into.
 void bindDocument(sol::state& lua) {
     lua.new_usertype<Dom>(
         "Document", sol::no_constructor,
@@ -272,6 +274,8 @@ void bindDocument(sol::state& lua) {
 
 /// \brief Binds the builder handle.
 ///
+/// \param lua The state to bind into.
+///
 /// \remarks Every setter returns the handle, so a script can chain them. A
 ///          BuildError raised inside is turned into a Lua error by sol2 and
 ///          reaches the job that made the call.
@@ -339,6 +343,8 @@ void bindHandle(sol::state& lua) {
 }
 
 /// \brief Binds the builder and its queue, which a script sees as `out`.
+///
+/// \param lua The state to bind into.
 void bindBuilder(sol::state& lua) {
     lua.new_usertype<ShapeContext>(
         "Builder", sol::no_constructor,

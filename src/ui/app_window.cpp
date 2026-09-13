@@ -52,7 +52,7 @@ constexpr const char* kStatusTitle = "Status";
 constexpr const char* kOutputTitle = "Output";
 
 /// \brief Colour of a line the program wrote to standard error.
-constexpr ImVec4 kErrorLineColour(0.89f, 0.43f, 0.41f, 1.0f);
+constexpr ImVec4 kErrorLineColour{0.89f, 0.43f, 0.41f, 1.0f};
 
 /// \brief How many frames the Output pane asks for focus after opening.
 ///

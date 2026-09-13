@@ -34,7 +34,9 @@ public:
     ShapeError(const std::string& message, std::string detail)
         : std::runtime_error(message), detail_(std::move(detail)) {}
 
-    /// \brief Returns the whole message, or empty when what() was all of it.
+    /// \brief Returns the whole message.
+    ///
+    /// \returns The detail, or empty when what() was all of it.
     [[nodiscard]] const std::string& detail() const noexcept { return detail_; }
 
 private:
@@ -70,12 +72,18 @@ public:
                  std::string label = {});
 
     /// \brief Returns the document being shaped.
+    ///
+    /// \returns The document given to the constructor.
     [[nodiscard]] const Dom& dom() const noexcept { return *dom_; }
 
     /// \brief Returns the builder the tree goes into.
+    ///
+    /// \returns The builder given to the constructor.
     [[nodiscard]] TreeBuilder& out() noexcept { return *out_; }
 
     /// \brief Returns the token the drain checks between jobs.
+    ///
+    /// \returns The stop token.
     ///
     /// \remarks For a shape that runs something of its own with a
     ///          cancellation hook, such as a script interpreter.
@@ -110,9 +118,13 @@ public:
     void next(Job job, DomId element = kInvalidDom, RefId owner = {});
 
     /// \brief Returns how many jobs are waiting.
+    ///
+    /// \returns The queue length.
     [[nodiscard]] std::size_t pending() const noexcept { return queue_.size(); }
 
     /// \brief Reports whether the stop token has been signalled.
+    ///
+    /// \returns `true` once a stop has been requested.
     [[nodiscard]] bool cancelled() const noexcept { return token_.stop_requested(); }
 
     /// \brief Runs a job and then everything it and its successors queue.
