@@ -19,6 +19,8 @@ namespace {
 /// \brief Unpacks a colour a handle recorded.
 ///
 /// \param rgb The colour as 0xRRGGBB.
+///
+/// \returns The same colour as three bytes.
 [[nodiscard]] Color unpackAccent(std::uint32_t rgb) {
     return Color{static_cast<std::uint8_t>((rgb >> 16) & 0xFF),
                  static_cast<std::uint8_t>((rgb >> 8) & 0xFF),

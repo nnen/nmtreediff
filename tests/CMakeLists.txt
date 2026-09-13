@@ -39,4 +39,10 @@ target_compile_definitions(nmxd_tests PRIVATE
     NMXD_TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata"
 )
 
-catch_discover_tests(nmxd_tests)
+# The budget tests measure time, so they are registered as their own labelled
+# suite: `ctest -L budget` runs them alone and `ctest -LE budget` runs
+# everything else. Both are registered, and both run by default. They once
+# carried Catch2's hidden tag, which kept them out of ctest altogether, and
+# the numbers in the plan went unenforced for as long as it did.
+catch_discover_tests(nmxd_tests TEST_SPEC "~[budget]")
+catch_discover_tests(nmxd_tests TEST_SPEC "[budget]" PROPERTIES LABELS budget)

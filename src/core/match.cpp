@@ -6,7 +6,9 @@
 #include <algorithm>
 #include <cmath>
 #include <deque>
+#include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "core/hash.h"
@@ -279,49 +281,62 @@ private:
 
     /// \brief Pairs the descendants of two nodes known to be identical.
     ///
-    /// \param leftId The left node.
-    /// \param rightId The right node, whose content hash equals the left one's.
+    /// \param leftRoot The left node.
+    /// \param rightRoot The right node, whose content hash equals the left one's.
     ///
     /// \remarks Two nodes with the same content hash have the same subtree, so
     ///          their descendants pair up without any further comparison.
     ///          Ordered children pair by position; unordered children pair by
     ///          hash, because their position carries nothing.
-    void pairIdenticalSubtree(NodeId leftId, NodeId rightId) {
-        const Node& leftNode = left_.node(leftId);
-        const Node& rightNode = right_.node(rightId);
-        if (leftNode.children.size() != rightNode.children.size()) {
-            return;  // a hash collision; leave the descendants to later passes
-        }
+    ///
+    ///          Walks with a stack of its own rather than the call stack. A
+    ///          document is as deep as whatever wrote it, and one nested a few
+    ///          thousand levels deep used to take the process down here with
+    ///          no message. The order pairs are taken in does not matter, so a
+    ///          plain stack does.
+    void pairIdenticalSubtree(NodeId leftRoot, NodeId rightRoot) {
+        std::vector<std::pair<NodeId, NodeId>> pending;
+        pending.emplace_back(leftRoot, rightRoot);
 
-        if (provider_.childrenOrdered(left_, leftId)) {
-            for (std::size_t i = 0; i < leftNode.children.size(); ++i) {
-                const NodeId l = leftNode.children[i];
-                const NodeId r = rightNode.children[i];
-                if (left_.node(l).contentHash == right_.node(r).contentHash &&
-                    result_.matching.pair(l, r)) {
-                    ++result_.anchoredBySubtree;
-                    pairIdenticalSubtree(l, r);
-                }
+        while (!pending.empty()) {
+            const auto [leftId, rightId] = pending.back();
+            pending.pop_back();
+            const Node& leftNode = left_.node(leftId);
+            const Node& rightNode = right_.node(rightId);
+            if (leftNode.children.size() != rightNode.children.size()) {
+                continue;  // a hash collision; leave the descendants to later passes
             }
-            return;
-        }
 
-        // Unordered children hash as a set, so position means nothing and the
-        // pairing has to go by hash.
-        std::vector<NodeId> available(rightNode.children.begin(), rightNode.children.end());
-        for (const NodeId l : leftNode.children) {
-            const auto hash = left_.node(l).contentHash;
-            const auto it = std::find_if(available.begin(), available.end(), [&](NodeId r) {
-                return right_.node(r).contentHash == hash;
-            });
-            if (it == available.end()) {
+            if (provider_.childrenOrdered(left_, leftId)) {
+                for (std::size_t i = 0; i < leftNode.children.size(); ++i) {
+                    const NodeId l = leftNode.children[i];
+                    const NodeId r = rightNode.children[i];
+                    if (left_.node(l).contentHash == right_.node(r).contentHash &&
+                        result_.matching.pair(l, r)) {
+                        ++result_.anchoredBySubtree;
+                        pending.emplace_back(l, r);
+                    }
+                }
                 continue;
             }
-            if (result_.matching.pair(l, *it)) {
-                ++result_.anchoredBySubtree;
-                pairIdenticalSubtree(l, *it);
+
+            // Unordered children hash as a set, so position means nothing and
+            // the pairing has to go by hash.
+            std::vector<NodeId> available(rightNode.children.begin(), rightNode.children.end());
+            for (const NodeId l : leftNode.children) {
+                const auto hash = left_.node(l).contentHash;
+                const auto it = std::find_if(available.begin(), available.end(), [&](NodeId r) {
+                    return right_.node(r).contentHash == hash;
+                });
+                if (it == available.end()) {
+                    continue;
+                }
+                if (result_.matching.pair(l, *it)) {
+                    ++result_.anchoredBySubtree;
+                    pending.emplace_back(l, *it);
+                }
+                available.erase(it);
             }
-            available.erase(it);
         }
     }
 
@@ -356,8 +371,9 @@ private:
     ///
     /// \remarks Restricting candidates to one parent pair at a time is what
     ///          keeps this from comparing every node against every other node.
-    ///          Sets MatchQuality::SimilarityTrimmed and returns when either
-    ///          guard runs out.
+    ///          Sets MatchQuality::SimilarityTrimmed and returns when the node
+    ///          guard trips; the step budget is spent per parent pair, so a
+    ///          container that runs out of it is skipped and the walk goes on.
     void matchBySimilarity(const std::stop_token& token) {
         if (left_.size() > options_.maxNodesForSimilarity ||
             right_.size() > options_.maxNodesForSimilarity) {
@@ -368,7 +384,6 @@ private:
             return;
         }
 
-        steps_ = 0;
         std::deque<std::pair<NodeId, NodeId>> work = startingPairs();
 
         while (!work.empty()) {
@@ -379,18 +394,30 @@ private:
                 result_.cancelled = true;
                 return;
             }
-            if (!matchChildrenOf(leftParent, rightParent)) {
-                return;
-            }
+            matchChildrenOf(leftParent, rightParent);
             enqueueMatchedChildren(leftParent, work);
         }
     }
 
-    /// \brief One possible pairing and how good it looks.
-    struct Candidate {
-        double score;   ///< How alike the two nodes are, from zero to one.
-        NodeId left;    ///< The candidate in the left tree.
-        NodeId right;   ///< The candidate in the right tree.
+    /// \brief One unmatched child under a parent pair, with the parts of its
+    ///        score that do not depend on which candidate it is held against.
+    ///
+    /// \remarks Computed once per child rather than once per candidate pair.
+    ///          Under a wide container that is the difference between hashing
+    ///          every property of every child once and hashing it once per
+    ///          sibling on the other side.
+    struct Child {
+        NodeId id = kInvalidNode;                 ///< The node this stands for.
+        std::vector<std::uint64_t> fingerprints;  ///< Its property hashes, sorted.
+        std::string strongKey;                    ///< Its strong key, or empty.
+        bool settled = false;  ///< Paired, or with nothing acceptable left.
+    };
+
+    /// \brief One left child's choice of partner and how good it looks.
+    struct Choice {
+        double score;       ///< How alike the two nodes are, from zero to one.
+        std::size_t left;   ///< Index of the chooser among the left children.
+        std::size_t right;  ///< Index of the chosen among the right children.
     };
 
     /// \brief Chooses where the top-down walk begins.
@@ -450,38 +477,70 @@ private:
         return unmatched;
     }
 
-    /// \brief Scores every unclaimed pairing under one matched parent pair.
+    /// \brief Describes one side's unmatched children for scoring.
     ///
-    /// \param unmatchedLeft Candidates from the left tree.
-    /// \param unmatchedRight Candidates from the right tree.
+    /// \param tree The tree the children belong to.
+    /// \param ids The children, in document order.
     ///
-    /// \returns The pairings worth considering, best first.
+    /// \returns One Child per id, in the same order.
+    [[nodiscard]] std::vector<Child> describeChildren(const Tree& tree,
+                                                      const std::vector<NodeId>& ids) const {
+        std::vector<Child> children;
+        children.reserve(ids.size());
+        for (const NodeId id : ids) {
+            Child child;
+            child.id = id;
+            child.fingerprints = propertyFingerprints(tree.node(id));
+            IdentityKey key = provider_.identity(tree, id);
+            if (key.strong) {
+                child.strongKey = std::move(key.value);
+            }
+            children.push_back(std::move(child));
+        }
+        return children;
+    }
+
+    /// \brief Lets every free left child name the free right child it most
+    ///        resembles.
     ///
-    /// \remarks Sorted so that one strong match is never blocked by a weaker
-    ///          one that happened to be considered first. Ties break on node id
-    ///          so that a run produces the same answer every time.
-    [[nodiscard]] std::vector<Candidate> scoreCandidates(
-        const std::vector<NodeId>& unmatchedLeft,
-        const std::vector<NodeId>& unmatchedRight) {
-        std::vector<Candidate> candidates;
-        candidates.reserve(unmatchedLeft.size() * unmatchedRight.size());
-        for (const NodeId l : unmatchedLeft) {
-            for (const NodeId r : unmatchedRight) {
-                const double score = similarity(l, r);
-                if (score >= options_.minSimilarity) {
-                    candidates.push_back(Candidate{score, l, r});
+    /// \param lefts The left children. One that resembles nothing enough is
+    ///        settled here: the right side only shrinks, so its answer cannot
+    ///        improve later.
+    /// \param rights The right children.
+    /// \param steps The parent pair's budget counter, charged for the
+    ///        subtrees scanned while scoring.
+    ///
+    /// \returns One choice per left child that found something, unsorted.
+    ///
+    /// \remarks Ties go to the first right child in document order, so a run
+    ///          produces the same answer every time.
+    [[nodiscard]] std::vector<Choice> bestChoices(std::vector<Child>& lefts,
+                                                  const std::vector<Child>& rights,
+                                                  std::uint64_t& steps) const {
+        std::vector<Choice> choices;
+        for (std::size_t l = 0; l < lefts.size(); ++l) {
+            if (lefts[l].settled) {
+                continue;
+            }
+            double bestScore = -1.0;
+            std::size_t bestRight = rights.size();
+            for (std::size_t r = 0; r < rights.size(); ++r) {
+                if (rights[r].settled) {
+                    continue;
+                }
+                const double score = similarity(lefts[l], rights[r], steps);
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestRight = r;
                 }
             }
+            if (bestRight == rights.size() || bestScore < options_.minSimilarity) {
+                lefts[l].settled = true;
+                continue;
+            }
+            choices.push_back(Choice{bestScore, l, bestRight});
         }
-
-        std::sort(candidates.begin(), candidates.end(),
-                  [](const Candidate& a, const Candidate& b) {
-                      if (a.score != b.score) {
-                          return a.score > b.score;
-                      }
-                      return a.left != b.left ? a.left < b.left : a.right < b.right;
-                  });
-        return candidates;
+        return choices;
     }
 
     /// \brief Pairs up the unmatched children of one matched parent pair.
@@ -489,30 +548,65 @@ private:
     /// \param leftParent The parent in the left tree.
     /// \param rightParent Its counterpart in the right tree.
     ///
-    /// \returns `false` when the step budget ran out, which ends the pass.
-    ///
     /// \remarks Comparing only candidates under one parent pair is what keeps
     ///          this from comparing every node against every other node.
-    [[nodiscard]] bool matchChildrenOf(NodeId leftParent, NodeId rightParent) {
-        const std::vector<NodeId> unmatchedLeft = unmatchedLeftChildren(leftParent);
-        const std::vector<NodeId> unmatchedRight = unmatchedRightChildren(rightParent);
-
-        steps_ += static_cast<std::uint64_t>(unmatchedLeft.size()) * unmatchedRight.size();
-        if (steps_ > options_.maxSimilaritySteps) {
-            result_.quality = MatchQuality::SimilarityTrimmed;
-            return false;
+    ///
+    ///          Each round, every left child still free names the free right
+    ///          child it most resembles. Where two name the same one the better
+    ///          score wins and the loser chooses again next round, so a round
+    ///          pairs at least its best choice and the rounds end. This is what
+    ///          sorting every candidate pair did, without holding every
+    ///          candidate pair: four thousand children a side is sixteen
+    ///          million pairs, and a list of them is a quarter of a gigabyte.
+    ///
+    ///          The step budget is this parent pair's alone. Overspending it
+    ///          leaves the rest of these children to the classifier, which
+    ///          reports them added and deleted, and the result says so; the
+    ///          containers elsewhere in the document are unaffected. One budget
+    ///          for the whole document meant one wide container degraded the
+    ///          matching everywhere else in the file.
+    void matchChildrenOf(NodeId leftParent, NodeId rightParent) {
+        std::vector<Child> lefts = describeChildren(left_, unmatchedLeftChildren(leftParent));
+        std::vector<Child> rights = describeChildren(right_, unmatchedRightChildren(rightParent));
+        if (lefts.empty() || rights.empty()) {
+            return;
         }
 
-        for (const Candidate& candidate : scoreCandidates(unmatchedLeft, unmatchedRight)) {
-            if (result_.matching.leftMatched(candidate.left) ||
-                result_.matching.rightMatched(candidate.right)) {
-                continue;
+        std::uint64_t steps = 0;
+        std::size_t leftFree = lefts.size();
+        std::size_t rightFree = rights.size();
+        while (leftFree > 0 && rightFree > 0) {
+            steps += static_cast<std::uint64_t>(leftFree) * rightFree;
+            if (steps > options_.maxSimilaritySteps) {
+                result_.quality = MatchQuality::SimilarityTrimmed;
+                ++result_.trimmedParents;
+                return;
             }
-            if (result_.matching.pair(candidate.left, candidate.right)) {
-                ++result_.anchoredBySimilarity;
+
+            std::vector<Choice> choices = bestChoices(lefts, rights, steps);
+            if (choices.empty()) {
+                return;  // nothing left resembles anything enough
+            }
+            std::sort(choices.begin(), choices.end(), [](const Choice& a, const Choice& b) {
+                if (a.score != b.score) {
+                    return a.score > b.score;
+                }
+                return a.left != b.left ? a.left < b.left : a.right < b.right;
+            });
+
+            for (const Choice& choice : choices) {
+                if (rights[choice.right].settled) {
+                    continue;  // claimed by a better choice this round
+                }
+                if (result_.matching.pair(lefts[choice.left].id, rights[choice.right].id)) {
+                    ++result_.anchoredBySimilarity;
+                }
+                lefts[choice.left].settled = true;
+                rights[choice.right].settled = true;
+                --leftFree;
+                --rightFree;
             }
         }
-        return true;
     }
 
     /// \brief Queues every matched child of one node for its own turn.
@@ -534,8 +628,9 @@ private:
 
     /// \brief Scores how likely two nodes are to be the same node.
     ///
-    /// \param leftId The left candidate.
-    /// \param rightId The right candidate.
+    /// \param left The left candidate.
+    /// \param right The right candidate.
+    /// \param steps The budget counter, charged for the subtrees scanned.
     ///
     /// \returns A value from 0 to 1, where 0 means the two cannot be the same
     ///          node.
@@ -543,7 +638,9 @@ private:
     /// \remarks Nodes of different kinds score zero: comparing an element to one
     ///          of a different name is almost never right, and letting it
     ///          through produces confident nonsense.
-    double similarity(NodeId leftId, NodeId rightId) {
+    double similarity(const Child& left, const Child& right, std::uint64_t& steps) const {
+        const NodeId leftId = left.id;
+        const NodeId rightId = right.id;
         const Node& l = left_.node(leftId);
         const Node& r = right_.node(rightId);
 
@@ -559,14 +656,12 @@ private:
         // in the same place is a deletion and an insertion, not an edit. A
         // node with a key may still pair with one that has none, which is
         // what happens when an editor starts stamping ids on an old file.
-        if (identitiesDisagree(leftId, rightId)) {
+        if (identitiesDisagree(left, right)) {
             return 0.0;
         }
 
-        const auto leftProperties = propertyFingerprints(l);
-        const auto rightProperties = propertyFingerprints(r);
-        const double propertyScore = dice(commonCount(leftProperties, rightProperties),
-                                          leftProperties.size(), rightProperties.size());
+        const double propertyScore = dice(commonCount(left.fingerprints, right.fingerprints),
+                                          left.fingerprints.size(), right.fingerprints.size());
 
         // Position among siblings. Kind equality is already a prerequisite, so
         // a same-kind node sitting in the same place is good evidence on its
@@ -580,7 +675,7 @@ private:
         // it is charged to the same budget. Counting only candidate pairs would
         // let a handful of comparisons near the root of a large tree cost
         // millions of operations unbilled.
-        steps_ += l.descendantCount + r.descendantCount;
+        steps += l.descendantCount + r.descendantCount;
 
         std::size_t common = 0;
         std::size_t leftMatchedDescendants = 0;
@@ -622,8 +717,8 @@ private:
 
     /// \brief Reports whether two nodes carry strong keys that differ.
     ///
-    /// \param leftId The left candidate.
-    /// \param rightId The right candidate.
+    /// \param left The left candidate.
+    /// \param right The right candidate.
     ///
     /// \returns `true` when both nodes have a non-empty strong key and the keys
     ///          are not the same.
@@ -632,16 +727,11 @@ private:
     ///          nothing. Ambiguity is not considered: a key that appears twice
     ///          on a side anchors nothing in the first pass, but it still says
     ///          which node this is not.
-    [[nodiscard]] bool identitiesDisagree(NodeId leftId, NodeId rightId) const {
-        const IdentityKey leftKey = provider_.identity(left_, leftId);
-        if (!leftKey.strong || leftKey.value.empty()) {
+    [[nodiscard]] static bool identitiesDisagree(const Child& left, const Child& right) {
+        if (left.strongKey.empty() || right.strongKey.empty()) {
             return false;
         }
-        const IdentityKey rightKey = provider_.identity(right_, rightId);
-        if (!rightKey.strong || rightKey.value.empty()) {
-            return false;
-        }
-        return leftKey.value != rightKey.value;
+        return left.strongKey != right.strongKey;
     }
 
     /// \brief Scores how close two nodes sit to the same relative position.
@@ -674,7 +764,6 @@ private:
     MatchOptions options_;
     std::vector<std::uint32_t> leftSibling_;
     std::vector<std::uint32_t> rightSibling_;
-    std::uint64_t steps_ = 0;
     MatchResult result_;
 };
 

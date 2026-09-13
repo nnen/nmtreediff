@@ -43,7 +43,7 @@ std::stop_token neverStopped() {
 
 }  // namespace
 
-TEST_CASE("a 20 MB pair diffs inside the milestone budget", "[budget][.slow]") {
+TEST_CASE("a 20 MB pair diffs inside the milestone budget", "[budget]") {
     // Sized to land near twenty megabytes a side, the figure the plan set as
     // the point at which the text view has to stay usable.
     constexpr std::size_t kNodes = 150000;
@@ -69,7 +69,7 @@ TEST_CASE("a 20 MB pair diffs inside the milestone budget", "[budget][.slow]") {
     CHECK(millis < 800.0);
 }
 
-TEST_CASE("a pair that shares nothing still finishes", "[budget][.slow]") {
+TEST_CASE("a pair that shares nothing still finishes", "[budget]") {
     // The worst case for the alignment: no common lines at all. The ceiling is
     // what stops this from running away, and it must announce itself.
     std::string left;
@@ -94,10 +94,10 @@ TEST_CASE("a pair that shares nothing still finishes", "[budget][.slow]") {
 namespace {
 
 // A generated JSON asset, shaped the way exported game data usually is: one
-// long array of records rather than a deep tree. Each entity becomes five
+// long array of records rather than a deep tree. Each entity becomes two
 // nodes, so the node count is what the budget is really about, not the byte
-// count.
-std::string generateJson(std::size_t entities, std::size_t modifyEvery) {
+// count. `idOffset` renumbers every identifier, the way a re-export does.
+std::string generateJson(std::size_t entities, std::size_t modifyEvery, std::size_t idOffset = 0) {
     std::string out;
     out.reserve(entities * 160);
     out += "{\n  \"version\": 1,\n  \"entities\": [\n";
@@ -107,7 +107,7 @@ std::string generateJson(std::size_t entities, std::size_t modifyEvery) {
             out += ",\n";
         }
         out += "    { \"id\": \"e";
-        out += std::to_string(i);
+        out += std::to_string(i + idOffset);
         out += "\", \"kind\": \"prop\", \"x\": ";
         out += std::to_string(i);
         out += ", \"y\": ";
@@ -120,7 +120,7 @@ std::string generateJson(std::size_t entities, std::size_t modifyEvery) {
 
 }  // namespace
 
-TEST_CASE("a 100k node JSON pair parses and matches inside the budget", "[budget][.slow]") {
+TEST_CASE("a 100k node JSON pair parses and matches inside the budget", "[budget]") {
     // The same shape of measurement as the XML case, so that the two built-in
     // formats can be compared rather than each being judged against itself.
     // Each entity is two nodes: itself and its transform. Its tag list is one
@@ -165,7 +165,44 @@ TEST_CASE("a 100k node JSON pair parses and matches inside the budget", "[budget
     CHECK(matchMillis < 2000.0);
 }
 
-TEST_CASE("parsing a large JSON document can be cancelled", "[budget][.slow]") {
+TEST_CASE("four thousand renumbered entities match clean inside the budget", "[budget]") {
+    // A re-export that renumbered every identifier. No entity hashes the same
+    // as before, so all four thousand reach the similarity pass under one
+    // parent pair, four thousand against four thousand. That used to spend
+    // the whole document's step budget on the one container and take about
+    // five seconds, and everything under the entities was then left
+    // unmatched. The budget is per parent pair now, and a node's part in the
+    // score is computed once rather than once per candidate.
+    constexpr std::size_t kEntities = 4000;
+
+    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto left = SourceFile::fromMemory(generateJson(kEntities, 0), "left");
+    const auto right = SourceFile::fromMemory(generateJson(kEntities, 0, 1), "right");
+
+    auto leftTree = provider->parse(left, neverStopped());
+    auto rightTree = provider->parse(right, neverStopped());
+    REQUIRE(leftTree.ok());
+    REQUIRE(rightTree.ok());
+
+    const auto started = steady_clock::now();
+    const auto model = nmxd::diffTrees(leftTree.value(), rightTree.value(), *provider);
+    const double millis = duration<double, std::milli>(steady_clock::now() - started).count();
+
+    INFO("bytes " << left.size() << " a side, match " << millis << " ms, +" << model.added << " -"
+                  << model.deleted << " ~" << model.modified << " >" << model.moved);
+
+    // Every entity pairs with the one in its place and differs in its id
+    // alone. An addition or a deletion means the guard tripped or the pairing
+    // went astray, and either is the wrong answer for a re-export.
+    CHECK(model.quality == nmxd::MatchQuality::Full);
+    CHECK(model.modified == kEntities);
+    CHECK(model.added == 0);
+    CHECK(model.deleted == 0);
+    CHECK(model.moved == 0);
+    CHECK(millis < 2000.0);
+}
+
+TEST_CASE("parsing a large JSON document can be cancelled", "[budget]") {
     // Cancellation is the normal path when someone switches format or reloads,
     // so the provider has to notice a stop token part way through a document
     // rather than only between documents.

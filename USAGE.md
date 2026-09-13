@@ -664,10 +664,17 @@ nmxmldiff --headless testdata/sample/tree_before.xml testdata/sample/tree_after.
 Add `--report json` for a machine-readable version of the same thing. Add
 `--exit-code` to have the result decide the exit status.
 
+The result is the tree's whenever a format resolved. A reformat is not a
+change, and the tree is what knows that, so a pair that differs only in
+whitespace exits 0 however many lines moved. The line diff decides only for a
+file no format claims, and the report says which one answered under
+`comparison`. What a format leaves out of the tree is left out of the verdict
+too: a change inside dropped content is the format's decision not to see.
+
 | Exit status | Meaning |
 | --- | --- |
-| 0 | The files are identical, or `--exit-code` was not given |
-| 1 | The files differ, and `--exit-code` was given |
+| 0 | Nothing changed, by the deciding comparison, or `--exit-code` was not given |
+| 1 | Something changed, and `--exit-code` was given |
 | 2 | Something went wrong: a file would not open, would not parse, an option was rejected, or a scripted format raised an error while shaping |
 
 A format may leave content out of the tree, and a scripted format may fail on
@@ -678,7 +685,14 @@ file, the line and the message, and the JSON report carries the same under
 always makes it 2, whatever `--exit-code` says, because a script that raised
 is a bug and a build job must not read the comparison as sound.
 
-The text report ends with a list of what happened to each node, one per line:
+The text report begins with both files and the line diff, labelled `lines:`.
+When a format resolved, the node counts follow and then the change list, one
+node per line, and the change list is the verdict: `identical` when it is
+empty, whatever the lines did. A `warning:` line before it says when the
+similarity pass gave up on a container too wide to finish inside its budget;
+the children of that container that nothing else paired are then reported
+added and deleted rather than matched, and nothing elsewhere in the file is
+affected.
 
 | Mark | Meaning |
 | --- | --- |
@@ -687,6 +701,12 @@ The text report ends with a list of what happened to each node, one per line:
 | `~` | Modified, with the changed property names after it |
 | `>` | Moved, with the old path and the new one |
 | `~>` | Moved and modified |
+
+The JSON report carries the same list under `tree.changes`, one entry per
+changed node with its `status`, whether it `moved`, its path on each side
+(`null` on the side it is not on) and the `properties` that differ, so a
+script gets what a person gets. `tree.trimmedContainers` counts the containers
+the similarity pass gave up on, zero when the matching is complete.
 
 Using it from version control
 -----------------------------

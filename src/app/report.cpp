@@ -3,6 +3,7 @@
 
 #include "app/report.h"
 
+#include "core/diff.h"
 #include "core/provider.h"
 
 #include <ostream>
@@ -89,6 +90,49 @@ void writeJsonFailures(std::ostream& out, const char* side, const SourceFile& so
     }
 }
 
+/// \brief Writes a node's path as a JSON string, or null for no node.
+///
+/// \param out Where to write.
+/// \param tree The tree the node belongs to.
+/// \param id The node, or kInvalidNode.
+void writeJsonPath(std::ostream& out, const Tree& tree, NodeId id) {
+    if (id == kInvalidNode) {
+        out << "null";
+        return;
+    }
+    out << '"' << jsonEscape(nodePath(tree, id)) << '"';
+}
+
+/// \brief Writes the change list as a JSON array, one entry per changed node.
+///
+/// \param out Where to write.
+/// \param left The left tree.
+/// \param right The right tree.
+/// \param model The classified diff.
+///
+/// \remarks The same list the text report prints, so automation gets what a
+///          person gets: status, both paths, and the names of the properties
+///          that differ. A path is null on the side the node is not on.
+void writeJsonChanges(std::ostream& out, const Tree& left, const Tree& right,
+                      const DiffModel& model) {
+    out << "    \"changes\": [";
+    bool first = true;
+    for (const Change& change : model.changes) {
+        out << (first ? "\n" : ",\n") << "      { \"status\": \"" << describe(change.status)
+            << "\", \"moved\": " << (change.moved ? "true" : "false") << ", \"left\": ";
+        writeJsonPath(out, left, change.left);
+        out << ", \"right\": ";
+        writeJsonPath(out, right, change.right);
+        out << ", \"properties\": [";
+        for (std::size_t i = 0; i < change.changedProperties.size(); ++i) {
+            out << (i > 0 ? ", " : "") << '"' << jsonEscape(change.changedProperties[i]) << '"';
+        }
+        out << "] }";
+        first = false;
+    }
+    out << (first ? "" : "\n    ") << "]\n";
+}
+
 /// \brief Writes the failures of one side as lines for a person.
 ///
 /// \param out Where to write.
@@ -104,6 +148,33 @@ void writeTextFailures(std::ostream& out, const SourceFile& source, const Tree& 
     }
 }
 
+/// \brief Reports whether the tree comparison is there to decide the verdict.
+///
+/// \param snapshot The finished comparison.
+///
+/// \returns `true` when a format resolved and the trees were compared.
+///
+/// \remarks The tree decides whenever it can, because a reformat is not a
+///          change and the tree is what knows that; the line diff answers only
+///          for a file no format claims. The exit code and the `identical`
+///          field used to read the line diff even with a tree to hand, so the
+///          whitespace-only pair exited 1 under a report that said identical.
+bool treeDecides(const DiffSnapshot& snapshot) { return snapshot.treeDiff != nullptr; }
+
+/// \brief Writes the line-diff summary the way a person reads it.
+///
+/// \param out Where to write.
+/// \param text The line diff.
+void writeLineSummary(std::ostream& out, const TextDiff& text) {
+    if (text.identical()) {
+        out << "lines: identical\n";
+        return;
+    }
+    out << "lines: +" << text.addedRows << " -" << text.deletedRows << " ~" << text.modifiedRows
+        << " across " << text.changeBlocks.size() << " change"
+        << (text.changeBlocks.size() == 1 ? "" : "s") << "\n";
+}
+
 }  // namespace
 
 namespace {
@@ -112,7 +183,8 @@ namespace {
 ///
 /// \param out Where to write.
 /// \param snapshot The finished comparison.
-/// \param identical Whether the two sides matched.
+/// \param identical Whether the two sides matched, by whichever comparison
+///        decides.
 ///
 /// \remarks Split from the text report because the two share only the
 ///          numbers they quote. One function emitting both was long enough that
@@ -121,7 +193,7 @@ void writeJsonReport(std::ostream& out, const DiffSnapshot& snapshot, bool ident
     const TextDiff& text = *snapshot.text;
     out << "{\n";
     out << "  \"status\": \"ok\",\n";
-    out << "  \"comparison\": \"lines\",\n";
+    out << "  \"comparison\": \"" << (treeDecides(snapshot) ? "tree" : "lines") << "\",\n";
     out << "  \"identical\": " << (identical ? "true" : "false") << ",\n";
     out << "  \"quality\": \"" << jsonEscape(describe(text.quality)) << "\",\n";
     out << "  \"added\": " << text.addedRows << ",\n";
@@ -142,7 +214,9 @@ void writeJsonReport(std::ostream& out, const DiffSnapshot& snapshot, bool ident
         out << "    \"deleted\": " << tree.deleted << ",\n";
         out << "    \"modified\": " << tree.modified << ",\n";
         out << "    \"moved\": " << tree.moved << ",\n";
-        out << "    \"unchanged\": " << tree.unchanged << "\n";
+        out << "    \"unchanged\": " << tree.unchanged << ",\n";
+        out << "    \"trimmedContainers\": " << tree.trimmedParents << ",\n";
+        writeJsonChanges(out, *snapshot.leftTree, *snapshot.rightTree, tree);
         out << "  },\n";
     }
     if (snapshot.leftTree && snapshot.rightTree) {
@@ -170,20 +244,19 @@ void writeJsonReport(std::ostream& out, const DiffSnapshot& snapshot, bool ident
 ///
 /// \param out Where to write.
 /// \param snapshot The finished comparison.
-/// \param identical Whether the two sides matched.
-void writeTextReport(std::ostream& out, const DiffSnapshot& snapshot, bool identical) {
+///
+/// \remarks The line summary comes first and is labelled as lines. When a
+///          format resolved, the node counts and the change list follow, and
+///          the change list is the verdict: `identical` when it is empty,
+///          whatever the lines did. Without a format the line summary is all
+///          there is, and it decides.
+void writeTextReport(std::ostream& out, const DiffSnapshot& snapshot) {
     const TextDiff& text = *snapshot.text;
     out << snapshot.left->label() << ": " << snapshot.left->size() << " bytes, "
         << snapshot.left->lineCount() << " lines\n";
     out << snapshot.right->label() << ": " << snapshot.right->size() << " bytes, "
         << snapshot.right->lineCount() << " lines\n";
-    if (identical) {
-        out << "identical\n";
-    } else {
-        out << "+" << text.addedRows << " -" << text.deletedRows << " ~" << text.modifiedRows
-            << " across " << text.changeBlocks.size() << " change"
-            << (text.changeBlocks.size() == 1 ? "" : "s") << "\n";
-    }
+    writeLineSummary(out, text);
     if (snapshot.provider != nullptr && snapshot.leftTree && snapshot.rightTree) {
         out << "format " << snapshot.provider->name() << ": " << snapshot.leftTree->size()
             << " and " << snapshot.rightTree->size() << " nodes\n";
@@ -193,7 +266,12 @@ void writeTextReport(std::ostream& out, const DiffSnapshot& snapshot, bool ident
         out << "nodes: +" << tree.added << " -" << tree.deleted << " ~" << tree.modified << " >"
             << tree.moved << "\n";
         if (tree.quality != MatchQuality::Full) {
-            out << "warning: " << describe(tree.quality) << "\n";
+            out << "warning: " << describe(tree.quality);
+            if (tree.trimmedParents > 0) {
+                out << " under " << tree.trimmedParents << " container"
+                    << (tree.trimmedParents == 1 ? "" : "s");
+            }
+            out << "\n";
         }
         out << serializeChanges(*snapshot.leftTree, *snapshot.rightTree, tree);
     }
@@ -239,13 +317,16 @@ int writeReport(std::ostream& out, const DiffSnapshot& snapshot, const Options& 
         return 2;
     }
 
-    const TextDiff& text = *snapshot.text;
-    const bool identical = text.identical();
+    // The tree's verdict whenever there is one, the lines' otherwise. A build
+    // job wired to the exit code is cashing in the claim that a reformat is
+    // not a change, and only the tree can honour it.
+    const bool identical =
+        treeDecides(snapshot) ? snapshot.treeDiff->identical() : snapshot.text->identical();
 
     if (options.report == ReportFormat::Json) {
         writeJsonReport(out, snapshot, identical);
     } else {
-        writeTextReport(out, snapshot, identical);
+        writeTextReport(out, snapshot);
     }
 
     // A shaping job that raised is a bug in the format, and a build job

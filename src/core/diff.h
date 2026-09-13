@@ -69,6 +69,15 @@ struct DiffModel {
     /// \brief How complete the matching is.
     MatchQuality quality = MatchQuality::Full;
 
+    /// \brief Containers the similarity pass gave up on for want of budget.
+    ///
+    /// \remarks Zero unless \ref quality says the pass was trimmed. The
+    ///          children of such a container that no earlier pass had paired
+    ///          are reported added and deleted, and this says how many
+    ///          containers that applies to, so the report can name the scale
+    ///          of what it could not do.
+    std::uint32_t trimmedParents = 0;
+
     /// \brief Every change, in the order a reader should be walked through them.
     ///
     /// \remarks Produced by walking the union of both trees, so the order

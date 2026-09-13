@@ -96,9 +96,13 @@ public:
     [[nodiscard]] bool valid() const noexcept { return builder_ != nullptr; }
 
     /// \brief Returns what the handle stands on.
+    ///
+    /// \returns Node, or one of the property kinds.
     [[nodiscard]] RefKind kind() const noexcept { return id_.kind; }
 
     /// \brief Reports whether the handle stands on a node.
+    ///
+    /// \returns `true` for a node, `false` for a property or a part.
     [[nodiscard]] bool isNode() const noexcept { return id_.kind == RefKind::Node; }
 
     /// \brief Returns the form of the property this handle stands on.
@@ -107,6 +111,8 @@ public:
     [[nodiscard]] PropertyForm form() const;
 
     /// \brief Returns the id, for carrying across a queued job.
+    ///
+    /// \returns The id the builder issued, which at() turns back into a handle.
     [[nodiscard]] RefId id() const noexcept { return id_; }
 
     /// \brief Adds whatever a child is where this handle stands.
@@ -182,6 +188,8 @@ public:
     ///
     /// \param form The form to give it.
     ///
+    /// \returns This handle, for chaining.
+    ///
     /// \throws BuildError on a node, or when making a property with parts a
     ///         scalar.
     ///
@@ -224,23 +232,43 @@ public:
     [[nodiscard]] Ref owner() const;
 
     /// \brief Sets the kind of a node or the name of a property.
+    ///
+    /// \param name The kind or name to give it.
+    ///
+    /// \returns This handle, for chaining.
     Ref& setName(std::string_view name);
 
     /// \brief Sets a property's value.
+    ///
+    /// \param value The value, in whatever form the property has.
+    ///
+    /// \returns This handle, for chaining.
     ///
     /// \throws BuildError on a node.
     Ref& setValue(std::string_view value);
 
     /// \brief Sets where the node or property sits in the source bytes.
+    ///
+    /// \param span The extent in the source file.
+    ///
+    /// \returns This handle, for chaining.
     Ref& setSpan(SourceSpan span);
 
     /// \brief Records which element of the source document this came from.
+    ///
+    /// \param element The source element.
+    ///
+    /// \returns This handle, for chaining.
     ///
     /// \remarks What makes the element count as represented. The overloads
     ///          taking a DOM element call this themselves.
     Ref& setSource(DomId element);
 
     /// \brief Says whether a node's children have a meaningful order.
+    ///
+    /// \param ordered `true` when reordering the children is a change.
+    ///
+    /// \returns This handle, for chaining.
     ///
     /// \throws BuildError on a property.
     Ref& setChildrenOrdered(bool ordered);
@@ -250,16 +278,27 @@ public:
     /// \param value The key, or empty for none.
     /// \param strength How far it reaches.
     ///
+    /// \returns This handle, for chaining.
+    ///
     /// \remarks Ignored on a property.
     Ref& setIdentity(std::string_view value, Identity strength = Identity::Weak);
 
     /// \brief Sets a node card's title and subtitle.
+    ///
+    /// \param title The first line of the card.
+    /// \param subtitle The second line, or empty for one line.
+    ///
+    /// \returns This handle, for chaining.
     ///
     /// \remarks Ignored on a property. An empty title leaves the kind in
     ///          place.
     Ref& setTitle(std::string_view title, std::string_view subtitle = {});
 
     /// \brief Sets a node's own colour as 0xRRGGBB.
+    ///
+    /// \param rgb The colour, red in the high byte.
+    ///
+    /// \returns This handle, for chaining.
     ///
     /// \remarks Ignored on a property. Zero leaves the colour derived from
     ///          the kind.
@@ -324,20 +363,29 @@ public:
     ///          issued.
     [[nodiscard]] Ref at(RefId id);
 
-    /// \brief Returns the root handle, or an invalid one before root() is
-    ///        called.
+    /// \brief Returns the root handle.
+    ///
+    /// \returns The root, or an invalid handle before root() is called.
     [[nodiscard]] Ref rootRef();
 
     /// \brief Returns how many nodes have been created.
+    ///
+    /// \returns The node count so far.
     [[nodiscard]] std::size_t nodeCount() const noexcept { return nodes_.size(); }
 
     /// \brief Returns the provider name the finished tree will record.
+    ///
+    /// \returns The name, as given to the constructor.
     [[nodiscard]] const std::string& formatName() const noexcept { return formatName_; }
 
     /// \brief Returns how many properties and parts have been created.
+    ///
+    /// \returns The count so far, parts at every depth included.
     [[nodiscard]] std::size_t propertyCount() const noexcept { return properties_.size(); }
 
     /// \brief Reports whether the stop token has been signalled.
+    ///
+    /// \returns `true` once a stop has been requested.
     [[nodiscard]] bool cancelled() const noexcept { return token_.stop_requested(); }
 
     /// \brief Returns the source elements that no handle was made from.
@@ -351,6 +399,9 @@ public:
     /// \brief Reports whether a source element has a handle made from it.
     ///
     /// \param element The element to ask about.
+    ///
+    /// \returns `true` when some handle recorded it as its source, or
+    ///          represent() was called for it.
     [[nodiscard]] bool represents(DomId element) const noexcept;
 
     /// \brief Marks a source element as represented.
@@ -377,6 +428,8 @@ public:
                        std::string detail = {});
 
     /// \brief Returns how many failures have been recorded.
+    ///
+    /// \returns The count of recordFailure() calls so far.
     [[nodiscard]] std::size_t failureCount() const noexcept { return failures_.size(); }
 
     /// \brief Records the source bytes no handle accounted for.

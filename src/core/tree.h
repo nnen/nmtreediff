@@ -92,10 +92,19 @@ struct Property {
     ///          kept instead.
     std::vector<Property> children;
 
+    /// \brief Makes an empty scalar.
     Property() = default;
+    /// \brief Copies a property, parts and all.
     Property(const Property&) = default;
+    /// \brief Moves a property, parts and all.
     Property(Property&&) noexcept = default;
+    /// \brief Copies a property over this one.
+    ///
+    /// \returns This property.
     Property& operator=(const Property&) = default;
+    /// \brief Moves a property over this one.
+    ///
+    /// \returns This property.
     Property& operator=(Property&&) noexcept = default;
 
     /// \brief Destroys the property and its parts without recursing.

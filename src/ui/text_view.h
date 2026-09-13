@@ -47,12 +47,16 @@ public:
 
     /// \brief Whether the bytes the format left out of the tree are marked.
     ///
+    /// \returns The flag, writable, so a menu item can bind to it.
+    ///
     /// \remarks On by default. A format may drop content now, and the price
     ///          of that freedom is that the reader can see where. Off when the
     ///          format is trusted and the marks are noise.
     [[nodiscard]] bool& showDropped() noexcept { return showDropped_; }
 
     /// \brief Whether the elements a shaping job failed on are marked.
+    ///
+    /// \returns The flag, writable, so a menu item can bind to it.
     ///
     /// \remarks On by default, in a colour of its own, because "this format
     ///          ignores comments" and "this script broke here" are different

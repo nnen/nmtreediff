@@ -52,7 +52,7 @@ constexpr const char* kStatusTitle = "Status";
 constexpr const char* kOutputTitle = "Output";
 
 /// \brief Colour of a line the program wrote to standard error.
-constexpr ImVec4 kErrorLineColour(0.89f, 0.43f, 0.41f, 1.0f);
+constexpr ImVec4 kErrorLineColour{0.89f, 0.43f, 0.41f, 1.0f};
 
 /// \brief How many frames the Output pane asks for focus after opening.
 ///
@@ -1006,10 +1006,50 @@ void AppWindow::drawRemovedProperty(const Property& property) {
 }
 
 void AppWindow::drawTreeOutline(const Tree& tree, const Tree* otherTree,
-                                const IFormatProvider& provider, NodeId id, const DiffModel* diff,
+                                const IFormatProvider& provider, NodeId root, const DiffModel* diff,
                                 Side side, bool withChildren) {
+    // The frames are the call stack this used to have, kept on the heap. Every
+    // level is open by default, so a document a few thousand levels deep had
+    // the outline recurse once per level and take the window down. Each frame
+    // is an open node whose children are still being drawn, and closing it is
+    // the tree pop that TreeNodeEx() asked for.
+    struct Frame {
+        NodeId id;
+        std::size_t nextChild = 0;
+        bool pushed = false;
+    };
+    std::vector<Frame> frames;
+
+    bool pushed = false;
+    if (drawOutlineNode(tree, otherTree, provider, root, diff, side, withChildren, pushed)) {
+        frames.push_back(Frame{root, 0, pushed});
+    }
+
+    while (!frames.empty()) {
+        Frame& frame = frames.back();
+        const Node& node = tree.node(frame.id);
+        if (withChildren && frame.nextChild < node.children.size()) {
+            const NodeId child = node.children[frame.nextChild++];
+            if (drawOutlineNode(tree, otherTree, provider, child, diff, side, withChildren,
+                                pushed)) {
+                frames.push_back(Frame{child, 0, pushed});
+            }
+            continue;
+        }
+        if (frame.pushed) {
+            ImGui::TreePop();
+        }
+        ImGui::PopID();
+        frames.pop_back();
+    }
+}
+
+bool AppWindow::drawOutlineNode(const Tree& tree, const Tree* otherTree,
+                                const IFormatProvider& provider, NodeId id, const DiffModel* diff,
+                                Side side, bool withChildren, bool& pushed) {
+    pushed = false;
     if (id == kInvalidNode || id >= tree.size()) {
-        return;
+        return false;
     }
     const Node& node = tree.node(id);
     const NodeStyle style = provider.style(tree, id);
@@ -1051,22 +1091,19 @@ void AppWindow::drawTreeOutline(const Tree& tree, const Tree* otherTree,
         ImGui::TextDisabled("%s", style.subtitle.c_str());
     }
 
-    if (open) {
-        drawProperties(tree, otherTree, provider, id, diff, side);
-        if (withChildren) {
-            for (const NodeId child : node.children) {
-                drawTreeOutline(tree, otherTree, provider, child, diff, side);
-            }
-        } else if (!node.children.empty()) {
-            // Say what is being left out, so a narrowed outline never reads as
-            // a node that simply has nothing under it.
-            ImGui::TextDisabled("%zu below, hidden", node.children.size());
-        }
-        if ((flags & ImGuiTreeNodeFlags_NoTreePushOnOpen) == 0) {
-            ImGui::TreePop();
-        }
+    if (!open) {
+        ImGui::PopID();
+        return false;
     }
-    ImGui::PopID();
+
+    drawProperties(tree, otherTree, provider, id, diff, side);
+    if (!withChildren && !node.children.empty()) {
+        // Say what is being left out, so a narrowed outline never reads as a
+        // node that simply has nothing under it.
+        ImGui::TextDisabled("%zu below, hidden", node.children.size());
+    }
+    pushed = (flags & ImGuiTreeNodeFlags_NoTreePushOnOpen) == 0;
+    return true;
 }
 
 void AppWindow::drawStatusBar(const DiffSnapshot& snapshot) {
