@@ -264,6 +264,8 @@ const Dom& dom = context.dom();
 DomNode root = dom.root();
 for (DomNode child : root.children()) { ... }
 child.parent(); child.nextSibling(); child.childAt(0); child.childCount();
+child.child("id");                  // the first child of that name, or an invalid handle
+for (DomNode part : child.children("child")) { ... }   // every child of that name
 child.attribute("type");            // the first property of that name, or nothing
 child.property("type");             // the same, as a handle
 for (DomProperty p : child.properties()) { ... }       // every one, repeats included

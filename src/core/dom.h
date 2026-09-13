@@ -152,17 +152,21 @@ public:
         using reference = DomNode;
 
         iterator() = default;
-        iterator(const Dom* dom, const std::vector<NodeId>* ids, std::size_t index)
-            : dom_(dom), ids_(ids), index_(index) {}
+        iterator(const Dom* dom, const std::vector<NodeId>* ids, std::size_t index,
+                 std::string_view filter)
+            : dom_(dom), ids_(ids), index_(index), filter_(filter) {
+            settle();
+        }
 
         DomNode operator*() const;
         iterator& operator++() {
             ++index_;
+            settle();
             return *this;
         }
         iterator operator++(int) {
             iterator before = *this;
-            ++index_;
+            ++*this;
             return before;
         }
         friend bool operator==(const iterator& a, const iterator& b) {
@@ -170,21 +174,27 @@ public:
         }
 
     private:
+        /// \brief Moves past children the filter rejects.
+        void settle();
+
         const Dom* dom_ = nullptr;
         const std::vector<NodeId>* ids_ = nullptr;
         std::size_t index_ = 0;
+        std::string_view filter_;
     };
 
-    DomChildRange(const Dom* dom, const std::vector<NodeId>* ids) : dom_(dom), ids_(ids) {}
+    DomChildRange(const Dom* dom, const std::vector<NodeId>* ids, std::string_view filter)
+        : dom_(dom), ids_(ids), filter_(filter) {}
 
-    [[nodiscard]] iterator begin() const { return iterator(dom_, ids_, 0); }
+    [[nodiscard]] iterator begin() const { return iterator(dom_, ids_, 0, filter_); }
     [[nodiscard]] iterator end() const {
-        return iterator(dom_, ids_, ids_ == nullptr ? 0 : ids_->size());
+        return iterator(dom_, ids_, ids_ == nullptr ? 0 : ids_->size(), {});
     }
 
 private:
     const Dom* dom_ = nullptr;
     const std::vector<NodeId>* ids_ = nullptr;
+    std::string_view filter_;
 };
 
 /// \brief A handle on one element of the document a provider read.
@@ -253,6 +263,14 @@ public:
 
     /// \brief Returns the children, in document order.
     [[nodiscard]] DomChildRange children() const noexcept;
+
+    /// \brief Returns the first child with a name.
+    ///
+    /// \returns The child, or an invalid handle when there is none.
+    [[nodiscard]] DomNode child(std::string_view childName) const noexcept;
+
+    /// \brief Returns every child with a name, in document order.
+    [[nodiscard]] DomChildRange children(std::string_view childName) const noexcept;
 
     /// \brief Returns how many properties the element has, repeats included.
     [[nodiscard]] std::size_t propertyCount() const noexcept;

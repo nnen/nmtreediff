@@ -76,6 +76,21 @@ sol::object makeIterator(sol::this_state lua, Step step) {
     return sol::make_object(lua, next);
 }
 
+/// \brief Hands a handle to Lua, or nil when it is invalid.
+///
+/// \param state The interpreter to make the object in.
+/// \param handle A DOM handle that may be invalid.
+///
+/// \returns The handle as a userdata, or nil.
+///
+/// \remarks Every lookup that can miss goes through here, so that a script
+///          tests for a missing parent, child, property or part with `== nil`
+///          and never sees an invalid handle it would have to ask about.
+template <class Handle>
+sol::object orNil(sol::this_state state, const Handle& handle) {
+    return handle.valid() ? sol::make_object(state, handle) : sol::object(sol::lua_nil);
+}
+
 /// \brief Raises a Lua error from a failed script call, keeping its message.
 ///
 /// \param result The failed call.
@@ -135,7 +150,7 @@ void bindDocument(sol::state& lua) {
         "root", sol::property([](const Dom& dom) { return dom.root(); }),
         "size", sol::property([](const Dom& dom) { return dom.size(); }),
         "base_format", sol::property([](const Dom& dom) { return dom.baseFormat(); }),
-        "at", [](const Dom& dom, DomId id) { return dom.at(id); });
+        "at", [](const Dom& dom, DomId id, sol::this_state s) { return orNil(s, dom.at(id)); });
 
     lua.new_usertype<AttributeView>(
         "Attributes", sol::no_constructor,
@@ -152,24 +167,61 @@ void bindDocument(sol::state& lua) {
         "id", sol::property([](const DomNode& e) { return e.id(); }),
         "depth", sol::property([](const DomNode& e) { return e.depth(); }),
         "attr", sol::property([](const DomNode& e) { return AttributeView{e}; }),
-        "parent", sol::property([](const DomNode& e) { return e.parent(); }),
-        "first_child", sol::property([](const DomNode& e) { return e.firstChild(); }),
-        "last_child", sol::property([](const DomNode& e) { return e.lastChild(); }),
-        "next_sibling", sol::property([](const DomNode& e) { return e.nextSibling(); }),
-        "prev_sibling", sol::property([](const DomNode& e) { return e.prevSibling(); }),
+        "parent",
+        sol::property([](const DomNode& e, sol::this_state s) { return orNil(s, e.parent()); }),
+        "first_child",
+        sol::property([](const DomNode& e, sol::this_state s) { return orNil(s, e.firstChild()); }),
+        "last_child",
+        sol::property([](const DomNode& e, sol::this_state s) { return orNil(s, e.lastChild()); }),
+        "next_sibling",
+        sol::property([](const DomNode& e, sol::this_state s) { return orNil(s, e.nextSibling()); }),
+        "prev_sibling",
+        sol::property([](const DomNode& e, sol::this_state s) { return orNil(s, e.prevSibling()); }),
         "child_count", sol::property([](const DomNode& e) { return e.childCount(); }),
         "property_count", sol::property([](const DomNode& e) { return e.propertyCount(); }),
-        "child_at", [](const DomNode& e, int index) { return e.childAt(fromLuaIndex(index)); },
+        "child_at",
+        [](const DomNode& e, int index, sol::this_state s) {
+            return orNil(s, e.childAt(fromLuaIndex(index)));
+        },
+        "child",
+        [](const DomNode& e, std::string_view name, sol::this_state s) {
+            return orNil(s, e.child(name));
+        },
         "children",
-        [](const DomNode& e, sol::this_state lua) {
-            return makeIterator(lua, [e](sol::this_state state, std::size_t index) {
-                const DomNode child = e.childAt(index);
-                return child.valid() ? sol::make_object(state, child) : sol::lua_nil;
-            });
+        [](const DomNode& e, sol::optional<std::string> name, sol::this_state lua) {
+            // Filtered by name when one is given, every child otherwise. The
+            // cursor walks the range once, so a filtered pass over a long
+            // sibling list costs what an unfiltered one does. The filter is
+            // owned alongside the cursor because the range keeps a view into
+            // it and the script's string would not outlive this call.
+            struct Cursor {
+                std::string filter;
+                DomChildRange::iterator at;
+                DomChildRange::iterator end;
+            };
+            auto cursor = std::make_shared<Cursor>();
+            cursor->filter = name.value_or("");
+            const DomChildRange range = e.children(cursor->filter);
+            cursor->at = range.begin();
+            cursor->end = range.end();
+            std::function<sol::object(sol::this_state)> next = [cursor](sol::this_state state) {
+                if (cursor->at == cursor->end) {
+                    return sol::object(sol::lua_nil);
+                }
+                const DomNode child = *cursor->at;
+                ++cursor->at;
+                return sol::make_object(state, child);
+            };
+            return sol::make_object(lua, next);
         },
         "property_at",
-        [](const DomNode& e, int index) { return e.propertyAt(fromLuaIndex(index)); },
-        "property", [](const DomNode& e, std::string_view name) { return e.property(name); },
+        [](const DomNode& e, int index, sol::this_state s) {
+            return orNil(s, e.propertyAt(fromLuaIndex(index)));
+        },
+        "property",
+        [](const DomNode& e, std::string_view name, sol::this_state s) {
+            return orNil(s, e.property(name));
+        },
         "properties",
         [](const DomNode& e, sol::optional<std::string> name, sol::this_state lua) {
             // Filtered by name when one is given, every property otherwise.
@@ -198,8 +250,14 @@ void bindDocument(sol::state& lua) {
         "value", sol::property([](const DomProperty& p) { return p.value(); }),
         "form", sol::property([](const DomProperty& p) { return formWord(p.form()); }),
         "part_count", sol::property([](const DomProperty& p) { return p.partCount(); }),
-        "part_at", [](const DomProperty& p, int index) { return p.partAt(fromLuaIndex(index)); },
-        "part", [](const DomProperty& p, std::string_view name) { return p.part(name); },
+        "part_at",
+        [](const DomProperty& p, int index, sol::this_state s) {
+            return orNil(s, p.partAt(fromLuaIndex(index)));
+        },
+        "part",
+        [](const DomProperty& p, std::string_view name, sol::this_state s) {
+            return orNil(s, p.part(name));
+        },
         "parts", [](const DomProperty& p, sol::this_state lua) {
             return makeIterator(lua, [p](sol::this_state state, std::size_t index) {
                 const DomProperty part = p.partAt(index);

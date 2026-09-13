@@ -428,7 +428,7 @@ is what counts the element as represented.
 | `doc.root` | The outermost element |
 | `doc.size` | How many elements the document has |
 | `doc.base_format` | The name of the format that read it |
-| `doc:at(id)` | The element with that id |
+| `doc:at(id)` | The element with that id, or nil |
 
 An element is what the base format read: the tag name for XML; for JSON the
 member key, `$` for the outermost value and `item` for every element of an
@@ -448,7 +448,9 @@ script, which folds what it wants.
 | `element.next_sibling`, `element.prev_sibling` | The neighbours, or nil |
 | `element.child_count` | How many children it has |
 | `element:child_at(i)` | The i-th child, one-based |
+| `element:child(name)` | The first child with that name, or nil |
 | `element:children()` | An iterator over the children, in document order |
+| `element:children(name)` | An iterator over every child with that name |
 | `element.property_count` | How many properties it has, repeats included |
 | `element:property_at(i)` | The i-th property, one-based |
 | `element:property(name)` | The first property with that name, or nil |

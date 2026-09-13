@@ -192,6 +192,57 @@ TEST_CASE("a script that keeps every element still parses", "[lua]") {
     CHECK(shaped.value().size() == generic.value().size());
 }
 
+TEST_CASE("a script finds children by name, first and every one", "[lua]") {
+    // The record style the bt2 sample uses: a node's id and type are child
+    // elements rather than attributes, and its children sit under a wrapper
+    // whose repeated <child> elements are the ones worth a node each.
+    const auto registry = registryWithScript(
+        "provider 'record' {\n"
+        "  base = 'xml',\n"
+        "  shape = function(doc, out)\n"
+        "    local function visit(element, owner)\n"
+        "      local node = owner:child(element)\n"
+        "      local id = element:child('id')\n"
+        "      if id then node:set_identity(id.text, 'strong') end\n"
+        "      node:property('type', element:child('type').text)\n"
+        "      local wrapper = element:child('children')\n"
+        "      if wrapper then\n"
+        "        for child in wrapper:children('child') do out:next(visit, child, node) end\n"
+        "      end\n"
+        "      node:property('missing', tostring(element:child('nope') == nil))\n"
+        "    end\n"
+        "    local root = out:root(doc.root)\n"
+        "    for child in doc.root:children('node') do out:next(visit, child, root) end\n"
+        "  end,\n"
+        "}\n");
+
+    const auto source = SourceFile::fromMemory(
+        "<r><skip/><node><id>n1</id><type>Seq</type><children>"
+        "<child><id>n2</id><type>Act</type></child>"
+        "<comment/>"
+        "<child><id>n3</id><type>Act</type></child>"
+        "</children></node><skip/></r>",
+        "t.xml", "t.xml");
+    const auto* provider = registry.byName("record");
+    REQUIRE(provider != nullptr);
+
+    auto parsed = provider->parse(source, {});
+    REQUIRE(parsed.ok());
+    const Tree& tree = parsed.value();
+
+    // r, node, and its two <child> elements; <skip/> and <comment/> are passed over.
+    REQUIRE(tree.size() == 4);
+    const auto& top = tree.node(tree.root());
+    REQUIRE(top.children.size() == 1);
+    const auto& seq = tree.node(top.children[0]);
+    CHECK(seq.findProperty("type")->value == "Seq");
+    CHECK(seq.findProperty("missing")->value == "true");
+    CHECK(provider->identity(tree, seq.id).value == "n1");
+    REQUIRE(seq.children.size() == 2);
+    CHECK(provider->identity(tree, seq.children[0]).value == "n2");
+    CHECK(provider->identity(tree, seq.children[1]).value == "n3");
+}
+
 TEST_CASE("a script that will not stop is cancelled", "[lua][slow]") {
     // Constraint C makes no exception for code the user wrote. A script with a
     // loop in it would otherwise hold a worker for ever, and switching format

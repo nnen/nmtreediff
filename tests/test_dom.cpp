@@ -104,6 +104,43 @@ TEST_CASE("the DOM exposes every property, repeats included, and the shortcut", 
     CHECK(all == 4);
 }
 
+TEST_CASE("the DOM finds children by name, first and every one", "[dom]") {
+    // A record-style document where the same element name repeats among
+    // siblings, which is where a lookup by name has to say which one it means.
+    const auto provider = nmxd::makeGenericXmlProvider();
+    const Tree tree = parse(*provider,
+                            "<node><id>n1</id><child k=\"a\"/><type>Wait</type>"
+                            "<child k=\"b\"/><child k=\"c\"/></node>",
+                            "t.xml");
+    const Dom dom(tree);
+    const DomNode node = dom.root();
+
+    CHECK(node.child("id").text() == "n1");
+    CHECK(node.child("child").attribute("k") == "a");
+    CHECK_FALSE(node.child("missing").valid());
+    CHECK_FALSE(DomNode{}.child("id").valid());
+
+    std::vector<std::string> keys;
+    for (const DomNode child : node.children("child")) {
+        keys.emplace_back(*child.attribute("k"));
+    }
+    CHECK(keys == std::vector<std::string>{"a", "b", "c"});
+
+    std::size_t none = 0;
+    for (const DomNode child : node.children("missing")) {
+        (void)child;
+        ++none;
+    }
+    CHECK(none == 0);
+
+    std::size_t all = 0;
+    for (const DomNode child : node.children()) {
+        (void)child;
+        ++all;
+    }
+    CHECK(all == 5);
+}
+
 TEST_CASE("the DOM reads a property's form and parts", "[dom]") {
     const auto provider = nmxd::makeGenericJsonProvider();
     const Tree tree = parse(*provider, R"({"m": [[1, 2], [3]], "s": "x"})", "t.json");

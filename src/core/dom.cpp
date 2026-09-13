@@ -44,6 +44,15 @@ DomNode DomChildRange::iterator::operator*() const {
     return DomNode(dom_, (*ids_)[index_]);
 }
 
+void DomChildRange::iterator::settle() {
+    if (ids_ == nullptr || filter_.empty()) {
+        return;
+    }
+    while (index_ < ids_->size() && DomNode(dom_, (*ids_)[index_]).name() != filter_) {
+        ++index_;
+    }
+}
+
 // ---- DomNode --------------------------------------------------------------
 
 const Node& DomNode::node() const noexcept {
@@ -111,7 +120,23 @@ DomNode DomNode::childAt(std::size_t index) const noexcept {
 }
 
 DomChildRange DomNode::children() const noexcept {
-    return DomChildRange(dom_, valid() ? &node().children : nullptr);
+    return DomChildRange(dom_, valid() ? &node().children : nullptr, {});
+}
+
+DomNode DomNode::child(std::string_view childName) const noexcept {
+    if (!valid()) {
+        return {};
+    }
+    for (const NodeId id : node().children) {
+        if (dom_->tree().node(id).kind == childName) {
+            return DomNode(dom_, id);
+        }
+    }
+    return {};
+}
+
+DomChildRange DomNode::children(std::string_view childName) const noexcept {
+    return DomChildRange(dom_, valid() ? &node().children : nullptr, childName);
 }
 
 std::size_t DomNode::propertyCount() const noexcept {
