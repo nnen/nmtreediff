@@ -9,6 +9,24 @@ meant to replace your usual diff tool for everything else.
 **[USAGE.md](USAGE.md) is the user guide.** Start there if you want to use the
 tool rather than work on it.
 
+![The node view: a behaviour tree drawn as a graph, each card coloured by what happened to it, with the details panel listing every property and what it changed from](docs/screenshots/node_view.png)
+
+The node view. A behaviour tree drawn left to right because the format asked
+for it, each card coloured by what happened to the node, and the details
+panel saying what each property changed from.
+
+![The text view: a side-by-side line diff of the same pair, with the words that changed picked out inside rewritten lines](docs/screenshots/text_view.png)
+
+The text view of a larger pair. The same comparison as lines, with the words
+that changed picked out inside a rewritten line, and the node outline beside
+it.
+
+![A JSON level file in the node view: objects are nodes, a list of scalars is one property, and a reordered array item reads as a move](docs/screenshots/json_node_view.png)
+
+A JSON level file. Objects are nodes, a list of scalars is one property rather
+than a subtree of anonymous items, and members of an object are unordered while
+items of an array are not.
+
 Why
 ---
 
@@ -123,6 +141,7 @@ Repository contents
 | [CODE_GUIDELINES.md](CODE_GUIDELINES.md) | How the code is written: documentation, comments, constants and function length. |
 | [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Architecture, data model, provider interface and matching algorithm, with the reasoning behind each choice. |
 | [docs/PROVIDERS.md](docs/PROVIDERS.md) | How to teach the tool a format of your own. Carries the provider interface version, which is 2. |
+| [docs/screenshots/](docs/screenshots/) | The screenshots above, taken with the tool's own `--screenshot` option from the sample pairs in `testdata/sample`. |
 | [Doxyfile](Doxyfile) | Configuration for the API reference. Undocumented code is an error, so the `docs` target fails rather than quietly producing a thinner reference. |
 | [testdata/sample/providers.lua](testdata/sample/providers.lua) | A sample configuration script. |
 | [testdata/sample/behaviortree.lua](testdata/sample/behaviortree.lua) | The behaviour-tree format written in script rather than compiled in. |
