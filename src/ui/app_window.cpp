@@ -7,6 +7,7 @@
 #include "ui/welcome.h"
 
 #include "app/configure.h"
+#include "core/file_filters.h"
 #include "core/log.h"
 
 #include <algorithm>
@@ -493,7 +494,11 @@ void AppWindow::askForFile(PickerTarget target) {
     const std::filesystem::path& other =
         target == PickerTarget::Left ? options_.rightPath : options_.leftPath;
     pickerError_.clear();
-    picker_.open(target, other.empty() ? std::filesystem::path{} : other.parent_path());
+    // The types offered come from the registry as it is now, so a format a
+    // script defined is in the list under its own name, and a Reload that
+    // changed the scripts changes the list.
+    picker_.open(target, fileFiltersFor(session_.registry()),
+                 other.empty() ? std::filesystem::path{} : other.parent_path());
 }
 
 void AppWindow::collectPickedFile() {

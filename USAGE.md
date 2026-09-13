@@ -53,6 +53,14 @@ Choosing a file for one side while the other is already chosen starts the
 comparison at once. The dialog opens in the directory the other side came from,
 which is usually where both versions live.
 
+The dialog's type list is built from the formats the tool knows at that
+moment. The first entry, selected by default, admits every extension any
+format claims; after it comes one entry per format, under the format's own
+name, listing its extensions and any a configuration file pointed at it. A
+format defined in a script that claims `.blackboard` is offered as an entry of
+its own, and the list follows a Reload. The last entry admits any file, for
+the suffix nothing claims.
+
 The window keeps drawing while the dialog is open, so a comparison already on
 screen stays readable while you pick its replacement.
 

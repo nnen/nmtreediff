@@ -30,22 +30,6 @@ struct PendingPick {
 
 namespace {
 
-/// \brief The file types the dialog offers, in the order it offers them.
-///
-/// \remarks Every built-in format is listed, and the widest entry comes first
-///          because that is the one that is right most often. A studio's own
-///          suffix is exactly the case a filter hides, so the dialog is opened
-///          in a mode that still allows any file through.
-constexpr nfdu8filteritem_t kFilters[] = {
-    {"Tree data", "xml,json,bt,btree"},
-    {"XML", "xml,xaml,svg,xsd,plist,resx,config"},
-    {"JSON", "json,geojson,webmanifest"},
-    {"Behaviour tree", "bt,btree"},
-};
-
-/// \brief How many entries kFilters holds.
-constexpr nfdfiltersize_t kFilterCount = static_cast<nfdfiltersize_t>(std::size(kFilters));
-
 /// \brief Turns the dialog's UTF-8 answer into a path.
 ///
 /// \param utf8 A NUL-terminated UTF-8 string from the dialog.
@@ -74,22 +58,36 @@ constexpr nfdfiltersize_t kFilterCount = static_cast<nfdfiltersize_t>(std::size(
 /// \brief Runs one dialog and records what came back.
 ///
 /// \param state Where to write the answer.
+/// \param filters The file types to offer, owned here for the dialog's life.
 /// \param startIn A directory to open in as UTF-8, or empty for the default.
 ///
 /// \remarks Runs on its own thread. The library is started and stopped around
 ///          each dialog rather than once for the process, so the whole of its
 ///          lifetime stays on the thread that uses it, which is what the
-///          platform back ends expect.
-void runDialog(std::shared_ptr<PendingPick> state, std::string startIn) {
+///          platform back ends expect. The filters come from the registry, so
+///          a format a script defined is offered by its own name; the library
+///          adds an entry admitting every file after them.
+void runDialog(std::shared_ptr<PendingPick> state, std::vector<FileFilter> filters,
+               std::string startIn) {
     if (NFD_Init() != NFD_OKAY) {
         state->error = "the file dialog could not start";
         state->finished = true;
         return;
     }
 
+    // The library takes pointers into strings that must outlive the call; the
+    // vector this thread owns is where they point.
+    std::vector<nfdu8filteritem_t> items;
+    items.reserve(filters.size());
+    for (const FileFilter& filter : filters) {
+        items.push_back(nfdu8filteritem_t{filter.name.c_str(), filter.extensions.c_str()});
+    }
+
     nfdu8char_t* chosen = nullptr;
-    const nfdresult_t result = NFD_OpenDialogU8(&chosen, kFilters, kFilterCount,
-                                                startIn.empty() ? nullptr : startIn.c_str());
+    const nfdresult_t result =
+        NFD_OpenDialogU8(&chosen, items.empty() ? nullptr : items.data(),
+                         static_cast<nfdfiltersize_t>(items.size()),
+                         startIn.empty() ? nullptr : startIn.c_str());
 
     if (result == NFD_OKAY && chosen != nullptr) {
         state->path = pathFromUtf8(chosen);
@@ -118,7 +116,8 @@ FilePicker::~FilePicker() {
 
 bool FilePicker::busy() const { return state_ != nullptr && !state_->finished; }
 
-void FilePicker::open(PickerTarget target, const std::filesystem::path& startIn) {
+void FilePicker::open(PickerTarget target, std::vector<FileFilter> filters,
+                      const std::filesystem::path& startIn) {
     if (busy()) {
         return;
     }
@@ -130,7 +129,7 @@ void FilePicker::open(PickerTarget target, const std::filesystem::path& startIn)
     error_.clear();
     chosen_.clear();
     state_ = std::make_shared<PendingPick>();
-    worker_ = std::thread(runDialog, state_, utf8FromPath(startIn));
+    worker_ = std::thread(runDialog, state_, std::move(filters), utf8FromPath(startIn));
 }
 
 PickerOutcome FilePicker::poll() {

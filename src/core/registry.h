@@ -102,6 +102,15 @@ public:
     /// \returns The provider, or `nullptr` when the extension has no override.
     [[nodiscard]] const IFormatProvider* overrideFor(std::string_view extension) const;
 
+    /// \brief Returns every extension a configuration pointed at a provider.
+    ///
+    /// \returns Extension to provider name, each with its leading dot, in the
+    ///          order they were applied; a later entry for the same extension
+    ///          is the one overrideFor() honours.
+    [[nodiscard]] const std::vector<std::pair<std::string, std::string>>& overrides() const noexcept {
+        return overrides_;
+    }
+
     /// \brief Lists the names of every registered provider.
     ///
     /// \returns The names, in registration order.

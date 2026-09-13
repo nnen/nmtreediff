@@ -15,6 +15,7 @@ add_executable(nmxd_tests
     test_json_provider.cpp
     test_jobs.cpp
     test_direction.cpp
+    test_file_filters.cpp
     test_layout.cpp
     test_log.cpp
     test_lua_provider.cpp

@@ -7,6 +7,9 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <vector>
+
+#include "core/file_filters.h"
 
 namespace nmxd {
 
@@ -52,10 +55,14 @@ public:
     /// \brief Opens the dialog, unless one is already open.
     ///
     /// \param target Which side the chosen file is for.
+    /// \param filters The file types to offer, first entry selected. Empty
+    ///        offers every file.
     /// \param startIn A directory to open in, or empty for the system default.
     ///
-    /// \remarks Returns at once. The answer arrives through poll().
-    void open(PickerTarget target, const std::filesystem::path& startIn = {});
+    /// \remarks Returns at once. The answer arrives through poll(). The
+    ///          filters are copied, since the dialog outlives this call.
+    void open(PickerTarget target, std::vector<FileFilter> filters,
+              const std::filesystem::path& startIn = {});
 
     /// \brief Reports whether a dialog is open right now.
     ///

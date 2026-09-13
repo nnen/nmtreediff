@@ -11,6 +11,7 @@ add_library(nmxd_core STATIC
     lua_shape.cpp
     lua_state.cpp
     diff.cpp
+    file_filters.cpp
     layout_tree.cpp
     hash.cpp
     match.cpp

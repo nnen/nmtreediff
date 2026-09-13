@@ -83,4 +83,11 @@ NM Tree Diff Requirements
 - *R19*: If there's any Lua error, the error details and possibly stack trace
   must be written to the standard error output.
 - *R20*: Lauching the app with GUI should not open console window.
+- *R21*: The open file dialog's filter should contain all the standard formats
+  (XML, JSON, etc). The other filters should be based on the registered format
+  providers. That means if there's e.g. custom "Blackboard" format provider
+  that claims the extension `.blackboard`, there should be a filter for the
+  `.blackboard` extension called "Blackboard" in the open file dialog. The
+  default should filter *all* known extensions, the standard and the ones from
+  any format providers.
 

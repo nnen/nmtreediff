@@ -831,7 +831,7 @@ submissions, and it is also how the end-to-end tests run.
 | M7 &check; | Standing on its own | File picker and a welcome pane, graph direction in the layout with a per-format override and a View menu default, a pass over the existing code against CODE_GUIDELINES.md | Done. The window opens with no arguments and both files are chosen in it; the behaviour tree draws itself left to right without being asked, and the interface version stayed at 1 |
 | M8 &check; | Formats without a compiler | Lua configuration from the home directory and the command line, retiring the M6 reader, the Lua provider bridge, the sample behaviour tree reimplemented in script, the graph direction and exit key settings | Done. The scripted behaviour tree produces the same tree and the same change list as the compiled one, and `kProviderInterfaceVersion` stayed at 1 |
 | M9 &check; | Properties with parts | Nested properties in the data model, hashing, matching and both views; record and sequence parts, so an array property reorders as a change and a record does not; generic JSON reading a scalar array as one property, with a scripted format able to choose otherwise; the rule that anything not a node becomes a property; a way for a format to take both an element's attributes and its child elements as properties; the scripted surface and the golden corpus updated to match | Done. A list of scalars is one property, a matrix is one property with parts, reordering a list registers while reordering a record does not, and neither built-in format nor the bridge can drop an element it does not recognise |
-| M10 &check; | Output and reload | A GUI launch that opens no console window while a headless run from a shell still prints and pipes; one log sink behind every line the program writes, shown in an Output pane and forwarded to whatever console or pipe is attached; Reload re-running every configuration file, rebuilding the provider registry, re-reading both files and comparing again; every Lua error written in full, with its traceback, to standard error | Done. The binary is GUI-subsystem and finds its console or pipe at startup; Ctrl+R rebuilds a scripted format from disk and a held snapshot keeps the old one alive; a raised `error()` reaches the Output pane and standard error with a traceback that names the script file and line. P4V and Git remain to be checked by hand |
+| M10 &check; | Output and reload | A GUI launch that opens no console window while a headless run from a shell still prints and pipes; one log sink behind every line the program writes, shown in an Output pane and forwarded to whatever console or pipe is attached; Reload re-running every configuration file, rebuilding the provider registry, re-reading both files and comparing again; every Lua error written in full, with its traceback, to standard error; the open dialog's type list built from the registry, every known extension first and one entry per format under its own name | Done. The binary is GUI-subsystem and finds its console or pipe at startup; Ctrl+R rebuilds a scripted format from disk and a held snapshot keeps the old one alive; a raised `error()` reaches the Output pane and standard error with a traceback that names the script file and line; a scripted format claiming `.blackboard` is offered in the dialog as "Blackboard". P4V and Git remain to be checked by hand |
 | M11 | Keys | Every action named, every shortcut settable from a configuration script, more than one binding allowed per action, the menus showing whatever is bound | A reader rebinds next-change to two keys of their own and the menu says so |
 | M12 | Ship | Headless report, exit codes, a portable archive built in continuous integration from a tag and attached to a GitHub release, MIT licence and attribution for bundled dependencies, per-extension Perforce and Git setup docs verified against real clients, possibly a Git seven-argument mode, settings persistence | A technical artist can unzip it and configure it without help |
 | M13 | Later | Three-way merge, further game asset formats | Out of initial scope |
@@ -1162,6 +1162,21 @@ all, where the report landed in PowerShell's own console buffer. P4V and Git
 were not to hand and remain to be checked. The shell-does-not-wait cost is
 real and is documented in USAGE.md rather than worked around; the two-binary
 fallback was not needed.
+
+**R21 joined M10 after the rest had landed**, and it is small because the
+registry already knew everything the dialog needs. The type list was a
+constant in the picker, four entries written by hand, so a format a script
+defined was exactly the file the dialog hid. `fileFiltersFor()` in core builds
+the list from the registry instead: every extension any provider claims or a
+configuration pointed at it, first and selected by default, then one entry
+per provider that claims anything, in registry order and under the provider's
+display name. The registry gained an `overrides()` accessor for the configured
+extensions, and an extension is credited to the provider `overrideFor()` would
+name, so the last mapping wins in the dialog as it does in resolution. The
+list is built when the dialog opens, from the session's registry as it is then,
+so a Reload that changes the scripts changes the list. The dialog library adds
+the entry admitting every file. Tested on the registry alone, since the dialog
+is the operating system's.
 
 12. Testing
 -----------
