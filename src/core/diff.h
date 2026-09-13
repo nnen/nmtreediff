@@ -152,6 +152,28 @@ struct DiffModel {
 ///          get the same answer either way.
 [[nodiscard]] bool propertiesDiffer(const Property& left, const Property& right);
 
+/// \brief Finds the property on the other side that one property stands
+///        against, pairing repeated names by occurrence.
+///
+/// \param own The properties on this side.
+/// \param index Which of them to pair; must be less than `own.size()`.
+/// \param other The properties on the other side.
+///
+/// \returns The property in \p other with the same name and the same
+///          occurrence among same-named siblings, or null when the other side
+///          has fewer of that name.
+///
+/// \remarks Names may repeat, and the first with a name is the wrong answer
+///          for the second: it reads the second's value as a change from the
+///          first's. Nothing can say which of two same-named properties is
+///          "the same one", so document order is the rule, the k-th here
+///          against the k-th there. This is what the details panel pairs with
+///          and what its removed-property listing counts from; matching does
+///          not pair at all, it compares as a multiset.
+[[nodiscard]] const Property* counterpartByOccurrence(const std::vector<Property>& own,
+                                                      std::size_t index,
+                                                      const std::vector<Property>& other) noexcept;
+
 /// \brief Matches two trees and classifies the result.
 ///
 /// \param left The left, usually older, tree.

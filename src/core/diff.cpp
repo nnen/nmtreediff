@@ -17,6 +17,31 @@ bool propertiesDiffer(const Property& left, const Property& right) {
     return hashProperty(left) != hashProperty(right);
 }
 
+const Property* counterpartByOccurrence(const std::vector<Property>& own, std::size_t index,
+                                        const std::vector<Property>& other) noexcept {
+    const std::string& name = own[index].name;
+
+    // Which of the same-named properties this one is, counting from the top.
+    std::size_t occurrence = 0;
+    for (std::size_t i = 0; i < index; ++i) {
+        if (own[i].name == name) {
+            ++occurrence;
+        }
+    }
+
+    // The same occurrence on the other side, or none when it has fewer.
+    for (const Property& candidate : other) {
+        if (candidate.name != name) {
+            continue;
+        }
+        if (occurrence == 0) {
+            return &candidate;
+        }
+        --occurrence;
+    }
+    return nullptr;
+}
+
 namespace {
 
 /// \brief Records each node's position among its siblings.

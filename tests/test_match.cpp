@@ -451,6 +451,59 @@ TEST_CASE("a second property of the same name is a change, not a shadow", "[matc
     CHECK(undone->changedProperties == std::vector<std::string>{"cooldown"});
 }
 
+TEST_CASE("repeated names pair by occurrence for the details panel", "[match][repeated]") {
+    // The bt2 sample: a record with two parts both named `property`, and
+    // only the second one's value changed. Pairing the second against the
+    // first read its name as changed from param1 to param2, which was false.
+    const auto record = [](const char* name, const char* value) {
+        nmxd::Property part;
+        part.name = "property";
+        part.form = nmxd::PropertyForm::Record;
+        nmxd::Property n;
+        n.name = "name";
+        n.value = name;
+        nmxd::Property v;
+        v.name = "value";
+        v.value = value;
+        part.children = {n, v};
+        return part;
+    };
+    const std::vector<nmxd::Property> before = {record("param1", "123"), record("param2", "true")};
+    const std::vector<nmxd::Property> after = {record("param1", "123"), record("param2", "false")};
+
+    // Each occurrence against its own.
+    const nmxd::Property* first = nmxd::counterpartByOccurrence(after, 0, before);
+    const nmxd::Property* second = nmxd::counterpartByOccurrence(after, 1, before);
+    REQUIRE(first != nullptr);
+    REQUIRE(second != nullptr);
+    CHECK(first == &before[0]);
+    CHECK(second == &before[1]);
+    CHECK_FALSE(nmxd::propertiesDiffer(after[0], *first));
+    CHECK(nmxd::propertiesDiffer(after[1], *second));
+
+    // Inside the changed part, the name pairs with the name and the value with
+    // the value, so the name reads as unchanged.
+    const nmxd::Property* name = nmxd::counterpartByOccurrence(after[1].children, 0, second->children);
+    const nmxd::Property* value = nmxd::counterpartByOccurrence(after[1].children, 1, second->children);
+    REQUIRE(name != nullptr);
+    REQUIRE(value != nullptr);
+    CHECK(name->value == "param2");
+    CHECK_FALSE(nmxd::propertiesDiffer(after[1].children[0], *name));
+    CHECK(value->value == "true");
+
+    // Fewer on the other side: the extra occurrence has no counterpart, which
+    // is what lists it as removed, and only that one.
+    const std::vector<nmxd::Property> shorter = {record("param1", "123")};
+    CHECK(nmxd::counterpartByOccurrence(before, 0, shorter) == &shorter[0]);
+    CHECK(nmxd::counterpartByOccurrence(before, 1, shorter) == nullptr);
+
+    // A name the other side lacks entirely.
+    nmxd::Property other;
+    other.name = "other";
+    const std::vector<nmxd::Property> unrelated = {other};
+    CHECK(nmxd::counterpartByOccurrence(before, 0, unrelated) == nullptr);
+}
+
 TEST_CASE("repeated properties in a different order are not a change", "[match][repeated]") {
     // A multiset, so the same two cooldowns in either order are the same node.
     const auto provider = nmxd::makeBehaviorTreeProvider();

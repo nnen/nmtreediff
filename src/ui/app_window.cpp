@@ -885,18 +885,30 @@ void AppWindow::drawProperties(const Tree& tree, const Tree* otherTree,
     // presentation only; matching still treats them as an unordered set.
     for (const auto index : propertyDisplayOrder(provider, tree, id)) {
         const Property& property = node.properties[index];
-        const bool changed = change != nullptr && namedIn(change->changedProperties, property.name);
-        drawProperty(property, changed,
-                     before != nullptr ? before->findProperty(property.name) : nullptr);
+
+        // What this property was before, paired by occurrence so that the
+        // second of two with one name is not read against the first. The
+        // change list names a property once whichever occurrence changed, so
+        // the pair decides which occurrence is coloured.
+        const Property* was = before != nullptr
+                                  ? counterpartByOccurrence(node.properties, index,
+                                                            before->properties)
+                                  : nullptr;
+        const bool changed = change != nullptr &&
+                             namedIn(change->changedProperties, property.name) &&
+                             (was == nullptr || propertiesDiffer(property, *was));
+        drawProperty(property, changed, was);
     }
 
     // A property the other side had and this one does not would otherwise
     // vanish, leaving the one thing a reviewer cannot see as the one that was
     // taken away. It is listed after the rest, in the colour of a deletion.
+    // Counted by occurrence too: of three with one name against two, the third
+    // is the one that went.
     if (before != nullptr) {
-        for (const Property& gone : before->properties) {
-            if (node.findProperty(gone.name) == nullptr) {
-                drawRemovedProperty(gone);
+        for (std::size_t i = 0; i < before->properties.size(); ++i) {
+            if (counterpartByOccurrence(before->properties, i, node.properties) == nullptr) {
+                drawRemovedProperty(before->properties[i]);
             }
         }
     }
@@ -957,11 +969,14 @@ void AppWindow::drawPropertyParts(const Property& property, bool changed,
             const Property& part = property.children[i];
 
             // What the same part was before, matched the way its parent
-            // compares: a record by name, a sequence by position.
+            // compares: a record by name and occurrence, a sequence by
+            // position. A record may hold two parts of one name, and the
+            // first is the wrong answer for the second.
             const Property* was = nullptr;
             if (before != nullptr) {
-                was = property.ordered() ? (i < before->children.size() ? &before->children[i] : nullptr)
-                                         : before->findPart(part.name);
+                was = property.ordered()
+                          ? (i < before->children.size() ? &before->children[i] : nullptr)
+                          : counterpartByOccurrence(property.children, i, before->children);
             }
 
             Property shown = part;
