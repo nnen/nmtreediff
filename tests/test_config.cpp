@@ -111,6 +111,25 @@ TEST_CASE("a script that will not parse is reported with its line", "[config]") 
     CHECK_FALSE(problems[0].message.empty());
 }
 
+TEST_CASE("a script that raises keeps one line as the message and the rest as detail",
+          "[config]") {
+    // The listing wants one line per problem. The person fixing the script
+    // wants to know which of their functions raised, which is the traceback.
+    ProviderConfig config;
+    const auto problems = runDirty(
+        "local function deep()\n"
+        "  error('boom')\n"
+        "end\n"
+        "deep()\n",
+        config);
+    REQUIRE(problems.size() == 1);
+    CHECK(problems[0].message == "boom");
+    CHECK(problems[0].line == 2);
+    CHECK(problems[0].message.find('\n') == std::string::npos);
+    CHECK(problems[0].detail.find("stack traceback") != std::string::npos);
+    CHECK(problems[0].detail.find("deep") != std::string::npos);
+}
+
 TEST_CASE("a script that asks for something impossible is reported", "[config]") {
     ProviderConfig config;
     const auto problems = runDirty(

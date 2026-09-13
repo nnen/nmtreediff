@@ -3,6 +3,7 @@
 
 add_library(nmxd_cli STATIC
     cli.cpp
+    configure.cpp
     report.cpp
 )
 target_include_directories(nmxd_cli PUBLIC ${CMAKE_SOURCE_DIR}/src)

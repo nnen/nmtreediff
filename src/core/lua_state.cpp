@@ -3,6 +3,8 @@
 
 #include "core/lua_state.h"
 
+#include "core/log.h"
+
 #include <cctype>
 #include <cstdint>
 
@@ -51,6 +53,25 @@ LuaState::LuaState() : state_(std::make_unique<sol::state>()) {
     // is the line that has to change.
     state_->open_libraries(sol::lib::base, sol::lib::string, sol::lib::table, sol::lib::math,
                            sol::lib::os, sol::lib::io, sol::lib::package);
+
+    // print() goes through the sink rather than to the C runtime's stdout. A
+    // window launched from the desktop has no console, so a print that went
+    // there would tell its author nothing; through the sink it reaches the
+    // Output pane and, when there is one, the console as well.
+    state_->set_function("print", [](sol::variadic_args args, sol::this_state state) {
+        lua_State* lua = state;
+        std::string text;
+        for (const auto argument : args) {
+            if (!text.empty()) {
+                text += '\t';
+            }
+            std::size_t length = 0;
+            const char* piece = luaL_tolstring(lua, argument.stack_index(), &length);
+            text.append(piece, length);
+            lua_pop(lua, 1);
+        }
+        logOut(text);
+    });
 }
 
 LuaState::~LuaState() { stopWatching(); }
@@ -74,23 +95,27 @@ void LuaState::stopWatching() {
 }
 
 std::string trimLuaError(const std::string& message) {
+    // The first line only. A traceback below it belongs to the detail, not to
+    // a message that lands in a listing, a report line or a card tooltip.
+    const std::string line = message.substr(0, message.find('\n'));
+
     // Lua prefixes an error with "chunk:line: ". The caller already knows which
     // file it read and reports the line separately, so repeating both would
     // make every message read twice.
-    const std::size_t first = message.find(':');
+    const std::size_t first = line.find(':');
     if (first == std::string::npos) {
-        return message;
+        return line;
     }
-    const std::size_t second = message.find(':', first + 1);
+    const std::size_t second = line.find(':', first + 1);
     if (second == std::string::npos) {
-        return message;
+        return line;
     }
 
     std::size_t at = second + 1;
-    while (at < message.size() && std::isspace(static_cast<unsigned char>(message[at])) != 0) {
+    while (at < line.size() && std::isspace(static_cast<unsigned char>(line[at])) != 0) {
         ++at;
     }
-    return at < message.size() ? message.substr(at) : message;
+    return at < line.size() ? line.substr(at) : line;
 }
 
 std::uint32_t luaErrorLine(const std::string& message) {

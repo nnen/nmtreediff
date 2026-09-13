@@ -15,6 +15,7 @@ add_library(nmxd_core STATIC
     hash.cpp
     match.cpp
     jobs.cpp
+    log.cpp
     provider.cpp
     registry.cpp
     tree.cpp

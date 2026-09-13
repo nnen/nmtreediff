@@ -113,6 +113,15 @@ struct ConfigProblem {
 
     /// \brief Which file the problem is in.
     std::filesystem::path origin;
+
+    /// \brief The whole of what the interpreter said, when there was more.
+    ///
+    /// \remarks A Lua error that was raised while the script ran carries a
+    ///          traceback below its first line. The message above keeps the
+    ///          one line a listing wants; this keeps the rest for the person
+    ///          who needs to know which of their functions raised. Empty when
+    ///          the message already says everything.
+    std::string detail;
 };
 
 /// \brief The order configuration files are read in.

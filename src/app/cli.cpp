@@ -5,6 +5,8 @@
 
 #include <CLI/CLI.hpp>
 
+#include "core/log.h"
+
 #include <iostream>
 #include <string>
 #include <vector>
@@ -74,8 +76,8 @@ ParseResult parseInto(CLI::App& app, std::vector<std::string> reversedArgs) {
     // path or none is a starting point rather than a mistake: the missing side
     // is chosen in the window.
     if (options.headless && !options.hasInputs()) {
-        std::cerr << "nmxmldiff: two files are required in headless mode\n"
-                  << "usage: nmxmldiff [options] <left> <right>\n";
+        logErr("nmxmldiff: two files are required in headless mode");
+        logErr("usage: nmxmldiff [options] <left> <right>");
         return ParseResult{std::nullopt, 2};
     }
 

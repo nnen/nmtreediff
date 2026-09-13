@@ -6,6 +6,8 @@
 #include "ui/screenshot.h"
 #include "ui/welcome.h"
 
+#include "core/log.h"
+
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -176,7 +178,8 @@ SessionRequest makeRequest(const Options& options, GraphDirection direction) {
 /// \param code The GLFW error code.
 /// \param description GLFW's description, which may be null.
 void reportGlfwError(int code, const char* description) {
-    std::fprintf(stderr, "glfw error %d: %s\n", code, description ? description : "");
+    logErr("nmxmldiff: glfw error " + std::to_string(code) + ": " +
+           (description != nullptr ? description : ""));
 }
 
 }  // namespace
@@ -321,11 +324,13 @@ int AppWindow::run() {
     session_.cancel();
 
     if (options_.maxFrames > 0) {
-        std::printf(
-            "startup_ms=%.1f frames=%u steady_worst_ms=%.2f settling_worst_ms=%.2f at_frame=%u "
-            "workers=%u\n",
-            startupMillis_, framesPresented_, worstSteadyFrameMillis_, worstFrameMillis_,
-            worstFrameIndex_, session_.threadCount());
+        char timings[256];
+        std::snprintf(timings, sizeof(timings),
+                      "startup_ms=%.1f frames=%u steady_worst_ms=%.2f settling_worst_ms=%.2f "
+                      "at_frame=%u workers=%u",
+                      startupMillis_, framesPresented_, worstSteadyFrameMillis_,
+                      worstFrameMillis_, worstFrameIndex_, session_.threadCount());
+        logOut(timings);
     }
     return 0;
 }
@@ -342,7 +347,7 @@ void AppWindow::captureFrame(int width, int height) {
     if (writeBitmap(options_.screenshotPath, width, height, pixels)) {
         std::printf("screenshot=%s\n", options_.screenshotPath.string().c_str());
     } else {
-        std::fprintf(stderr, "could not write %s\n", options_.screenshotPath.string().c_str());
+        logErr("nmxmldiff: could not write " + options_.screenshotPath.string());
     }
 }
 

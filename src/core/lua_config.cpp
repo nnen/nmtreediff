@@ -54,9 +54,22 @@ constexpr const char* kLeftToRightWord = "left_to_right";
 /// \param origin The file the problem is in.
 /// \param message What is wrong.
 /// \param line The line it is on, or zero when unknown.
+/// \param detail Everything the interpreter said, when it said more than the
+///        message; empty otherwise.
 void complain(std::vector<ConfigProblem>& problems, const std::filesystem::path& origin,
-              std::string message, std::uint32_t line = 0) {
-    problems.push_back(ConfigProblem{line, std::move(message), origin});
+              std::string message, std::uint32_t line = 0, std::string detail = {}) {
+    problems.push_back(ConfigProblem{line, std::move(message), origin, std::move(detail)});
+}
+
+/// \brief Decides whether an interpreter message carries more than its first
+///        line.
+///
+/// \param message The message Lua produced.
+///
+/// \returns The whole message when it runs past its first line, so a
+///          traceback is kept; empty when the first line was all of it.
+[[nodiscard]] std::string detailOf(const std::string& message) {
+    return message.find('\n') == std::string::npos ? std::string{} : message;
 }
 
 /// \brief Turns a direction word into a direction.
@@ -221,7 +234,8 @@ bool runConfigScript(std::string_view text, const std::filesystem::path& origin,
     if (!result.valid()) {
         const sol::error error = result;
         const std::string message = error.what();
-        complain(problems, origin, trimLuaError(message), luaErrorLine(message));
+        complain(problems, origin, trimLuaError(message), luaErrorLine(message),
+                 detailOf(message));
         return false;
     }
 
