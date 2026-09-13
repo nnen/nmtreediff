@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -105,30 +106,30 @@ public:
     /// \returns The number of worker threads.
     [[nodiscard]] unsigned threadCount() const noexcept { return jobs_.threadCount(); }
 
-    /// \brief Returns the formats this session can resolve.
+    /// \brief Returns the formats this session resolves with today.
     ///
-    /// \returns The registry, valid for the lifetime of the session.
-    [[nodiscard]] const ProviderRegistry& registry() const noexcept { return registry_; }
+    /// \returns The current registry. A comparison already in flight may be
+    ///          using an earlier one, which its snapshot keeps alive.
+    [[nodiscard]] const ProviderRegistry& registry() const noexcept { return *registry_; }
 
-    /// \brief Applies a provider configuration to this session's registry.
+    /// \brief Builds a fresh registry from a provider configuration and moves
+    ///        the session on to it.
     ///
     /// \param config The configuration to apply.
     ///
     /// \returns The provider names the configuration mentioned that the
     ///          registry does not know.
     ///
-    /// \remarks Call before open(). Changing which provider handles a file part
-    ///          way through a comparison would leave the published snapshot
-    ///          describing a tree that no longer matches the one the views are
-    ///          drawing.
-    std::vector<std::string> configureProviders(const ProviderConfig& config) {
-        // Scripted formats are registered before the mappings are applied, so
-        // an extension may be pointed at a format the same file defined.
-        std::vector<std::string> unknown = addScriptedProviders(registry_, config);
-        const std::vector<std::string> rest = registry_.apply(config);
-        unknown.insert(unknown.end(), rest.begin(), rest.end());
-        return unknown;
-    }
+    /// \remarks The registry starts from the built-in formats every time, so
+    ///          calling this again with a changed configuration is Reload: a
+    ///          scripted provider edited on disk is read afresh and nothing of
+    ///          the old one survives. A comparison in flight keeps the registry
+    ///          it started with, and so does every snapshot it published, so
+    ///          this is safe to call while one is running; call open() after
+    ///          it to compare with the new one.
+    ///
+    ///          Call from the thread that calls open(), never from a worker.
+    std::vector<std::string> configureProviders(const ProviderConfig& config);
 
     /// \brief Blocks until the pipeline settles.
     ///
@@ -136,11 +137,13 @@ public:
     void waitIdle() const { jobs_.waitIdle(); }
 
 private:
-    void runOpen(const SessionRequest& request, std::stop_token token, Generation generation);
+    void runOpen(const SessionRequest& request, std::shared_ptr<const ProviderRegistry> registry,
+                 std::stop_token token, Generation generation);
     void publish(DiffSnapshot snapshot, Generation generation);
 
     JobSystem jobs_;
-    ProviderRegistry registry_ = makeDefaultRegistry();
+    std::shared_ptr<const ProviderRegistry> registry_ =
+        std::make_shared<const ProviderRegistry>(makeDefaultRegistry());
     SnapshotBox<DiffSnapshot> box_;
 };
 

@@ -2,8 +2,12 @@
 
 #include <filesystem>
 #include <fstream>
+#include <string>
+#include <vector>
 
 #include "core/provider.h"
+#include "core/lua_config.h"
+#include "core/registry.h"
 #include "core/session.h"
 
 using nmxd::Session;
@@ -150,6 +154,55 @@ TEST_CASE("an unknown format is reported, not silently sniffed", "[session]") {
     CHECK(snapshot->stage == Stage::Failed);
     CHECK(snapshot->message.find("not-a-format") != std::string::npos);
     CHECK(snapshot->message.find("xml") != std::string::npos);
+
+    std::filesystem::remove(left);
+    std::filesystem::remove(right);
+}
+
+TEST_CASE("reconfiguring rebuilds the providers and keeps an old snapshot valid", "[session]") {
+    // Reload: the same provider name, a changed shape function, and the second
+    // comparison must show the change. The first snapshot is held across the
+    // swap and its provider must still answer, because a frame may be drawing
+    // it while the new comparison runs.
+    const auto left = writeTemp("nmxd_session_reload_left.xml", "<r><a/></r>");
+    const auto right = writeTemp("nmxd_session_reload_right.xml", "<r><a/><b/></r>");
+
+    const auto configure = [](Session& session, const char* title) {
+        std::string script = "provider 'scripted' {\n  base = 'xml',\n  shape = function(doc, out)\n";
+        script += "    out:root(doc.root):set_title('";
+        script += title;
+        script += "')\n  end,\n}\n";
+        nmxd::ProviderConfig config;
+        std::vector<nmxd::ConfigProblem> problems;
+        REQUIRE(nmxd::runConfigScript(script, "reload.lua", config, problems));
+        REQUIRE(session.configureProviders(config).empty());
+    };
+
+    Session session(2);
+    configure(session, "first");
+    session.open(SessionRequest{left, right, "left", "right", "scripted"});
+    session.waitIdle();
+    const auto first = session.snapshot();
+    REQUIRE(first);
+    REQUIRE(first->stage == Stage::TreeReady);
+    REQUIRE(first->provider != nullptr);
+    CHECK(first->provider->style(*first->leftTree, first->leftTree->root()).title == "first");
+
+    // The script changed on disk; the session is told again and moves on.
+    configure(session, "second");
+    session.open(SessionRequest{left, right, "left", "right", "scripted"});
+    session.waitIdle();
+    const auto second = session.snapshot();
+    REQUIRE(second);
+    REQUIRE(second->stage == Stage::TreeReady);
+    REQUIRE(second->provider != nullptr);
+    CHECK(second->provider->style(*second->leftTree, second->leftTree->root()).title == "second");
+    CHECK(second->provider != first->provider);
+
+    // The old provider is gone from the session but not from the snapshot
+    // that used it.
+    CHECK(first->provider->style(*first->leftTree, first->leftTree->root()).title == "first");
+    CHECK(first->registry != second->registry);
 
     std::filesystem::remove(left);
     std::filesystem::remove(right);

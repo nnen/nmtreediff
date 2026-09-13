@@ -6,6 +6,7 @@
 #include "ui/screenshot.h"
 #include "ui/welcome.h"
 
+#include "app/configure.h"
 #include "core/log.h"
 
 #include <algorithm>
@@ -243,15 +244,7 @@ int AppWindow::run() {
     // The command line has already checked that every name in here is one the
     // registry knows, so nothing can go wrong at this point.
     (void)session_.configureProviders(options_.providerConfig);
-
-    // Settled once. A configuration script asks, and the command line overrides
-    // what it asked for, which is the same order everything else resolves in.
-    if (options_.providerConfig.graphDirection != GraphDirection::Inherit) {
-        graphDirection_ = options_.providerConfig.graphDirection;
-    }
-    const std::string& exitKey =
-        options_.exitKey.empty() ? options_.providerConfig.exitKey : options_.exitKey;
-    exitKey_ = exitKey.empty() ? ImGuiKey_Escape : keyFromName(exitKey);
+    applyConfiguredSettings();
 
     // Queued before the first frame so the read happens on a worker while the
     // window is already up and drawing.
@@ -395,6 +388,14 @@ void AppWindow::buildFrame() {
         }
     }
 
+    // Reload is bound here rather than left as a label on the menu item, so
+    // that a format author iterating on a script never has to reach for the
+    // mouse between an edit and seeing its effect.
+    if (options_.hasInputs() && !popupOpen &&
+        ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_R)) {
+        reload();
+    }
+
     collectPickedFile();
 
     if (options_.hasInputs()) {
@@ -429,7 +430,7 @@ void AppWindow::drawMenuBar() {
         }
         ImGui::Separator();
         if (ImGui::MenuItem("Reload", "Ctrl+R", false, options_.hasInputs())) {
-            session_.open(makeRequest(options_, graphDirection_));
+            reload();
         }
         ImGui::Separator();
         if (ImGui::MenuItem("Exit", "Esc")) {
@@ -552,6 +553,40 @@ void AppWindow::setGraphDirection(GraphDirection direction) {
     if (options_.hasInputs()) {
         session_.open(makeRequest(options_, graphDirection_));
     }
+}
+
+void AppWindow::applyConfiguredSettings() {
+    // A configuration script asks, and the command line overrides what it
+    // asked for, which is the same order everything else resolves in.
+    if (options_.providerConfig.graphDirection != GraphDirection::Inherit) {
+        graphDirection_ = options_.providerConfig.graphDirection;
+    }
+    const std::string& exitKey =
+        options_.exitKey.empty() ? options_.providerConfig.exitKey : options_.exitKey;
+    exitKey_ = exitKey.empty() ? ImGuiKey_Escape : keyFromName(exitKey);
+}
+
+void AppWindow::reload() {
+    // Whatever is running is working with the providers about to be replaced.
+    // Its snapshot keeps them alive, so this does not wait; it only stops
+    // spending a worker on a result nobody will look at.
+    session_.cancel();
+
+    // The same reader startup used, over the same files in the same order,
+    // with the --config path fixed at what the launch said. On failure the
+    // options are untouched, so the previous providers stay in force.
+    Options fresh = options_;
+    if (loadConfiguration(fresh)) {
+        options_.providerConfig = std::move(fresh.providerConfig);
+        (void)session_.configureProviders(options_.providerConfig);
+        applyConfiguredSettings();
+    } else {
+        logErr("nmxmldiff: reload kept the previous configuration");
+    }
+
+    // The files are read again either way, because that part cannot be wrong
+    // and it is the other half of what Reload means.
+    session_.open(makeRequest(options_, graphDirection_));
 }
 
 void AppWindow::layoutDockSpaceOnce() {

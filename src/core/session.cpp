@@ -43,11 +43,14 @@ void Session::open(SessionRequest request) {
     loading.stage = Stage::Loading;
     box_.publish(std::make_shared<const DiffSnapshot>(std::move(loading)));
 
+    // The registry is captured now rather than read on the worker, so that a
+    // Reload swapping it while this comparison runs changes nothing this
+    // comparison sees.
     const Generation generation = jobs_.submit(
-        [this, request = std::move(request)](std::stop_token token) mutable {
+        [this, request = std::move(request), registry = registry_](std::stop_token token) mutable {
             // The generation the job was queued in is the one the token belongs
             // to, so checking the token is enough to know it is still wanted.
-            runOpen(request, std::move(token), 0);
+            runOpen(request, std::move(registry), std::move(token), 0);
         });
     (void)generation;
 }
@@ -56,11 +59,28 @@ void Session::cancel() {
     jobs_.cancelAll();
 }
 
+std::vector<std::string> Session::configureProviders(const ProviderConfig& config) {
+    auto fresh = std::make_shared<ProviderRegistry>(makeDefaultRegistry());
+
+    // Scripted formats are registered before the mappings are applied, so an
+    // extension may be pointed at a format the same file defined.
+    std::vector<std::string> unknown = addScriptedProviders(*fresh, config);
+    const std::vector<std::string> rest = fresh->apply(config);
+    unknown.insert(unknown.end(), rest.begin(), rest.end());
+
+    // The old registry is not destroyed here: a running comparison and every
+    // published snapshot hold their own reference to it.
+    registry_ = std::move(fresh);
+    return unknown;
+}
+
 void Session::publish(DiffSnapshot snapshot, Generation) {
     box_.publish(std::make_shared<const DiffSnapshot>(std::move(snapshot)));
 }
 
-void Session::runOpen(const SessionRequest& request, std::stop_token token, Generation generation) {
+void Session::runOpen(const SessionRequest& request,
+                      std::shared_ptr<const ProviderRegistry> registry, std::stop_token token,
+                      Generation generation) {
     const auto started = std::chrono::steady_clock::now();
 
     const auto elapsedMillis = [started] {
@@ -118,12 +138,12 @@ void Session::runOpen(const SessionRequest& request, std::stop_token token, Gene
     // reads it, arrive at M3 and M4.
     bool unknownFormat = false;
     const IFormatProvider* provider =
-        registry_.resolve(*result.left, request.format, &unknownFormat);
+        registry->resolve(*result.left, request.format, &unknownFormat);
     if (unknownFormat || provider == nullptr) {
         result.stage = Stage::Failed;
         result.message = "unknown format '" + request.format + "'; known formats are: ";
         bool first = true;
-        for (const auto known : registry_.names()) {
+        for (const auto known : registry->names()) {
             if (!first) {
                 result.message += ", ";
             }
@@ -160,6 +180,7 @@ void Session::runOpen(const SessionRequest& request, std::stop_token token, Gene
 
     result.stage = Stage::TreesParsed;
     result.provider = provider;
+    result.registry = registry;
     result.leftTree = std::make_shared<const Tree>(std::move(leftTree).value());
     result.rightTree = std::make_shared<const Tree>(std::move(rightTree).value());
     result.elapsedMillis = elapsedMillis();

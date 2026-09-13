@@ -18,6 +18,7 @@
 namespace nmxd {
 
 class IFormatProvider;
+class ProviderRegistry;
 
 /// \brief How far the pipeline has got.
 ///
@@ -70,8 +71,19 @@ struct DiffSnapshot {
     ///
     /// \remarks Held alongside them because reading a tree means asking the
     ///          provider for titles, colours and property order. Owned by the
-    ///          session's registry, which outlives every snapshot.
+    ///          registry below, which the snapshot keeps alive for as long as
+    ///          it is itself held.
     const IFormatProvider* provider = nullptr;
+
+    /// \brief The registry the provider belongs to.
+    ///
+    /// \remarks Reload builds a fresh registry and the session moves on to it,
+    ///          but a frame may still be drawing a tree the old provider
+    ///          shaped, and asking it for a title must stay legal until the new
+    ///          comparison replaces the snapshot. Holding the registry here is
+    ///          what makes that true without the frame loop waiting for
+    ///          anything.
+    std::shared_ptr<const ProviderRegistry> registry;
 
     /// \brief The tree diff. Present from Stage::TreeReady onward.
     std::shared_ptr<const DiffModel> treeDiff;

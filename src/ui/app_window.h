@@ -179,11 +179,32 @@ private:
     /// \param direction The direction to adopt.
     void setGraphDirection(GraphDirection direction);
 
+    /// \brief Takes the settings a configuration script may set, with the
+    ///        command line's overrides on top.
+    ///
+    /// \remarks Called once at startup and again on every Reload, so a changed
+    ///          script's graph direction and exit key take effect without a
+    ///          restart. A setting the configuration leaves alone is left alone
+    ///          here too, so a direction chosen from the menu survives a Reload
+    ///          unless a script now says otherwise.
+    void applyConfiguredSettings();
+
+    /// \brief Reads every configuration file again, rebuilds the providers,
+    ///        and compares the two files afresh.
+    ///
+    /// \remarks What Ctrl+R and File, Reload do. The configuration is read by
+    ///          the same function startup used, over the same files in the same
+    ///          order. If it fails, the problems go to the log and the previous
+    ///          providers stay, which is the startup rule that a bad
+    ///          configuration is not partly applied; the files are still read
+    ///          again, because that part cannot be wrong.
+    void reload();
+
     /// \brief The key that closes the window, or ImGuiKey_None.
     ///
     /// \remarks Stored rather than read from the options each frame, because
-    ///          it is settled once from the configuration and the command line
-    ///          and never changes after that.
+    ///          it is settled from the configuration and the command line at
+    ///          startup and again only on Reload.
     int exitKey_ = 0;
 
     /// \brief The reader's standing choice of graph direction.
