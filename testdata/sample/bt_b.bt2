@@ -29,6 +29,21 @@
                                 </child>
                             </child>
                         </child>
+                        <child>
+                            <id>492a0dfc-de32-4aa0-908d-60b526859978</id>
+                            <rttiType>Action</rttiType>
+                            <actionName>script.another_action</actionName> 
+                            <properties>
+                                <property>
+                                    <name>param1</name>
+                                    <value>123</value>
+                                </property>
+                                <property>
+                                    <name>param2</name>
+                                    <value>false</value>
+                                </property>
+                            </properties>
+                        </child>
                     </children>
                 </child>
             </children>

@@ -29,15 +29,32 @@
                                 </child>
                             </child>
                         </child>
+                        <child>
+                            <id>492a0dfc-de32-4aa0-908d-60b526859978</id>
+                            <rttiType>Action</rttiType>
+                            <actionName>script.another_action</actionName> 
+                            <properties>
+                                <property>
+                                    <name>param1</name>
+                                    <value>123</value>
+                                </property>
+                                <property>
+                                    <name>param2</name>
+                                    <value>true</value>
+                                </property>
+                            </properties>
+                        </child>
+                        <child>
+                            <id>35069bd4-845f-4429-91b2-43e92fa214f8</id>
+                            <rttiType>Action</rttiType>
+                            <actionName>script.fallback</actionName> 
+                        </child>
                     </children>
                 </child>
             </children>
         </root>
     </subbehavior>
     <!--
-        <id>f51836be-2564-470d-ae9f-98bd4db8445b</id>
-        <id>492a0dfc-de32-4aa0-908d-60b526859978</id>
-        <id>35069bd4-845f-4429-91b2-43e92fa214f8</id>
         <id>d6aa1e57-2c2e-4074-aa6c-2c4020ddb87a</id>
         <id>97255730-d6bc-43ac-a566-af882eac6cd8</id>
         <id>1c7327f2-4ff6-48e9-aa5b-9e45638c0936</id>

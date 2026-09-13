@@ -71,10 +71,17 @@ provider "bt2-lua" {
                 out:next(visit, child, node)
             end
         else
-            if element.value then
-                owner:property(element.name, element.value)
-            else
-                owner:property(element.name, element.text)
+            local prop = owner:property(element.name, element.text)
+            -- if element.attr.value then
+            --     owner:set_value(element.attr.value)
+            -- end
+            for attribute in element:properties() do
+                if attribute.name ~= "#text" then
+                    prop:property(attribute)
+                end
+            end
+            for child in element:children() do
+                out:next(visit, child, prop)
             end
         end
     end
