@@ -525,9 +525,13 @@ property. Every setter returns the handle, so calls chain.
 
 **`set_identity`** returns `"strong"` as the second value to say the identity
 may travel: two nodes carrying it are the same node however far apart they have
-moved, and a node survives even a change of kind. A strong key that appears
-more than once on either side identifies nothing and anchors nothing, rather
-than being guessed at. Any other second value, or none, gives a weak key,
+moved, and a node survives even a change of kind. The reverse holds too: two
+nodes carrying different strong keys are never the same node, however alike
+they look, so a sibling replaced under a new id is a deletion and an
+insertion rather than an edit. A node with a key may still pair with one that
+has none. A strong key that appears more than once on either side identifies
+nothing and anchors nothing, rather than being guessed at. Any other second
+value, or none, gives a weak key,
 which is only a hint the matcher is free to ignore, and today it does. A nil
 value sets no identity, so `set_identity(element.attr.id, "strong")` reads
 naturally on an element without one.

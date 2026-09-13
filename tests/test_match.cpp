@@ -129,6 +129,45 @@ TEST_CASE("a strong identity key follows a node across the document", "[match]")
     CHECK(foundMovedAndModified);
 }
 
+TEST_CASE("different strong keys in the same place are a replacement, not an edit", "[match]") {
+    // The behaviour-tree case from the sample: a sibling swapped for one of the
+    // same kind and type, in the same position, under a new id. Kind, position
+    // and every other property agree, so similarity alone would pair them and
+    // report the id as the one changed property. The keys say otherwise.
+    const auto provider =
+        std::make_unique<IdentifiedXmlProvider>(nmxd::makeGenericXmlProvider());
+
+    const Tree left = parse(*provider,
+                            "<r><node id=\"guid-1\" type=\"Action\"/>"
+                            "<node id=\"guid-2\" type=\"Action\"/></r>");
+    const Tree right = parse(*provider,
+                             "<r><node id=\"guid-1\" type=\"Action\"/>"
+                             "<node id=\"guid-3\" type=\"Action\"/></r>");
+
+    const auto model = nmxd::diffTrees(left, right, *provider);
+    CHECK(model.added == 1);
+    CHECK(model.deleted == 1);
+    CHECK(model.modified == 0);
+    CHECK(model.statusOf(Side::Left, left.node(left.root()).children[1]) == NodeStatus::Deleted);
+    CHECK(model.statusOf(Side::Right, right.node(right.root()).children[1]) == NodeStatus::Added);
+}
+
+TEST_CASE("a strong key still pairs with a node that has none", "[match]") {
+    // An editor that starts stamping ids on an old file changes every node's
+    // identity from nothing to something. That is an edit, not a wholesale
+    // replacement, so a key only vetoes a pairing against a different key.
+    const auto provider =
+        std::make_unique<IdentifiedXmlProvider>(nmxd::makeGenericXmlProvider());
+
+    const Tree left = parse(*provider, "<r><node type=\"Action\"/></r>");
+    const Tree right = parse(*provider, "<r><node id=\"guid-1\" type=\"Action\"/></r>");
+
+    const auto model = nmxd::diffTrees(left, right, *provider);
+    CHECK(model.added == 0);
+    CHECK(model.deleted == 0);
+    CHECK(model.modified == 1);
+}
+
 TEST_CASE("without a strong key an identical-content move is still caught", "[match]") {
     const auto provider = nmxd::makeGenericXmlProvider();
     const Tree left = parse(*provider, "<r><g1><n a=\"1\"/></g1><g2/></r>");

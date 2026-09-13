@@ -553,6 +553,16 @@ private:
             return 0.0;
         }
 
+        // A strong key says what makes a node the same node across versions,
+        // so two nodes carrying different strong keys are different nodes
+        // however alike they look: a sibling replaced by one of the same kind
+        // in the same place is a deletion and an insertion, not an edit. A
+        // node with a key may still pair with one that has none, which is
+        // what happens when an editor starts stamping ids on an old file.
+        if (identitiesDisagree(leftId, rightId)) {
+            return 0.0;
+        }
+
         const auto leftProperties = propertyFingerprints(l);
         const auto rightProperties = propertyFingerprints(r);
         const double propertyScore = dice(commonCount(leftProperties, rightProperties),
@@ -608,6 +618,30 @@ private:
 
         return kPropertyWeight * propertyScore + kDescendantWeight * descendantScore +
                kPositionWeight * positionScore;
+    }
+
+    /// \brief Reports whether two nodes carry strong keys that differ.
+    ///
+    /// \param leftId The left candidate.
+    /// \param rightId The right candidate.
+    ///
+    /// \returns `true` when both nodes have a non-empty strong key and the keys
+    ///          are not the same.
+    ///
+    /// \remarks A node without a key, or with a weak one, disagrees with
+    ///          nothing. Ambiguity is not considered: a key that appears twice
+    ///          on a side anchors nothing in the first pass, but it still says
+    ///          which node this is not.
+    [[nodiscard]] bool identitiesDisagree(NodeId leftId, NodeId rightId) const {
+        const IdentityKey leftKey = provider_.identity(left_, leftId);
+        if (!leftKey.strong || leftKey.value.empty()) {
+            return false;
+        }
+        const IdentityKey rightKey = provider_.identity(right_, rightId);
+        if (!rightKey.strong || rightKey.value.empty()) {
+            return false;
+        }
+        return leftKey.value != rightKey.value;
     }
 
     /// \brief Scores how close two nodes sit to the same relative position.

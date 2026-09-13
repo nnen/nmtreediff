@@ -340,8 +340,12 @@ std::span<const std::string_view> subtitleProperties() const override {
 Return `Identity::Strong` only when the key is genuinely stable, meaning the
 same key in two files really is the same node however far it has moved. A
 strong key is honoured before any structural heuristic runs, which is what
-makes a behaviour-tree node follow a move to anywhere in the tree. A strong
-key only anchors a pair when it appears exactly once on each side. Generic
+makes a behaviour-tree node follow a move to anywhere in the tree. It cuts
+the other way as well: the similarity pass never pairs two nodes whose strong
+keys differ, so a sibling replaced under a new id reads as a deletion and an
+insertion, not an edit, while a node with a key may still pair with one that
+has none. A strong key only anchors a pair when it appears exactly once on
+each side. Generic
 XML records no identity at all: in arbitrary XML an `id` might be a stable
 identifier or might be a colour swatch name.
 
