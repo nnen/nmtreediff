@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "app/cli.h"
+#include "core/log.h"
 #include "core/provider.h"
 #include "core/session.h"
 #include "ui/file_picker.h"
@@ -155,6 +156,39 @@ private:
     ///          about that one node. With nothing selected there is no node to
     ///          narrow to, so the whole tree is shown whatever this says.
     bool detailsWholeTree_ = false;
+
+    /// \brief Draws the Output pane, when it is shown.
+    ///
+    /// \remarks What the program wrote to standard output and standard error,
+    ///          which for a window launched from the desktop exist nowhere
+    ///          else. Error lines are coloured; a Clear button empties the log
+    ///          and a Copy button puts the whole of it on the clipboard.
+    void drawOutputPane();
+
+    /// \brief Picks up what the log gained since last frame.
+    ///
+    /// \remarks Appends the new lines to the pane's own copy, so drawing never
+    ///          copies the whole buffer, and opens the pane on the first error
+    ///          line it has not shown yet. The pane is off in a fresh layout so
+    ///          a reader going through a changelist is not shown a log, and
+    ///          this is what makes it appear when there is something to read.
+    void pollLog();
+
+    /// \brief Whether the Output pane is shown.
+    bool showOutput_ = false;
+    /// \brief How many more frames the pane asks for focus.
+    ///
+    /// \remarks More than one, because a window docks the frame after it
+    ///          first appears and a focus given before that selects no tab.
+    int focusOutputFrames_ = 0;
+    /// \brief Whether the pane keeps scrolling to the newest line.
+    bool outputFollows_ = true;
+    /// \brief The pane's copy of the log, oldest first.
+    std::vector<LogLine> outputLines_;
+    /// \brief The sequence of the last line copied into outputLines_.
+    std::uint64_t outputSequence_ = 0;
+    /// \brief The sequence of the last error line the pane opened for.
+    std::uint64_t outputOpenedFor_ = 0;
 
     GLFWwindow* window_ = nullptr;
     bool running_ = false;

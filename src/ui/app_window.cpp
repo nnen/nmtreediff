@@ -47,6 +47,20 @@ constexpr const char* kDetailsTitle = "Details";
 /// \brief Window title of the status panel.
 constexpr const char* kStatusTitle = "Status";
 
+/// \brief Window title of the Output pane.
+constexpr const char* kOutputTitle = "Output";
+
+/// \brief Colour of a line the program wrote to standard error.
+constexpr ImVec4 kErrorLineColour(0.89f, 0.43f, 0.41f, 1.0f);
+
+/// \brief How many frames the Output pane asks for focus after opening.
+///
+/// \remarks A window is docked the frame after it first appears, so a focus
+///          given only on the first frame selects no tab. Three is one more
+///          than that needs, which is cheap insurance against a frame spent
+///          on something else.
+constexpr int kOutputFocusFrames = 3;
+
 /// \brief Colour of an added node, or of a property that is new.
 constexpr ImU32 kAddedColour = IM_COL32(96, 200, 140, 255);
 /// \brief Colour of a deleted node, or of a property that is gone.
@@ -406,6 +420,8 @@ void AppWindow::buildFrame() {
         drawWelcomePane();
     }
     drawStatusBar(current);
+    pollLog();
+    drawOutputPane();
 
     // Focusing a window requires it to exist, and the panels are only created
     // by the calls above. Doing this after the first frame has built them is
@@ -458,6 +474,13 @@ void AppWindow::drawMenuBar() {
         ImGui::Separator();
         ImGui::MenuItem("Mark dropped content", nullptr, &textView_.showDropped());
         ImGui::MenuItem("Mark failed jobs", nullptr, &textView_.showFailed());
+
+        // What the program wrote, which for a window launched from the
+        // desktop exists nowhere else. Off until asked for or until an error.
+        ImGui::Separator();
+        if (ImGui::MenuItem("Output", nullptr, &showOutput_) && showOutput_) {
+            focusOutputFrames_ = kOutputFocusFrames;
+        }
         ImGui::EndMenu();
     }
 
@@ -589,6 +612,97 @@ void AppWindow::reload() {
     session_.open(makeRequest(options_, graphDirection_));
 }
 
+void AppWindow::pollLog() {
+    Log& log = Log::instance();
+
+    // Append what arrived since last frame, keeping the copy no larger than
+    // the log itself keeps.
+    for (LogLine& line : log.linesAfter(outputSequence_)) {
+        outputSequence_ = line.sequence;
+        outputLines_.push_back(std::move(line));
+    }
+    if (outputLines_.size() > Log::kCapacity) {
+        outputLines_.erase(outputLines_.begin(),
+                           outputLines_.begin() +
+                               static_cast<std::ptrdiff_t>(outputLines_.size() - Log::kCapacity));
+    }
+
+    // The first error the pane has not opened for opens it. Once, per error:
+    // a reader who closed it after reading is not fought with, but a new
+    // failure is new news.
+    const std::uint64_t lastError = log.lastErrorSequence();
+    if (lastError > outputOpenedFor_) {
+        outputOpenedFor_ = lastError;
+        if (!showOutput_) {
+            showOutput_ = true;
+            focusOutputFrames_ = kOutputFocusFrames;
+        }
+    }
+}
+
+void AppWindow::drawOutputPane() {
+    if (!showOutput_) {
+        return;
+    }
+    if (focusOutputFrames_ > 0) {
+        // Asked for on a few consecutive frames: the window has to exist to be
+        // focused, Begin() below is what creates it, and it joins its dock
+        // node's tab bar only on the frame after that.
+        ImGui::SetNextWindowFocus();
+        --focusOutputFrames_;
+    }
+    // Beside the status bar, whose node always exists. Asked for here rather
+    // than in the one-time layout, because a saved layout skips that and a
+    // window absent when the layout was saved would otherwise open floating.
+    if (const ImGuiWindow* status = ImGui::FindWindowByName(kStatusTitle);
+        status != nullptr && status->DockId != 0) {
+        ImGui::SetNextWindowDockID(status->DockId, ImGuiCond_FirstUseEver);
+    }
+    if (!ImGui::Begin(kOutputTitle, &showOutput_)) {
+        ImGui::End();
+        return;
+    }
+
+    // The toolbar: empty the log, copy the whole of it, follow the newest line.
+    if (ImGui::SmallButton("Clear")) {
+        Log::instance().clear();
+        outputLines_.clear();
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Copy")) {
+        std::string all;
+        for (const LogLine& line : outputLines_) {
+            all += line.text;
+            all += '\n';
+        }
+        ImGui::SetClipboardText(all.c_str());
+    }
+    ImGui::SameLine();
+    ImGui::Checkbox("Follow", &outputFollows_);
+    ImGui::SameLine(0.0f, 16.0f);
+    ImGui::TextDisabled("%zu line%s", outputLines_.size(), outputLines_.size() == 1 ? "" : "s");
+    ImGui::Separator();
+
+    // The lines, error lines coloured, a multi-line entry drawn as one block.
+    ImGui::BeginChild("lines", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_HorizontalScrollbar);
+    for (const LogLine& line : outputLines_) {
+        if (line.stream == LogStream::Err) {
+            ImGui::PushStyleColor(ImGuiCol_Text, kErrorLineColour);
+            ImGui::TextUnformatted(line.text.c_str());
+            ImGui::PopStyleColor();
+        } else {
+            ImGui::TextUnformatted(line.text.c_str());
+        }
+    }
+    if (outputFollows_ && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f) {
+        ImGui::SetScrollHereY(1.0f);
+    }
+    ImGui::EndChild();
+
+    ImGui::End();
+}
+
 void AppWindow::layoutDockSpaceOnce() {
     const ImGuiID dockspace = ImGui::DockSpaceOverViewport();
 
@@ -616,6 +730,9 @@ void AppWindow::layoutDockSpaceOnce() {
     ImGui::DockBuilderDockWindow(kNodeViewTitle, main);
     ImGui::DockBuilderDockWindow(kDetailsTitle, right);
     ImGui::DockBuilderDockWindow(kStatusTitle, bottom);
+    // A tab beside the status bar, whose node always exists. A node of its
+    // own would be removed while the pane is hidden, which it is by default.
+    ImGui::DockBuilderDockWindow(kOutputTitle, bottom);
     ImGui::DockBuilderFinish(dockspace);
 }
 

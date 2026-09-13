@@ -143,8 +143,10 @@ private:
             };
         });
 
-        const sol::protected_function_result result =
-            lua.safe_script(script_, sol::script_pass_on_error);
+        // Named after the file it came from, so a traceback through a shape
+        // function reads "bt.lua:14" rather than quoting the script.
+        const sol::protected_function_result result = lua.safe_script(
+            script_, sol::script_pass_on_error, "@" + spec_.origin.filename().string());
         if (!result.valid()) {
             const sol::error failure = result;
             error = failure.what();

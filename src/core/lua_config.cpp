@@ -229,8 +229,12 @@ bool runConfigScript(std::string_view text, const std::filesystem::path& origin,
     ConfigBindings bindings(origin, text, config, problems);
     bindings.installInto(state.get());
 
-    const sol::protected_function_result result =
-        state.get().safe_script(std::string(text), sol::script_pass_on_error);
+    // The chunk is named after the file, so an error and its traceback say
+    // "config.lua:12" rather than quoting the script's first line. The name
+    // alone, not the path: a Windows path carries a colon, and Lua's message
+    // format puts the line after the first one.
+    const sol::protected_function_result result = state.get().safe_script(
+        std::string(text), sol::script_pass_on_error, "@" + origin.filename().string());
     if (!result.valid()) {
         const sol::error error = result;
         const std::string message = error.what();
