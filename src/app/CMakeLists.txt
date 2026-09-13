@@ -4,6 +4,7 @@
 add_library(nmxd_cli STATIC
     cli.cpp
     configure.cpp
+    console.cpp
     report.cpp
 )
 target_include_directories(nmxd_cli PUBLIC ${CMAKE_SOURCE_DIR}/src)
@@ -41,6 +42,13 @@ else()
     target_compile_definitions(nmxmldiff PRIVATE NMXD_HAVE_GUI=0)
 endif()
 
-# A GUI subsystem binary on Windows would lose stdout, which the headless path
-# and every version control integration depend on. Stay a console application.
-set_target_properties(nmxmldiff PROPERTIES WIN32_EXECUTABLE OFF)
+# A GUI subsystem binary, so a launch from the desktop or a version control
+# client opens no console window. That would lose stdout, which the headless
+# path and every integration guide depend on, so the first thing main() does is
+# find it again: a redirected handle is used as it is, and otherwise the
+# parent's console is attached. See src/app/console.cpp. The entry point stays
+# main(); only the subsystem changes.
+set_target_properties(nmxmldiff PROPERTIES WIN32_EXECUTABLE ON)
+if(MSVC)
+    target_link_options(nmxmldiff PRIVATE /ENTRY:mainCRTStartup)
+endif()

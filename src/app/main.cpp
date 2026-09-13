@@ -10,6 +10,7 @@
 
 #include "app/cli.h"
 #include "app/configure.h"
+#include "app/console.h"
 #include "app/report.h"
 #include "core/config.h"
 #include "core/log.h"
@@ -93,6 +94,11 @@ int main(int argc, char** argv) {
     // Captured first so the startup budget covers everything the user waits
     // for, not just the part after initialisation.
     const auto processStart = std::chrono::steady_clock::now();
+
+    // Before anything is written: a GUI-subsystem process has to find its
+    // console or pipe, and the sink has to know whether it found one.
+    const nmxd::OutputStreams streams = nmxd::attachToCaller();
+    nmxd::Log::instance().forwardTo(streams.out, streams.err);
 
     nmxd::ParseResult parsed = nmxd::parseCommandLine(argc, argv);
     if (!parsed.shouldRun()) {
