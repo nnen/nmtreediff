@@ -387,6 +387,7 @@ void NodeView::draw(const DiffSnapshot& snapshot, Selection& selection) {
     if (stamp != layoutStamp_) {
         layoutStamp_ = stamp;
         framed_ = false;
+        touched_ = false;
         collapsed_.clear();
         currentChange_ = -1;
         // A card id from the old layout names a different card in this one.
@@ -430,7 +431,12 @@ void NodeView::drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot
     draw->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + size.y), kCanvasColour);
     draw->PushClipRect(origin, ImVec2(origin.x + size.x, origin.y + size.y), true);
 
-    if (!framed_) {
+    // Fitted once, and again whenever the canvas changes size before the
+    // reader has taken hold: the size a docked window reports on its first
+    // frame is a stand-in, and a layout fitted to it would sit in a corner.
+    const bool resized = std::abs(size.x - framedWidth_) > 0.5f ||
+                         std::abs(size.y - framedHeight_) > 0.5f;
+    if (!framed_ || (!touched_ && resized)) {
         // Fit the whole drawing, but never magnify past life size on a small
         // tree, which would look like a mistake rather than a choice.
         const float scaleX = size.x / std::max(layout.width, 1.0f);
@@ -441,6 +447,8 @@ void NodeView::drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot
         // than clinging to the top of a mostly empty one.
         panY_ = std::max(24.0f, (size.y - layout.height * zoom_) * 0.5f);
         framed_ = true;
+        framedWidth_ = size.x;
+        framedHeight_ = size.y;
         cancelGlide();
     }
 
@@ -454,12 +462,14 @@ void NodeView::drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot
 
     if (hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
         cancelGlide();
+        touched_ = true;
         panX_ += io.MouseDelta.x;
         panY_ += io.MouseDelta.y;
     }
     if (hovered && io.MouseWheel != 0.0f) {
         // Zoom about the cursor, so the thing under the pointer stays under it.
         cancelGlide();
+        touched_ = true;
         const float previous = zoom_;
         zoom_ = std::clamp(zoom_ * std::pow(1.12f, io.MouseWheel), 0.05f, 3.0f);
         const float localX = io.MousePos.x - origin.x;
@@ -601,7 +611,10 @@ void NodeView::toggleCollapse(const TreeLayout& layout, LayoutId id) {
     }
 }
 
-void NodeView::fit() { framed_ = false; }
+void NodeView::fit() {
+    framed_ = false;
+    touched_ = false;
+}
 
 std::optional<GraphDirection> NodeView::takeDirectionRequest() {
     const std::optional<GraphDirection> request = directionRequest_;
@@ -799,6 +812,13 @@ void NodeView::centreOn(const TreeLayout& layout, LayoutId id) {
     const LayoutNode& card = layout.nodes[id];
     glideX_ = canvasWidth_ * 0.5f - (card.x + card.width * 0.5f) * zoom_;
     glideY_ = canvasHeight_ * 0.5f - (card.y + card.height * 0.5f) * zoom_;
+
+    // Heading somewhere on purpose is taking hold of the view: the pan is now
+    // the reader's and a resize must not snatch it back to a fit. Before the
+    // first fit there is nothing to hold yet.
+    if (framed_) {
+        touched_ = true;
+    }
 
     // The first framing of a layout has nowhere to travel from, so it arrives
     // rather than glides. Animating it would look like the tool was still

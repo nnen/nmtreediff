@@ -144,6 +144,18 @@ private:
     /// \brief Whether the pan is currently heading somewhere.
     bool gliding_ = false;
     bool framed_ = false;         // whether the first fit-to-view has happened
+    /// \brief The canvas size the fit was computed for.
+    ///
+    /// \remarks A docked window reports a stand-in size on the frame it first
+    ///          appears, and a layout that arrives that frame would be fitted
+    ///          to it and sit in a corner ever after. So until the reader takes
+    ///          hold of the view, a canvas of a different size fits again.
+    float framedWidth_ = 0.0f;
+    float framedHeight_ = 0.0f;
+    /// \brief Whether the reader has panned, zoomed or navigated since the
+    ///        layout arrived, after which the view is theirs and never refits
+    ///        on its own.
+    bool touched_ = false;
     std::uint64_t layoutStamp_ = 0;  // which layout the pan and zoom belong to
 
     LayoutId hovered_ = kInvalidLayout;
