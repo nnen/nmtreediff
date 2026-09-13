@@ -133,6 +133,31 @@ private:
         return id;
     }
 
+    /// \brief A node waiting for its card, and the card it hangs under.
+    struct PendingCard {
+        NodeId node;      ///< The node to make a card for.
+        LayoutId parent;  ///< The card it hangs under.
+    };
+
+    /// \brief Queues a node's children for cards under the node's own card.
+    ///
+    /// \param tree The tree the node belongs to.
+    /// \param node The node whose children to queue.
+    /// \param card The node's card.
+    /// \param pending The stack to queue them on.
+    ///
+    /// \remarks In reverse, so they come off the stack in document order and
+    ///          their cards are created in it. markChangedSubtrees() relies on
+    ///          parents being created before children, and the card order of
+    ///          siblings is the order they are drawn in.
+    static void queueChildren(const Tree& tree, NodeId node, LayoutId card,
+                              std::vector<PendingCard>& pending) {
+        const auto& children = tree.node(node).children;
+        for (auto it = children.rbegin(); it != children.rend(); ++it) {
+            pending.push_back(PendingCard{*it, card});
+        }
+    }
+
     /// \brief Adds a whole subtree from one side, with no matching to consult.
     ///
     /// \param side Which document the subtree belongs to.
@@ -141,16 +166,23 @@ private:
     /// \param token Checked as the walk descends.
     ///
     /// \returns The subtree root's card id.
+    ///
+    /// \remarks Walks with a stack of its own rather than the call stack, as
+    ///          every walk in this class does: a document is as deep as
+    ///          whatever wrote it, and the call stack is not.
     LayoutId addSubtree(Side side, NodeId node, LayoutId parent, const std::stop_token& token) {
-        const LayoutId id = addCard(side, node, parent);
-        if (token.stop_requested()) {
-            return id;
-        }
         const Tree& tree = side == Side::Left ? left_ : right_;
-        for (const NodeId child : tree.node(node).children) {
-            addSubtree(side, child, id, token);
+        const LayoutId root = addCard(side, node, parent);
+
+        std::vector<PendingCard> pending;
+        queueChildren(tree, node, root, pending);
+        while (!pending.empty() && !token.stop_requested()) {
+            const PendingCard next = pending.back();
+            pending.pop_back();
+            const LayoutId id = addCard(side, next.node, next.parent);
+            queueChildren(tree, next.node, id, pending);
         }
-        return id;
+        return root;
     }
 
     /// \brief Adds every child of a right node, ignoring the matching.
@@ -164,59 +196,76 @@ private:
         }
     }
 
+    /// \brief One matched pair the walk is inside, and how far along its
+    ///        children it has got.
+    struct WalkFrame {
+        NodeId left;                 ///< The left node.
+        NodeId right;                ///< The right node it matched.
+        LayoutId card;               ///< The card standing for the pair.
+        std::size_t rightIndex = 0;  ///< The next right child to look at.
+        std::size_t leftCursor = 0;  ///< The first left child not yet passed over.
+    };
+
     /// \brief Walks a matched pair, interleaving the nodes the left side lost.
     ///
-    /// \param leftId The left node.
-    /// \param rightId The right node it matched.
-    /// \param card The card standing for the pair.
+    /// \param leftRoot The left node.
+    /// \param rightRoot The right node it matched.
+    /// \param rootCard The card standing for the pair.
     /// \param token Checked as the walk descends.
     ///
     /// \remarks Mirrors how the classifier merges the two child lists, so a
     ///          deletion appears where it happened rather than in a block at the
-    ///          end.
-    void walkPair(NodeId leftId, NodeId rightId, LayoutId card, const std::stop_token& token) {
-        if (token.stop_requested()) {
-            return;
-        }
+    ///          end. The frames are the call stack this used to have, kept on
+    ///          the heap, for the same reason addSubtree() keeps its own.
+    void walkPair(NodeId leftRoot, NodeId rightRoot, LayoutId rootCard,
+                  const std::stop_token& token) {
+        std::vector<WalkFrame> frames;
+        frames.push_back(WalkFrame{leftRoot, rightRoot, rootCard});
 
-        const auto& leftChildren = left_.node(leftId).children;
-        const auto& rightChildren = right_.node(rightId).children;
-
-        std::size_t leftCursor = 0;
-        for (const NodeId rightChild : rightChildren) {
-            const NodeId partner = model_.matching.toLeft(rightChild);
-
-            if (partner == kInvalidNode) {
-                addSubtree(Side::Right, rightChild, card, token);
-                continue;
+        while (!frames.empty()) {
+            if (token.stop_requested()) {
+                return;
             }
-            if (left_.node(partner).parent != leftId) {
-                const LayoutId childCard = addCard(Side::Right, rightChild, card);
-                walkPair(partner, rightChild, childCard, token);
-                continue;
-            }
+            WalkFrame& frame = frames.back();
+            const auto& leftChildren = left_.node(frame.left).children;
+            const auto& rightChildren = right_.node(frame.right).children;
 
-            while (leftCursor < leftChildren.size() && leftChildren[leftCursor] != partner) {
-                const NodeId skipped = leftChildren[leftCursor];
-                if (!model_.matching.leftMatched(skipped)) {
-                    addSubtree(Side::Left, skipped, card, token);
+            if (frame.rightIndex == rightChildren.size()) {
+                while (frame.leftCursor < leftChildren.size()) {
+                    const NodeId skipped = leftChildren[frame.leftCursor++];
+                    if (!model_.matching.leftMatched(skipped)) {
+                        addSubtree(Side::Left, skipped, frame.card, token);
+                    }
                 }
-                ++leftCursor;
-            }
-            if (leftCursor < leftChildren.size()) {
-                ++leftCursor;
+                frames.pop_back();
+                continue;
             }
 
-            const LayoutId childCard = addCard(Side::Right, rightChild, card);
-            walkPair(partner, rightChild, childCard, token);
-        }
-
-        while (leftCursor < leftChildren.size()) {
-            const NodeId skipped = leftChildren[leftCursor];
-            if (!model_.matching.leftMatched(skipped)) {
-                addSubtree(Side::Left, skipped, card, token);
+            const NodeId rightChild = rightChildren[frame.rightIndex++];
+            const NodeId partner = model_.matching.toLeft(rightChild);
+            if (partner == kInvalidNode) {
+                addSubtree(Side::Right, rightChild, frame.card, token);
+                continue;
             }
-            ++leftCursor;
+            if (left_.node(partner).parent != frame.left) {
+                const LayoutId childCard = addCard(Side::Right, rightChild, frame.card);
+                frames.push_back(WalkFrame{partner, rightChild, childCard});
+                continue;
+            }
+
+            while (frame.leftCursor < leftChildren.size() &&
+                   leftChildren[frame.leftCursor] != partner) {
+                const NodeId skipped = leftChildren[frame.leftCursor++];
+                if (!model_.matching.leftMatched(skipped)) {
+                    addSubtree(Side::Left, skipped, frame.card, token);
+                }
+            }
+            if (frame.leftCursor < leftChildren.size()) {
+                ++frame.leftCursor;
+            }
+
+            const LayoutId childCard = addCard(Side::Right, rightChild, frame.card);
+            frames.push_back(WalkFrame{partner, rightChild, childCard});
         }
     }
 
@@ -428,7 +477,7 @@ private:
             if (layout_.nodes[i].parent != kInvalidLayout) {
                 continue;
             }
-            place(static_cast<LayoutId>(i), rootCursor, 0, subtreeBreadth, level, levelOffset);
+            place(static_cast<LayoutId>(i), rootCursor, subtreeBreadth, levelOffset);
             rootCursor += subtreeBreadth[i] + metrics_.siblingGap * 2.0f;
         }
 
@@ -447,31 +496,45 @@ private:
         layout_.height = maxY;
     }
 
-    /// \brief Places one card and everything below it.
+    /// \brief A card waiting to be placed, and the span it was allotted.
+    struct Placement {
+        LayoutId id;          ///< The card to place.
+        float breadth;        ///< Start of the span allotted to its subtree.
+        std::uint32_t depth;  ///< The level it sits at.
+    };
+
+    /// \brief Places one root card and everything below it.
     ///
-    /// \param id The card to place.
-    /// \param breadth Start of the span allotted to this subtree.
-    /// \param depth The level this card sits at.
+    /// \param root The root card to place.
+    /// \param breadth Start of the span allotted to the whole subtree.
     /// \param subtreeBreadth Breadth of every subtree, indexed by card id.
-    /// \param level The level of each card, indexed by card id.
     /// \param levelOffset Where each level begins, indexed by level.
-    void place(LayoutId id, float breadth, std::uint32_t depth,
-               const std::vector<float>& subtreeBreadth,
-               const std::vector<std::uint32_t>& level, const std::vector<float>& levelOffset) {
-        // The card sits centred in the span its parent allotted it.
-        LayoutNode& card = layout_.nodes[id];
-        setPosition(card, breadth + (subtreeBreadth[id] - breadthOf(card)) * 0.5f,
-                    levelOffset[depth]);
+    ///
+    /// \remarks Each card's position follows from its parent's allotment
+    ///          alone, so the order cards are placed in does not matter and a
+    ///          plain stack serves in place of recursion.
+    void place(LayoutId root, float breadth, const std::vector<float>& subtreeBreadth,
+               const std::vector<float>& levelOffset) {
+        std::vector<Placement> pending;
+        pending.push_back(Placement{root, breadth, 0});
 
-        // Children fill that same span from its start, so a parent with one
-        // child lines up exactly with it.
-        const float total = childrenBreadth(id, subtreeBreadth);
-        float cursor = breadth + (subtreeBreadth[id] - total) * 0.5f;
+        while (!pending.empty()) {
+            const Placement next = pending.back();
+            pending.pop_back();
 
-        const std::vector<LayoutId> children = card.children;
-        for (const LayoutId child : children) {
-            place(child, cursor, depth + 1, subtreeBreadth, level, levelOffset);
-            cursor += subtreeBreadth[child] + metrics_.siblingGap;
+            // The card sits centred in the span its parent allotted it.
+            LayoutNode& card = layout_.nodes[next.id];
+            setPosition(card, next.breadth + (subtreeBreadth[next.id] - breadthOf(card)) * 0.5f,
+                        levelOffset[next.depth]);
+
+            // Children fill that same span from its start, so a parent with
+            // one child lines up exactly with it.
+            const float total = childrenBreadth(next.id, subtreeBreadth);
+            float cursor = next.breadth + (subtreeBreadth[next.id] - total) * 0.5f;
+            for (const LayoutId child : card.children) {
+                pending.push_back(Placement{child, cursor, next.depth + 1});
+                cursor += subtreeBreadth[child] + metrics_.siblingGap;
+            }
         }
     }
 

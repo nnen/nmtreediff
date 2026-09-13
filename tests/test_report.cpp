@@ -50,12 +50,16 @@ struct Fixture {
     nmxd::ProviderRegistry registry = nmxd::makeDefaultRegistry();
     DiffSnapshot snapshot;
 
-    Fixture(const std::string& leftText, const std::string& rightText) {
+    /// Compares two documents under one provider: the picky script by
+    /// default, or a built-in by name for what the script's bare nodes cannot
+    /// show.
+    Fixture(const std::string& leftText, const std::string& rightText,
+            const char* providerName = "picky") {
         ProviderConfig config;
         std::vector<ConfigProblem> problems;
         REQUIRE(nmxd::runConfigScript(kScript, "test.lua", config, problems));
         REQUIRE(nmxd::addScriptedProviders(registry, config).empty());
-        const auto* provider = registry.byName("picky");
+        const auto* provider = registry.byName(providerName);
         REQUIRE(provider != nullptr);
 
         auto left = std::make_shared<SourceFile>(SourceFile::fromMemory(leftText, "left", "left.xml"));
@@ -98,13 +102,78 @@ TEST_CASE("dropped content is counted and warned about, and never fails the run"
     CHECK(text.find("warning: left: the format left out 1 stretch of the file") != std::string::npos);
     CHECK(text.find("warning: right: the format left out 1 stretch of the file") != std::string::npos);
     CHECK(text.find("failed:") == std::string::npos);
-    // The exit code follows the comparison, one here because the lines
-    // differ, and dropping never turns it into a two.
-    CHECK(code == 1);
+    // The lines differ inside what the format left out, and the tree, which
+    // decides, is identical: leaving it out was the format's decision. Zero,
+    // then, and dropping never turns it into a two either.
+    CHECK(text.find("lines: +0 -0 ~1 across 1 change") != std::string::npos);
+    CHECK(code == 0);
 
     const std::string json = fixture.report(ReportFormat::Json, true, code);
     CHECK(json.find("\"dropped\": { \"left\": 1, \"right\": 1 }") != std::string::npos);
     CHECK(json.find("\"failures\": []") != std::string::npos);
+    CHECK(code == 0);
+}
+
+TEST_CASE("the tree decides the verdict, so a reformat is not a change", "[report]") {
+    // The whole adoption argument in one pair: the same document, reindented.
+    // The exit code and the identical field used to read the line diff, so a
+    // report that printed "identical" for the tree exited 1 anyway.
+    Fixture fixture("<r><keep a='1'/></r>", "<r>\n  <keep a='1'/>\n</r>\n", "xml");
+
+    int code = 0;
+    const std::string text = fixture.report(ReportFormat::Text, true, code);
+    CHECK(text.find("lines: +") != std::string::npos);
+    CHECK(text.find("\nidentical\n") != std::string::npos);
+    CHECK(code == 0);
+
+    const std::string json = fixture.report(ReportFormat::Json, true, code);
+    CHECK(json.find("\"comparison\": \"tree\"") != std::string::npos);
+    CHECK(json.find("\"identical\": true") != std::string::npos);
+    CHECK(code == 0);
+}
+
+TEST_CASE("the JSON report lists every change the text report lists", "[report]") {
+    // Counts alone gave automation strictly less than a person got. Each entry
+    // carries what the text line carries: status, the path on each side, and
+    // the properties that differ.
+    Fixture fixture("<r><keep a='1'/></r>", "<r><keep a='2'/><keep/></r>", "xml");
+
+    int code = 0;
+    const std::string text = fixture.report(ReportFormat::Text, true, code);
+    CHECK(text.find("~ /r/keep[0] [a]\n+ /r/keep[1]\n") != std::string::npos);
+    CHECK(code == 1);
+
+    const std::string json = fixture.report(ReportFormat::Json, true, code);
+    CHECK(json.find("\"changes\": [\n"
+                    "      { \"status\": \"modified\", \"moved\": false, \"left\": \"/r/keep[0]\", "
+                    "\"right\": \"/r/keep[0]\", \"properties\": [\"a\"] },\n"
+                    "      { \"status\": \"added\", \"moved\": false, \"left\": null, "
+                    "\"right\": \"/r/keep[1]\", \"properties\": [] }\n"
+                    "    ]\n") != std::string::npos);
+    CHECK(json.find("\"trimmedContainers\": 0") != std::string::npos);
+    CHECK(json.find("\"identical\": false") != std::string::npos);
+    CHECK(code == 1);
+}
+
+TEST_CASE("without a format the lines decide", "[report]") {
+    // A file no format claims has only its lines to go by, and the report
+    // says so rather than pretending to a tree it does not have.
+    auto left = std::make_shared<SourceFile>(SourceFile::fromMemory("a b\n", "left", "left.txt"));
+    auto right = std::make_shared<SourceFile>(SourceFile::fromMemory("a  b\n", "right", "right.txt"));
+    DiffSnapshot snapshot;
+    snapshot.stage = Stage::TextReady;
+    snapshot.left = left;
+    snapshot.right = right;
+    snapshot.text = std::make_shared<nmxd::TextDiff>(nmxd::diffText(*left, *right, {}));
+
+    Options options;
+    options.headless = true;
+    options.report = ReportFormat::Json;
+    options.useExitCode = true;
+    std::ostringstream out;
+    const int code = nmxd::writeReport(out, snapshot, options);
+    CHECK(out.str().find("\"comparison\": \"lines\"") != std::string::npos);
+    CHECK(out.str().find("\"identical\": false") != std::string::npos);
     CHECK(code == 1);
 }
 

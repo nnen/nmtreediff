@@ -280,6 +280,37 @@ TEST_CASE("the size guard trims similarity and says so", "[match]") {
     CHECK(std::string(describe(result.quality)).find("trimmed") != std::string::npos);
 }
 
+TEST_CASE("a container that overspends the step budget degrades only itself", "[match]") {
+    // One wide container of rows that share nothing between the sides, beside
+    // a small one holding a renamed box. One step budget for the whole
+    // document meant the wide container spent it and the pass ended there, so
+    // the box came back as a deletion and an addition. The budget is per
+    // parent pair now: the rows are what the guard gives up on, and the box
+    // pairs as it would have on its own.
+    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto generate = [](const char* prefix, const char* label) {
+        std::string xml = "<r><big>";
+        for (int i = 0; i < 300; ++i) {
+            xml += "<row k=\"" + std::string(prefix) + std::to_string(i) + "\"/>";
+        }
+        xml += "</big><small><box label=\"" + std::string(label) + "\"><a/><b/></box></small></r>";
+        return xml;
+    };
+    const Tree left = parse(*provider, generate("L", "one"));
+    const Tree right = parse(*provider, generate("R", "two"));
+
+    MatchOptions options;
+    options.maxSimilaritySteps = 1000;  // room for the small container, not the wide one
+    const auto model = nmxd::diffTrees(left, right, *provider, {}, options);
+
+    CHECK(model.quality == nmxd::MatchQuality::SimilarityTrimmed);
+    CHECK(model.trimmedParents == 1);
+    // The rows are reported added and deleted, the box as the one edit it is.
+    CHECK(model.deleted == 300);
+    CHECK(model.added == 300);
+    CHECK(model.modified == 1);
+}
+
 TEST_CASE("a node path names a node by kind and position among its own kind", "[match]") {
     const auto provider = nmxd::makeGenericXmlProvider();
     const Tree tree = parse(*provider, "<r><a/><b/><a/></r>");
@@ -292,7 +323,7 @@ TEST_CASE("a node path names a node by kind and position among its own kind", "[
     CHECK(nmxd::nodePath(tree, children[2]) == "/r/a[1]");
 }
 
-TEST_CASE("a hundred thousand nodes match inside the milestone budget", "[match][budget][.slow]") {
+TEST_CASE("a hundred thousand nodes match inside the milestone budget", "[match][budget]") {
     const auto provider = nmxd::makeGenericXmlProvider();
 
     const auto generate = [](int tweakEvery) {

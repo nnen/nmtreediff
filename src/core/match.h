@@ -109,11 +109,18 @@ struct MatchOptions {
     ///          exactly the file a reader most needs a real diff of.
     std::uint32_t maxNodesForSimilarity = 5'000'000;
 
-    /// \brief Ceiling on candidate comparisons in the similarity pass.
+    /// \brief Ceiling on the work the similarity pass may spend under one
+    ///        parent pair.
     ///
-    /// \remarks That pass is the only quadratic part, so this is what bounds the
-    ///          worst case.
-    std::uint64_t maxSimilaritySteps = 20'000'000;
+    /// \remarks That pass is the only quadratic part, so this is what bounds
+    ///          the worst case. Counted in candidate comparisons plus the
+    ///          descendants scanned to score them, so it grows with the time
+    ///          spent rather than with the node count alone. The budget is per
+    ///          parent pair rather than per document, so a container too wide
+    ///          to finish is the only thing left unmatched under it and the
+    ///          rest of the file matches as it would have anyway. Four thousand
+    ///          children a side, a re-exported table, costs about half of it.
+    std::uint64_t maxSimilaritySteps = 100'000'000;
 
     /// \brief Below this score a candidate pair is not considered the same node.
     double minSimilarity = 0.4;
@@ -131,6 +138,13 @@ struct MatchResult {
     std::uint32_t anchoredByIdentity = 0;    ///< Pairs from the first pass.
     std::uint32_t anchoredBySubtree = 0;     ///< Pairs from the second pass.
     std::uint32_t anchoredBySimilarity = 0;  ///< Pairs from the third pass.
+
+    /// \brief Parent pairs the third pass gave up on for want of budget.
+    ///
+    /// \remarks Non-zero exactly when quality is MatchQuality::SimilarityTrimmed
+    ///          because of the step budget, and it says how many containers the
+    ///          trimming touched, which is usually one.
+    std::uint32_t trimmedParents = 0;
 };
 
 /// \brief Matches two trees against each other.

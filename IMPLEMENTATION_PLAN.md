@@ -695,6 +695,7 @@ jobs rather than fine-grained parallelism.
 | Full match, 100k nodes | under 2 s | 84 ms (M3) | M3 budget test |
 | Cancellation acknowledged | under 50 ms | 3.2 ms (M5) | M5 cancellation test |
 | Parse and match, 100k nodes, JSON | under 2 s | 258 ms and 161 ms (M9) | M9 budget test |
+| Match, 4000 renumbered entities under one parent, JSON | under 2 s | 373 ms (M11), against 4.9 s and a tripped guard before it | M11 budget test |
 
 Frame time is measured in steady state, after the window has settled. Showing
 a window costs a compositor round trip of roughly two vsync intervals, landing
@@ -832,7 +833,7 @@ submissions, and it is also how the end-to-end tests run.
 | M8 &check; | Formats without a compiler | Lua configuration from the home directory and the command line, retiring the M6 reader, the Lua provider bridge, the sample behaviour tree reimplemented in script, the graph direction and exit key settings | Done. The scripted behaviour tree produces the same tree and the same change list as the compiled one, and `kProviderInterfaceVersion` stayed at 1 |
 | M9 &check; | Properties with parts | Nested properties in the data model, hashing, matching and both views; record and sequence parts, so an array property reorders as a change and a record does not; generic JSON reading a scalar array as one property, with a scripted format able to choose otherwise; the rule that anything not a node becomes a property; a way for a format to take both an element's attributes and its child elements as properties; the scripted surface and the golden corpus updated to match | Done. A list of scalars is one property, a matrix is one property with parts, reordering a list registers while reordering a record does not, and neither built-in format nor the bridge can drop an element it does not recognise |
 | M10 &check; | Output and reload | A GUI launch that opens no console window while a headless run from a shell still prints and pipes; one log sink behind every line the program writes, shown in an Output pane and forwarded to whatever console or pipe is attached; Reload re-running every configuration file, rebuilding the provider registry, re-reading both files and comparing again; every Lua error written in full, with its traceback, to standard error; the open dialog's type list built from the registry, every known extension first and one entry per format under its own name | Done. The binary is GUI-subsystem and finds its console or pipe at startup; Ctrl+R rebuilds a scripted format from disk and a held snapshot keeps the old one alive; a raised `error()` reaches the Output pane and standard error with a traceback that names the script file and line; a scripted format claiming `.blackboard` is offered in the dialog as "Blackboard". P4V and Git remain to be checked by hand |
-| M11 | Trusted answers | The JSON report listing every changed node the text report lists; the exit code and the `identical` verdict taken from the tree diff whenever a provider resolved; the similarity budget charged per parent pair so one wide container degrades nothing else; the matching passes and the layout walking with explicit stacks; the budget tests registered as a labelled suite so they run | A six thousand level pair compares and draws, the whitespace-only pair exits 0, four thousand renumbered JSON entities match clean inside the budget, the JSON report lists what the text report lists, and `ctest` lists the budget tests |
+| M11 &check; | Trusted answers | The JSON report listing every changed node the text report lists; the exit code and the `identical` verdict taken from the tree diff whenever a provider resolved; the similarity budget charged per parent pair so one wide container degrades nothing else; the matching passes and the layout walking with explicit stacks; the budget tests registered as a labelled suite so they run | Done. A twenty thousand level pair compares, lays out and draws; the whitespace-only pair exits 0 under a report that says the tree decided; four thousand renumbered JSON entities match in 373 ms with the guard untripped, against 4.9 s and a tripped guard before; the JSON report carries `tree.changes`; `ctest -L budget` lists six tests and they run with the rest |
 | M12 | Keys | Every action named, every shortcut settable from a configuration script, more than one binding allowed per action, the menus showing whatever is bound | A reader rebinds next-change to two keys of their own and the menu says so |
 | M13 | Ship | Headless report, exit codes, a portable archive built in continuous integration from a tag and attached to a GitHub release, MIT licence and attribution for bundled dependencies, per-extension Perforce and Git setup docs verified against real clients, possibly a Git seven-argument mode, settings persistence | A technical artist can unzip it and configure it without help |
 | M14 | Later | Three-way merge, further game asset formats | Out of initial scope |
@@ -1220,6 +1221,50 @@ comparing and laying it out. Refusing past a declared depth was the
 alternative and is not taken: a document that reads has to compare, or the
 tool has a hole the shape of F16 one stage later.
 
+**M11 landed**, in the order above, and three things came out differently
+from the design, all under F18.
+
+The per-parent budget alone would not have made the four thousand entities
+pass. The pass spent its time not in the comparisons but around them: every
+candidate pair hashed both nodes' properties afresh and asked the provider
+for both identity keys, sixteen million times over, and then sorted a list
+of sixteen million candidates that was a quarter of a gigabyte on its own.
+Each child's share of the score is now computed once per parent pair, and
+pairing runs in rounds instead: every free left child names the free right
+child it most resembles, ties go to the better score and the loser chooses
+again next round. A round pairs at least its best choice, so the rounds end,
+and a round holds one entry per left child rather than one per pair. The
+corpus did not move. The budget itself went from twenty million steps for
+the document to a hundred million for a parent pair, which the four
+thousand entities spend about half of, and the result counts the containers
+it gave up on so the report can say "under 1 container" rather than leaving
+the reader to guess at the scale.
+
+F17 had a consequence the design did not spell out. The dropped-content case
+in the report tests used to exit 1 because its lines differed; the tree,
+which decides now, is identical there, because the change sits inside what
+the format chose not to see, so it exits 0. That is the right answer and it
+is stated in USAGE.md: what a format drops is dropped from the verdict too.
+The line summary in the text report is labelled `lines:` so the two
+comparisons can no longer be mistaken for one another.
+
+F16 reached one place the finding did not name. The details panel's outline
+draws every level open by default and recursed once per level, so the same
+document that no longer crashes the engine would still have taken the
+window down. It keeps its own stack now, with the tree pops it owes ImGui
+recorded per frame. The test runs at twenty thousand levels through
+matching, classification and layout, well past the six thousand that
+crashed and past what the default stack holds. One recursion on depth
+remains, deliberately: the details panel lists a property's parts
+recursively, and that is property depth, which hand-written and generated
+data alike keep to a handful of levels.
+
+F19 needed nothing beyond what Catch2 already offers: two `catch_discover_tests`
+calls on the one binary, one for everything but `[budget]` and one for
+`[budget]` under the `budget` label. All six run by default and take under
+three seconds together, so no schedule is needed and none is set up; there is
+no continuous integration yet to set it up on, which is M13's.
+
 12. Testing
 -----------
 
@@ -1240,7 +1285,10 @@ tool has a hole the shape of F16 one stage later.
   in continuous integration.
 - **Budget tests** for startup time, staged publishing latency, full match
   time, and cancellation latency, so the numbers in section 8 cannot silently
-  rot.
+  rot. Registered under the `budget` label since M11, so `ctest -L budget`
+  runs them alone and `ctest -LE budget` runs everything else; before that
+  they carried Catch2's hidden tag and ran nowhere, which is how F18 lived as
+  long as it did.
 - **Configuration tests** that write the three files, assert which setting
   wins where they disagree, and assert that a broken script names its own line
   rather than failing silently or half applying itself.
@@ -1360,10 +1408,9 @@ library is what makes that acceptable.
   without a message, and takes its headless verdict from the line diff instead
   of the tree diff. Those are in section 14 as F15 to F17, and they matter more
   than anything in the first pass: a tool that draws badly is abandoned, and a
-  tool that under-reports is believed. F15 is closed; the rest of F16, F17,
-  F18 and F19 are collected as M11 together with F5, so the milestone before
-  the key table and the release is the one that makes the tool's answers
-  worth trusting.
+  tool that under-reports is believed. F15 was closed by section 15 and the
+  other four, with F5, by M11, so the milestone before the key table and the
+  release was the one that made the tool's answers worth trusting.
 
 14. Field review, and what it filed
 -----------------------------------
@@ -1391,7 +1438,7 @@ rows below. The rest are defects with a known cause.
 | F2 | A wide, flat document degenerates: fifteen thousand nodes draw as a one pixel smear and the minimap with it. Most studio XML is a table, not a tree. Collapsing unchanged subtrees should be the default when changes are sparse against the node count. | P0 | Before M13 |
 | F3 | Sibling order cannot be declared unordered from a script. `childrenOrdered()` is on the C++ interface and not on the Lua surface, so a re-sorted string table reports 4860 moves and the fix needs a compiler. This contradicts the claim that a studio format needs no compiler. | P0 | Closed. `ref:set_children_ordered(b)` on the scripted handle, section 15 step 5 |
 | F4 | There is no search or filter in either view. Finding one entry in a five thousand row table means scrolling to it. | P0 | Before M13 |
-| F5 | The JSON report carries counts only. The text report lists every changed node and the machine-readable one does not, so automation gets strictly less than a person does. `src/app/report.cpp`. USAGE.md calls it "a machine-readable version of the same thing", which is not true today. | P0 | M11 |
+| F5 | The JSON report carries counts only. The text report lists every changed node and the machine-readable one does not, so automation gets strictly less than a person does. `src/app/report.cpp`. USAGE.md calls it "a machine-readable version of the same thing", which is not true today. | P0 | Closed. `tree.changes` in the JSON report, M11 |
 | F6 | Report paths are positional, so a changed string reads as `/StringTable/Entry[501]` even when the provider supplies both an identity and a title. That makes headless output near useless in a review comment. | P1 | M13 |
 | F7 | UTF-16 is refused outright, and older exporters still write it. | P1 | M13 |
 | F8 | A pair whose format changed between revisions reports "the document is not well formed" without naming the format it tried, because the format is resolved from one side and applied to both. | P1 | M13 |
@@ -1450,10 +1497,10 @@ using the wrong half of its own output.
 | # | Finding | Priority | Lands in |
 | --- | --- | --- | --- |
 | F15 | A change to a property whose name is already present is reported as identical. `changedPropertyNames()` in `src/core/diff.cpp` puts the right-hand properties in a map keyed by name and probes the left with `findProperty()`, and both collapse duplicates. Adding a second `<property name="cooldown">` to a `<node>` yields no node change at all; removing it is caught, so the miss is asymmetric. The content hash is correct, so the pair never matches by hash: it anchors by strong identity and is then classified as unchanged. Every format that folds repeated child elements into properties is exposed, which is the shape R7.9 exists for. Properties have to compare as a multiset, matched by name and then greedily by value. | P0 | Closed. `changedPropertyNames()` compares per-name multisets of content hashes, section 15 step 1; the details panel pairs repeated names by occurrence since M10 |
-| F16 | A document nested about six thousand levels deep crashes the process with no message and no usable exit status. Parsing, `pairIdenticalSubtree()`, `addSubtree()`, `walkPair()` and the layout's own `addSubtree()` all recurse on document depth, while `computeHashes()` deliberately does not. Either convert those walks to explicit stacks or refuse past a declared depth with a real `ParseError`. Generated data reaches this and hand-authored data does not, which is why no sample caught it. | P0 | Half closed. Parsing and shaping walk with explicit stacks since section 15 step 4, and the tests read a document thousands of levels deep; `pairIdenticalSubtree()`, `addSubtree()`, `walkPair()` and the layout still recurse. M11 |
-| F17 | `--exit-code` and the `identical` field are taken from the line diff, not the tree diff. `writeReport()` in `src/app/report.cpp` computes `identical` from `TextDiff::identical()`, so the whitespace-only golden pair prints `identical` for the tree and still exits 1. A submit trigger wired to this gets exactly the answer the tool exists to correct. The tree verdict must decide whenever a provider resolved, with the line verdict as the fallback. The JSON report already admits the problem by reporting `"comparison": "lines"`, but honesty is not the behaviour a build job needs. | P0 | M11 |
-| F18 | The similarity step budget aborts the pass for the whole document rather than for the subtree that overspent it. `matchChildrenOf()` returning false ends `matchBySimilarity()` outright, so one wide container degrades the matching everywhere else in the file. Four thousand JSON entities with renumbered identifiers, 850 KB a side, take about 4.9 seconds and come back with the guard tripped. That is a re-export, not a pathological input. Budget per parent pair and let the rest of the tree finish clean. | P0 | M11 |
-| F19 | The budget tests never run. They carry Catch2's hidden `[.slow]` tag, so `catch_discover_tests` does not register them and `ctest` lists none of them. The numbers in section 8 are documented and unenforced, which is how F18 survived. Register them as their own labelled suite, and let continuous integration run them on a schedule if they are too slow for every commit. | P1 | M11 |
+| F16 | A document nested about six thousand levels deep crashes the process with no message and no usable exit status. Parsing, `pairIdenticalSubtree()`, `addSubtree()`, `walkPair()` and the layout's own `addSubtree()` all recurse on document depth, while `computeHashes()` deliberately does not. Either convert those walks to explicit stacks or refuse past a declared depth with a real `ParseError`. Generated data reaches this and hand-authored data does not, which is why no sample caught it. | P0 | Closed. Parsing and shaping walk with explicit stacks since section 15 step 4; the matcher's subtree pairing, the classifier's walks, the layout's walks and placement and the window's outline since M11. The tests compare and lay out twenty thousand levels |
+| F17 | `--exit-code` and the `identical` field are taken from the line diff, not the tree diff. `writeReport()` in `src/app/report.cpp` computes `identical` from `TextDiff::identical()`, so the whitespace-only golden pair prints `identical` for the tree and still exits 1. A submit trigger wired to this gets exactly the answer the tool exists to correct. The tree verdict must decide whenever a provider resolved, with the line verdict as the fallback. The JSON report already admits the problem by reporting `"comparison": "lines"`, but honesty is not the behaviour a build job needs. | P0 | Closed. The tree decides whenever a format resolved and `comparison` says so, M11 |
+| F18 | The similarity step budget aborts the pass for the whole document rather than for the subtree that overspent it. `matchChildrenOf()` returning false ends `matchBySimilarity()` outright, so one wide container degrades the matching everywhere else in the file. Four thousand JSON entities with renumbered identifiers, 850 KB a side, take about 4.9 seconds and come back with the guard tripped. That is a re-export, not a pathological input. Budget per parent pair and let the rest of the tree finish clean. | P0 | Closed. The budget is per parent pair, the score's per-node parts are computed once, and pairing runs in rounds, M11 |
+| F19 | The budget tests never run. They carry Catch2's hidden `[.slow]` tag, so `catch_discover_tests` does not register them and `ctest` lists none of them. The numbers in section 8 are documented and unenforced, which is how F18 survived. Register them as their own labelled suite, and let continuous integration run them on a schedule if they are too slow for every commit. | P1 | Closed. Registered under the `budget` label and run by default, M11 |
 | F20 | Weak identity keys are computed and discarded. `identity()` is read in exactly one place, `anchorByIdentity()`, which skips anything not marked strong. Generic XML builds a key from the element name and its `id` attribute on every node and nothing ever reads it. Either consume a weak key as a tiebreaker inside `similarity()` or take it off the interface, because a provider author writing against section 6 will reasonably expect it to do something. | P1 | M13 |
 | F21 | A script sees a flattened view of a node: its element name and a name-to-value table, rebuilt for each of the five questions asked per node. It cannot see children, parent context, or the nested and array parts that R7.7 and R7.10 added to the model, and duplicate names collapse in that table the same way F15 collapses them. A format definition that needs to look one level down, which most real schemas do, cannot be written in Lua today. This is the same class of gap as F3 and should be fixed alongside it. | P1 | Closed. A script is handed the document as a DOM with parents, children, parts and repeated names, section 15 step 5 |
 | F22 | Provider scripts run with `io`, `os` and `package` open, reasoned in `src/core/lua_state.cpp` as the trust a shell gives a startup file. A studio rollout inverts that assumption: the shared provider script lands in the depot, every engineer's configuration points at it, and it then executes on every workstation and build agent on every diff, twice per diff because `loadShape()` re-runs the whole script once per side. Sandbox provider scripts to base, string, table and math, and keep the full set for the top-level user configuration only. Section 6 should say which of the two a given file is. | P1 | M13 |
@@ -1462,16 +1509,13 @@ using the wrong half of its own output.
 | F25 | `nodePath()` names a deep node by its full ancestry, so one changed node in a deeply nested document prints a path thousands of segments long and the change list becomes unreadable. F6 already replaces positional paths with provider identity, and that fix should cap or elide depth as well. | P2 | M14 |
 
 *Status, checked against the code on 13 September 2026.* F3, F15 and F21 are
-closed, all by section 15, and their rows say where. F16 is half closed: the
-parse and shape half by section 15, the matching and layout half not. F10 is
-partly served, since the Output pane copies its log to the clipboard, but a
-path, a value or a node still cannot be copied, so it stays open. Everything
-else in both tables is open as written: the JSON report still carries counts
-only, `--exit-code` still reads the line diff, an unknown option still exits
-109, the budget tests still carry the hidden tag, weak identity keys are still
-discarded, provider scripts still see `io`, `os` and `package`, and mixed
-content still loses its text. F5, the rest of F16, F17, F18 and F19 are
-collected as M11, and section 11 says in what order.
+closed by section 15, and F5, F16, F17, F18 and F19 by M11; their rows say
+where and section 11 says how. F10 is partly served, since the Output pane
+copies its log to the clipboard, but a path, a value or a node still cannot be
+copied, so it stays open. Everything else in both tables is open as written:
+an unknown option still exits 109, weak identity keys are still discarded,
+provider scripts still see `io`, `os` and `package`, and mixed content still
+loses its text.
 
 F15, F16 and F17 are the three that block putting this in front of the team,
 and they are of a kind the first review could not have found: each needs an

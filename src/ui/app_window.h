@@ -72,11 +72,34 @@ private:
     /// \param otherTree The other side, consulted for what a value was
     ///        before, or null when there is none.
     /// \param provider The format provider, for titles and property order.
-    /// \param id The node to draw.
+    /// \param root The node to draw, with everything under it.
     /// \param diff What changed, or null before the diff is ready.
     /// \param side Which side \p tree is.
     void drawTreeOutline(const Tree& tree, const Tree* otherTree, const IFormatProvider& provider,
-                         NodeId id, const DiffModel* diff, Side side, bool withChildren = true);
+                         NodeId root, const DiffModel* diff, Side side, bool withChildren = true);
+
+    /// \brief Draws one node of the outline and opens it if the reader has it
+    ///        open.
+    ///
+    /// \param tree The tree the node belongs to.
+    /// \param otherTree The other side, or null when there is none.
+    /// \param provider The format provider, for titles and property order.
+    /// \param id The node to draw.
+    /// \param diff What changed, or null before the diff is ready.
+    /// \param side Which side \p tree is.
+    /// \param withChildren Whether the node's children will be drawn under it.
+    /// \param pushed Set to whether the node pushed a tree level that the
+    ///        caller has to pop once the children are drawn.
+    ///
+    /// \returns `true` when the node is open, in which case its id is still
+    ///          pushed and the caller owns the pop; `false` when it is closed
+    ///          or does not exist, with nothing left to undo.
+    ///
+    /// \remarks Split from drawTreeOutline() so that the walk over the
+    ///          document can keep its own stack rather than the call stack.
+    bool drawOutlineNode(const Tree& tree, const Tree* otherTree, const IFormatProvider& provider,
+                         NodeId id, const DiffModel* diff, Side side, bool withChildren,
+                         bool& pushed);
 
     /// \brief Draws the outline rooted wherever the reader asked for.
     ///

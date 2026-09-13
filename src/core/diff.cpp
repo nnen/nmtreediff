@@ -152,6 +152,7 @@ public:
           rightSibling_(siblingIndices(right)) {
         model_.matching = std::move(match.matching);
         model_.quality = match.quality;
+        model_.trimmedParents = match.trimmedParents;
         model_.cancelled = match.cancelled;
         model_.leftStatus.assign(left.size(), NodeStatus::Unchanged);
         model_.rightStatus.assign(right.size(), NodeStatus::Unchanged);
@@ -240,13 +241,23 @@ private:
     /// \brief Reports a whole right-hand subtree as added.
     ///
     /// \param rightId The root of the subtree.
+    ///
+    /// \remarks Walks with a stack of its own rather than the call stack, as
+    ///          every walk in this class does: a document is as deep as
+    ///          whatever wrote it, and the call stack is not. Children go on in
+    ///          reverse so they come off in document order, which keeps the
+    ///          change list in the order a reader would read the file.
     void addSubtree(NodeId rightId) {
-        Change change;
-        change.status = NodeStatus::Added;
-        change.right = rightId;
-        emit(std::move(change));
-        for (const NodeId child : right_.node(rightId).children) {
-            addSubtree(child);
+        std::vector<NodeId> pending{rightId};
+        while (!pending.empty()) {
+            const NodeId id = pending.back();
+            pending.pop_back();
+            Change change;
+            change.status = NodeStatus::Added;
+            change.right = id;
+            emit(std::move(change));
+            const auto& children = right_.node(id).children;
+            pending.insert(pending.end(), children.rbegin(), children.rend());
         }
     }
 
@@ -254,12 +265,16 @@ private:
     ///
     /// \param leftId The root of the subtree.
     void deleteSubtree(NodeId leftId) {
-        Change change;
-        change.status = NodeStatus::Deleted;
-        change.left = leftId;
-        emit(std::move(change));
-        for (const NodeId child : left_.node(leftId).children) {
-            deleteSubtree(child);
+        std::vector<NodeId> pending{leftId};
+        while (!pending.empty()) {
+            const NodeId id = pending.back();
+            pending.pop_back();
+            Change change;
+            change.status = NodeStatus::Deleted;
+            change.left = id;
+            emit(std::move(change));
+            const auto& children = left_.node(id).children;
+            pending.insert(pending.end(), children.rbegin(), children.rend());
         }
     }
 
@@ -389,57 +404,80 @@ private:
         emit(std::move(change));
     }
 
+    /// \brief One matched pair the walk is inside, and how far along its
+    ///        children it has got.
+    struct WalkFrame {
+        NodeId left;                 ///< The left node.
+        NodeId right;                ///< The right node it matched.
+        std::size_t rightIndex = 0;  ///< The next right child to look at.
+        std::size_t leftCursor = 0;  ///< The first left child not yet passed over.
+    };
+
     /// \brief Walks a matched pair and everything below it.
     ///
-    /// \param leftId The left node.
-    /// \param rightId The right node it matched.
+    /// \param leftRoot The left node.
+    /// \param rightRoot The right node it matched.
     ///
     /// \remarks Merges the two child lists so that additions and deletions are
     ///          reported where they happened rather than in a block at the end.
     ///          A child matched to a node under some other parent moved in from
     ///          elsewhere and is reported here, at its new home.
-    void walkPair(NodeId leftId, NodeId rightId) {
-        recordPair(leftId, rightId);
+    ///
+    ///          The frames are the call stack this used to have, kept on the
+    ///          heap: each remembers how far along the right children it is and
+    ///          which left children it has passed over, and a matched child is
+    ///          recorded and pushed rather than descended into.
+    void walkPair(NodeId leftRoot, NodeId rightRoot) {
+        std::vector<WalkFrame> frames;
+        recordPair(leftRoot, rightRoot);
+        frames.push_back(WalkFrame{leftRoot, rightRoot});
 
-        const auto& leftChildren = left_.node(leftId).children;
-        const auto& rightChildren = right_.node(rightId).children;
+        while (!frames.empty()) {
+            WalkFrame& frame = frames.back();
+            const auto& leftChildren = left_.node(frame.left).children;
+            const auto& rightChildren = right_.node(frame.right).children;
 
-        std::size_t leftCursor = 0;
-        for (const NodeId rightChild : rightChildren) {
+            if (frame.rightIndex == rightChildren.size()) {
+                // Left children after the last matched one were deleted or
+                // moved away; a move is reported where it landed.
+                while (frame.leftCursor < leftChildren.size()) {
+                    const NodeId skipped = leftChildren[frame.leftCursor++];
+                    if (!model_.matching.leftMatched(skipped)) {
+                        deleteSubtree(skipped);
+                    }
+                }
+                frames.pop_back();
+                continue;
+            }
+
+            const NodeId rightChild = rightChildren[frame.rightIndex++];
             const NodeId partner = model_.matching.toLeft(rightChild);
-
             if (partner == kInvalidNode) {
                 addSubtree(rightChild);
                 continue;
             }
-            if (left_.node(partner).parent != leftId) {
+            if (left_.node(partner).parent != frame.left) {
                 // Matched to a node under some other parent: it moved in from
                 // elsewhere, and is reported here, at its new home.
-                walkPair(partner, rightChild);
+                recordPair(partner, rightChild);
+                frames.push_back(WalkFrame{partner, rightChild});
                 continue;
             }
 
             // Left children passed over on the way to this one were either
-            // deleted or moved away; a move is reported where it landed.
-            while (leftCursor < leftChildren.size() && leftChildren[leftCursor] != partner) {
-                const NodeId skipped = leftChildren[leftCursor];
+            // deleted or moved away.
+            while (frame.leftCursor < leftChildren.size() &&
+                   leftChildren[frame.leftCursor] != partner) {
+                const NodeId skipped = leftChildren[frame.leftCursor++];
                 if (!model_.matching.leftMatched(skipped)) {
                     deleteSubtree(skipped);
                 }
-                ++leftCursor;
             }
-            if (leftCursor < leftChildren.size()) {
-                ++leftCursor;
+            if (frame.leftCursor < leftChildren.size()) {
+                ++frame.leftCursor;
             }
-            walkPair(partner, rightChild);
-        }
-
-        while (leftCursor < leftChildren.size()) {
-            const NodeId skipped = leftChildren[leftCursor];
-            if (!model_.matching.leftMatched(skipped)) {
-                deleteSubtree(skipped);
-            }
-            ++leftCursor;
+            recordPair(partner, rightChild);
+            frames.push_back(WalkFrame{partner, rightChild});
         }
     }
 
@@ -498,6 +536,7 @@ DiffModel diffTrees(const Tree& left, const Tree& right, const IFormatProvider& 
         DiffModel model;
         model.cancelled = true;
         model.quality = match.quality;
+        model.trimmedParents = match.trimmedParents;
         return model;
     }
 

@@ -255,3 +255,82 @@ TEST_CASE("the layout can be looked up by document node", "[layout]") {
     CHECK(layout.nodes[id].title == "a");
     CHECK(layout.find(Side::Left, 999) == kInvalidLayout);
 }
+
+TEST_CASE("a pair nested thousands of levels deep compares and lays out without recursing",
+          "[layout][deep]") {
+    // Generated data reaches this depth and hand-authored data does not, which
+    // is why no sample caught it. Reading and shaping stopped recursing with
+    // the DOM interface; this covers the subtree pass of the matcher, the
+    // classifier's walks and the layout's walk and placement, each of which
+    // used to recurse once per level and take the process down with no
+    // message somewhere past five thousand.
+    constexpr int kDepth = 20000;
+    const auto nested = [](const std::string& innermost) {
+        std::string xml;
+        xml.reserve(static_cast<std::size_t>(kDepth) * 8 + innermost.size());
+        for (int i = 0; i < kDepth; ++i) {
+            xml += "<n>";
+        }
+        xml += innermost;
+        for (int i = 0; i < kDepth; ++i) {
+            xml += "</n>";
+        }
+        return xml;
+    };
+    const auto provider = nmxd::makeGenericXmlProvider();
+
+    SECTION("an identical pair pairs every level through the subtree pass") {
+        const Tree left = parse(*provider, nested("<leaf v=\"1\"/>"));
+        const Tree right = parse(*provider, nested("<leaf v=\"1\"/>"));
+        const auto model = nmxd::diffTrees(left, right, *provider);
+        CHECK(model.identical());
+        CHECK(model.unchanged == left.size());
+
+        const TreeLayout layout = buildLayout(left, right, model, *provider);
+        CHECK(layout.size() == right.size());
+    }
+
+    SECTION("a change at the bottom is one modification, placed") {
+        const Tree left = parse(*provider, nested("<leaf v=\"1\"/>"));
+        const Tree right = parse(*provider, nested("<leaf v=\"2\"/>"));
+        const auto model = nmxd::diffTrees(left, right, *provider);
+        CHECK(model.modified == 1);
+        CHECK(model.added == 0);
+        CHECK(model.deleted == 0);
+
+        const TreeLayout layout = buildLayout(left, right, model, *provider);
+        REQUIRE(layout.size() == right.size());
+        const nmxd::LayoutId deepest =
+            layout.find(Side::Right, static_cast<nmxd::NodeId>(right.size() - 1));
+        REQUIRE(deepest != kInvalidLayout);
+        CHECK(layout.nodes[deepest].status == NodeStatus::Modified);
+        // Placement is by level, so the bottom card sits below every other.
+        CHECK(layout.nodes[deepest].y > layout.nodes[layout.root].y);
+    }
+
+    SECTION("a deep subtree lost on one side and gained on the other is walked whole") {
+        std::string gone = "<gone>";
+        std::string come = "<come>";
+        for (int i = 0; i < kDepth / 2; ++i) {
+            gone += "<x>";
+            come += "<y>";
+        }
+        for (int i = 0; i < kDepth / 2; ++i) {
+            gone += "</x>";
+            come += "</y>";
+        }
+        gone += "</gone>";
+        come += "</come>";
+
+        const Tree left = parse(*provider, nested(gone));
+        const Tree right = parse(*provider, nested(come));
+        const auto model = nmxd::diffTrees(left, right, *provider);
+        CHECK(model.deleted == static_cast<std::uint32_t>(kDepth / 2 + 1));
+        CHECK(model.added == static_cast<std::uint32_t>(kDepth / 2 + 1));
+
+        // The union holds every right node and every left node the right
+        // side lost.
+        const TreeLayout layout = buildLayout(left, right, model, *provider);
+        CHECK(layout.size() == right.size() + static_cast<std::size_t>(kDepth / 2 + 1));
+    }
+}
