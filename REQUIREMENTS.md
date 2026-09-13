@@ -74,4 +74,13 @@ NM Tree Diff Requirements
 - *R15*: Every keyboard shorcut must be configurable through config file.
 - *R16*: It must be possible to bind more than one keyboard shortcut to a any
   action.
+- *R17*: In the GUI interface, there must be an "Output" pane containing app's
+  standard output and standard error output.
+- *R18*: There must be a "Reload" functionality, which reloads *all* loaded
+  config files, the compared files and run the diff algorithm again. If any
+  changes are made to the logic of a Lua scripted format provider, they must be
+  reflected.
+- *R19*: If there's any Lua error, the error details and possibly stack trace
+  must be written to the standard error output.
+- *R20*: Lauching the app with GUI should not open console window.
 
