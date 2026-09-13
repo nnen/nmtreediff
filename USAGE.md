@@ -77,8 +77,11 @@ that first.
 
 Switch with **Ctrl+1** for text and **Ctrl+2** for the node view, or from the
 View menu. Both views show the same comparison and share one selection, so a
-node picked in one is the node selected in the other. **Ctrl+R** reloads both
-files from disk.
+node picked in one is the node selected in the other. **Ctrl+R** reloads
+everything: the configuration files are read again, a format defined in a
+script is rebuilt from what is on disk now, and both files are read and
+compared afresh. Edit a shape function, press Ctrl+R, and the tree is the new
+script's answer, without restarting the tool.
 
 **F8** goes to the next change and **Shift+F8** to the previous one, from
 anywhere. Changed lines and changed nodes are two different lists, so this
@@ -152,6 +155,20 @@ parts are positional, so reordering one is a change.
 A removed property is listed after the others. It has no row of its own in the
 newer document, so without this the one thing you could not see would be the
 thing that was taken away.
+
+### The Output pane
+
+Everything the program writes, on standard output and standard error, is kept
+and shown in a pane beside the status bar: configuration problems, what a
+script's `print` said, and the whole of any error a script raised, traceback
+included. Launched from the desktop or by a version control client the tool
+has no console, so this pane is the only place that text exists.
+
+It is closed in a fresh layout, so a reader going through a changelist is not
+shown a log. **View, Output** opens it, and the first error the pane has not
+shown yet opens it too. Error lines are coloured. **Clear** empties the log,
+**Copy** puts the whole of it on the clipboard, and **Follow** keeps the
+newest line in view.
 
 Formats
 -------
@@ -232,9 +249,16 @@ formats(map)
 ```
 
 Every mistake in a script is reported at once, with the file and, where Lua
-knows it, the line. A configuration with any mistake in it stops the run rather
-than being half applied, because a comparison read by the wrong format looks
-like a working comparison.
+knows it, the line, and an error a script raised carries its traceback below
+that. A configuration with any mistake in it stops the run rather than being
+half applied, because a comparison read by the wrong format looks like a
+working comparison.
+
+The same rule holds in the window. **Ctrl+R** reads all three files again and
+rebuilds every format they define; if any of them now has a mistake, the
+problems go to the Output pane and the formats you had stay in force, while the
+two files are still read again. So editing a script and pressing Ctrl+R is the
+whole loop, and a mistake costs one look at the pane rather than a restart.
 
 Teaching it your own format
 ---------------------------
@@ -413,7 +437,14 @@ against the first element and the first handle among the call's arguments,
 which is why the idiom is `out:next(visit, element, parent)`. The text view
 marks the element, the node view marks the card, and a headless report lists
 the message and exits 2. An error inside `shape` itself before any node exists
-fails the parse, since a tree of zero nodes is not a partial result.
+fails the parse, since a tree of zero nodes is not a partial result. The card
+and the report carry one line; the whole error, traceback included, goes to
+standard error and to the Output pane, naming the script file and line.
+
+**`print` is yours.** What a script prints goes to the same place, on standard
+output, so a `print(element.name)` while writing a shape function reads
+beside whatever went wrong with it, and a window launched from the desktop,
+which has no console, still shows it.
 
 **Content may be left out, and the tool says so.** An element no handle was
 made from is dropped, its bytes are marked in the text view and counted in the
@@ -609,6 +640,15 @@ Running without a window
 `--headless` runs the whole comparison and writes a report to standard output.
 This is how a script or a build job would use it.
 
+On Windows the program is built so that a launch from the desktop opens no
+console window, and it finds its output rather than assuming one: output you
+redirect to a file or a pipe goes there, and otherwise it writes to the console
+it was started from. One thing follows from that. A command prompt does not
+wait for such a program, so a headless run typed at a prompt hands the prompt
+back before the report appears, and the two interleave. Pipe the output, send
+it to a file, or run it from a script, and none of that applies; a version
+control tool waits on the process and is unaffected.
+
 ```bash
 nmxmldiff --headless testdata/sample/tree_before.xml testdata/sample/tree_after.xml
 ```
@@ -741,8 +781,19 @@ the marks off under View if the format is one you trust.
 **Part of the file is marked violet, and a card has a violet corner.** A
 scripted format raised an error on that element. What the script built before
 the error is shown and what it never got to is missing, so a change reported
-under that card may be an artefact of the failure. The status bar counts these
-and a headless report prints the message.
+under that card may be an artefact of the failure. The status bar counts these,
+the Output pane has the error with its traceback, and a headless report prints
+the message.
+
+**Nothing appears in the terminal.** Launched from the desktop the tool has no
+console, and what it writes goes to the Output pane instead. Launched from a
+prompt it writes to that prompt's console, but the prompt does not wait for it,
+so the report can land after the prompt has come back; pipe or redirect the
+output and it arrives where you sent it.
+
+**A script edit had no effect.** Press Ctrl+R. The configuration is read at
+launch and again only on Reload; if the edited script now has a mistake, the
+Output pane says so and the previous version stays in force.
 
 **The report says the match was reduced.** A very large pair trims the more
 expensive matching passes to stay responsive. Some moves will be reported as a

@@ -831,7 +831,7 @@ submissions, and it is also how the end-to-end tests run.
 | M7 &check; | Standing on its own | File picker and a welcome pane, graph direction in the layout with a per-format override and a View menu default, a pass over the existing code against CODE_GUIDELINES.md | Done. The window opens with no arguments and both files are chosen in it; the behaviour tree draws itself left to right without being asked, and the interface version stayed at 1 |
 | M8 &check; | Formats without a compiler | Lua configuration from the home directory and the command line, retiring the M6 reader, the Lua provider bridge, the sample behaviour tree reimplemented in script, the graph direction and exit key settings | Done. The scripted behaviour tree produces the same tree and the same change list as the compiled one, and `kProviderInterfaceVersion` stayed at 1 |
 | M9 &check; | Properties with parts | Nested properties in the data model, hashing, matching and both views; record and sequence parts, so an array property reorders as a change and a record does not; generic JSON reading a scalar array as one property, with a scripted format able to choose otherwise; the rule that anything not a node becomes a property; a way for a format to take both an element's attributes and its child elements as properties; the scripted surface and the golden corpus updated to match | Done. A list of scalars is one property, a matrix is one property with parts, reordering a list registers while reordering a record does not, and neither built-in format nor the bridge can drop an element it does not recognise |
-| M10 | Output and reload | A GUI launch that opens no console window while a headless run from a shell still prints and pipes; one log sink behind every line the program writes, shown in an Output pane and forwarded to whatever console or pipe is attached; Reload re-running every configuration file, rebuilding the provider registry, re-reading both files and comparing again; every Lua error written in full, with its traceback, to standard error | Launched from the desktop, no console appears; a shape function edited on disk takes effect on Ctrl+R without a restart; a deliberate `error()` in it shows its traceback in the Output pane and on the shell it was run from |
+| M10 &check; | Output and reload | A GUI launch that opens no console window while a headless run from a shell still prints and pipes; one log sink behind every line the program writes, shown in an Output pane and forwarded to whatever console or pipe is attached; Reload re-running every configuration file, rebuilding the provider registry, re-reading both files and comparing again; every Lua error written in full, with its traceback, to standard error | Done. The binary is GUI-subsystem and finds its console or pipe at startup; Ctrl+R rebuilds a scripted format from disk and a held snapshot keeps the old one alive; a raised `error()` reaches the Output pane and standard error with a traceback that names the script file and line. P4V and Git remain to be checked by hand |
 | M11 | Keys | Every action named, every shortcut settable from a configuration script, more than one binding allowed per action, the menus showing whatever is bound | A reader rebinds next-change to two keys of their own and the menu says so |
 | M12 | Ship | Headless report, exit codes, a portable archive built in continuous integration from a tag and attached to a GitHub release, MIT licence and attribution for bundled dependencies, per-extension Perforce and Git setup docs verified against real clients, possibly a Git seven-argument mode, settings persistence | A technical artist can unzip it and configure it without help |
 | M13 | Later | Three-way merge, further game asset formats | Out of initial scope |
@@ -1125,6 +1125,43 @@ a provider script changed between two loads shapes differently on the second.
 Then the full error text, with a test that a shape job calling `error()` leaves
 a traceback in the sink and a one-line message on the failure. The pane last,
 since it draws what the rest produced.
+
+**M10 landed** in five commits, in that order, and three things came out
+differently from the paragraphs above.
+
+*Reload does not wait.* The reason to cancel and wait was that workers hold
+provider pointers into the registry about to go. Instead the session captures
+the registry a comparison starts with and the snapshot holds it, so a frame
+drawing a tree the old provider shaped may still ask it for a title while the
+new comparison runs, and the frame loop waits for nothing. `configureProviders()`
+builds a fresh registry from the built-ins every time, which is what makes
+calling it twice mean Reload rather than accumulation. The session test holds
+the first snapshot across the swap and asks its provider a question.
+
+*Where the failure text is written.* The plan had the default `parse()` write
+it, with the file label to hand. It is written by the drain instead, as the
+job fails, because a script that no longer runs at all fails before any node
+exists and then there is no tree to carry the detail through; the label
+travels to the context for the purpose. The chunk name was the surprise: sol2
+already appended a traceback to every message, but the chunk was the script's
+own first line in quotes, so a traceback read `[string "provider "bt" {..."]:6`.
+Both readers now load a script under its file name, and the name alone rather
+than the path, because a Windows path carries a colon where Lua's format puts
+the line number after the first one.
+
+*Where the pane docks.* Docking it in the one-time layout did nothing, because
+a saved layout skips that step and a window absent when the layout was saved
+opens floating. The pane asks to join the status bar's node on its first
+appearance instead, and asks for focus on three consecutive frames, since a
+window joins its node's tab bar the frame after it first exists and a focus
+given before that selects no tab.
+
+What the done-when condition asked for was checked from Git Bash, cmd.exe and
+PowerShell through pipes and files, and from PowerShell with no handles at
+all, where the report landed in PowerShell's own console buffer. P4V and Git
+were not to hand and remain to be checked. The shell-does-not-wait cost is
+real and is documented in USAGE.md rather than worked around; the two-binary
+fallback was not needed.
 
 12. Testing
 -----------

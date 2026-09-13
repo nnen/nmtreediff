@@ -405,6 +405,16 @@ and exits 2. If shaping ends with no root at all, the parse fails with
 `ParseError::ShapeFailed`, because a tree of zero nodes is not a partial
 result.
 
+A failure has a one-line `message`, which is what the report line and the card
+tooltip carry, and may have a `detail`, which is the whole of it. The drain
+writes the detail, or the message when there is no more, to the log as the job
+fails, naming the file, so it reaches standard error and the window's Output
+pane. Throw a `ShapeError` to supply both; any other exception is recorded with
+its `what()` alone. The Lua bridge throws a `ShapeError` for every raised
+error, with the traceback as the detail, and a script's `print` goes to the
+same log on standard output, so what a script says is read in the same place
+as what went wrong with it.
+
 Dropping is a format's decision and never fails a run. Failing is a bug.
 
 The five with defaults

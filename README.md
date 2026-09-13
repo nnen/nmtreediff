@@ -40,7 +40,12 @@ What it does
   the same answer.
 - **Is configured by a script.** Extension mappings, the graph direction and the
   exit key come from a Lua file in your home directory or one you name on the
-  command line.
+  command line. Ctrl+R reads the scripts again and rebuilds any format they
+  define, so editing a script and reloading is the whole loop.
+- **Says what happened.** An Output pane holds everything the program wrote,
+  including the traceback of any error a script raised, because a window
+  launched from the desktop opens no console and that text would otherwise
+  exist nowhere.
 - **Matches by identity, not just position.** When a format has stable
   identifiers, such as a GUID on a behavior tree node, two nodes with the same
   identifier are the same node however far apart they have moved. The sample

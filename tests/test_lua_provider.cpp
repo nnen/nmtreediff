@@ -390,6 +390,33 @@ TEST_CASE("an error in one job is recorded and the rest of the document is built
     CHECK(tree.unrepresented()[0] == where);
 }
 
+TEST_CASE("a script's print reaches the log as standard output", "[lua][log]") {
+    // A window launched from the desktop has no console, so a print that went
+    // to the C runtime's stdout would tell its author nothing.
+    const auto registry = registryWithScript(
+        "provider 'talkative' {\n"
+        "  base = 'xml',\n"
+        "  shape = function(doc, out)\n"
+        "    print('shaping', doc.size, nil, true)\n"
+        "    out:root(doc.root)\n"
+        "  end,\n"
+        "}\n");
+    const auto* provider = registry.byName("talkative");
+    REQUIRE(provider != nullptr);
+
+    nmxd::Log& log = nmxd::Log::instance();
+    log.forwardTo(nullptr, nullptr);
+    const std::uint64_t before = log.lastSequence();
+    auto shaped = provider->parse(SourceFile::fromMemory("<r><a/></r>", "t.xml", "t.xml"), {});
+    log.forwardTo(stdout, stderr);
+    REQUIRE(shaped.ok());
+
+    const auto logged = log.linesAfter(before);
+    REQUIRE(logged.size() == 1);
+    CHECK(logged[0].stream == nmxd::LogStream::Out);
+    CHECK(logged[0].text == "shaping\t2\tnil\ttrue");
+}
+
 TEST_CASE("a script that leaves elements out has their bytes reported", "[lua][dropped]") {
     // Dropping is allowed now, and the price of that freedom is that the
     // tree says what was dropped so the text view can show it.
