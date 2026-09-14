@@ -117,7 +117,8 @@ edits are concentrated without scrolling through it.
 Both documents are drawn as a single graph, coloured by what happened to each
 node: added, deleted, modified, moved, or unchanged.
 
-- **Drag** to pan and use the **wheel** to zoom.
+- **Drag** to pan and use the **wheel** to zoom. Labels scale with the zoom
+  and fade out only when they would be too small to read.
 - **Double-click** a node to collapse or expand it. A collapsed node is
   replaced by a chip saying how many nodes it stands for.
 - **Right-click** for a menu: collapse or expand the node under the pointer,

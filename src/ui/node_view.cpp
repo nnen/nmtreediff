@@ -109,7 +109,8 @@ struct CardPaint {
     bool selected = false;   ///< Whether this card is the selected one.
     bool collapsed = false;  ///< Whether this card is standing in for its subtree.
     bool hoverable = false;  ///< Whether the canvas has the mouse.
-    bool withText = false;   ///< Whether the zoom is close enough for text.
+    float textSize = 0.0f;   ///< Pixel size to draw text at, for this zoom.
+    int textAlpha = 0;       ///< How visible text is at that size; zero skips it.
     bool failed = false;     ///< Whether a shaping job failed under this node.
 };
 
@@ -180,11 +181,56 @@ void drawFailedMark(ImDrawList* draw, const ImVec2& topLeft, const ImVec2& botto
     return ImVec2(card.x + card.width * 0.5f, card.y);
 }
 
-/// \brief Below this zoom, cards are drawn as plain boxes with no text.
+/// \brief The text size, in pixels, below which card text is not drawn.
 ///
-/// \remarks Text is the expensive part of drawing a card, and below this scale
-///          it is illegible anyway.
-constexpr float kTextZoomThreshold = 0.55f;
+/// \remarks Text scales with the zoom, so what decides whether it is worth
+///          drawing is the size it would come out at rather than the zoom
+///          itself. Under five pixels a glyph is a smudge, and text is the
+///          expensive part of drawing a card.
+constexpr float kTextFadeStartPixels = 5.0f;
+
+/// \brief The text size, in pixels, at which card text is fully opaque.
+///
+/// \remarks Fading between the two sizes rather than switching at one means
+///          a wheel zoom never pops the labels in and out.
+constexpr float kTextFadeEndPixels = 8.0f;
+
+/// \brief The step card text sizes are rounded to, in pixels.
+///
+/// \remarks The font atlas rasterises each distinct size it is asked for,
+///          and a wheel zoom passes through hundreds of sizes on its way
+///          anywhere. Half a pixel is well under what the eye picks up and
+///          keeps the atlas to a few dozen sizes over a session.
+constexpr float kTextSizeStep = 0.5f;
+
+/// \brief Chooses the pixel size card text is drawn at for one zoom.
+///
+/// \param zoom Screen pixels per layout unit.
+///
+/// \returns The interface font size scaled by the zoom, rounded to the step.
+///
+/// \remarks The layout measured every card in character cells of the
+///          interface font at zoom one, so text at the font's size times the
+///          zoom fits its card at every zoom exactly as it does at one.
+[[nodiscard]] float textSizeFor(float zoom) {
+    return std::round(ImGui::GetFontSize() * zoom / kTextSizeStep) * kTextSizeStep;
+}
+
+/// \brief Says how visible card text is at one pixel size.
+///
+/// \param size The text size in pixels.
+///
+/// \returns An alpha from 0, not drawn, to 255, fully opaque.
+[[nodiscard]] int textAlphaFor(float size) {
+    if (size <= kTextFadeStartPixels) {
+        return 0;
+    }
+    if (size >= kTextFadeEndPixels) {
+        return 255;
+    }
+    return static_cast<int>(255.0f * (size - kTextFadeStartPixels) /
+                            (kTextFadeEndPixels - kTextFadeStartPixels));
+}
 
 /// \brief How sharply the view settles when it glides, per second.
 ///
@@ -244,6 +290,18 @@ ImU32 withAlpha(ImU32 colour, int alpha) {
     return (colour & 0x00FFFFFFu) | (static_cast<ImU32>(std::clamp(alpha, 0, 255)) << 24);
 }
 
+/// \brief Scales a colour's own alpha by a factor.
+///
+/// \param colour The colour, in ImGui's packed form.
+/// \param alpha The factor, from 0 to 255 for none to unchanged.
+///
+/// \returns The colour with its alpha multiplied, so a translucent ink stays
+///          translucent rather than being made opaque.
+ImU32 faded(ImU32 colour, int alpha) {
+    const int own = static_cast<int>(colour >> 24);
+    return withAlpha(colour, own * std::clamp(alpha, 0, 255) / 255);
+}
+
 /// \brief Draws one card's title and subtitle.
 ///
 /// \param draw The draw list to add to.
@@ -251,21 +309,28 @@ ImU32 withAlpha(ImU32 colour, int alpha) {
 /// \param card The card whose text to draw.
 /// \param topLeft The card's top left corner, in screen pixels.
 /// \param ink The colour the card's status calls for.
-/// \param zoom Screen pixels per layout unit.
+/// \param paint What is the same for every card this pass, for the zoom and
+///        the text size and visibility that follow from it.
+///
+/// \remarks The text is drawn at the size the zoom asks for rather than at
+///          the interface size. The font atlas rasterises any size on demand,
+///          so it is crisp at every zoom rather than a stretched copy of one.
 void drawCardText(ImDrawList* draw, const TreeLayout& layout, const LayoutNode& card,
-                  const ImVec2& topLeft, ImU32 ink, float zoom) {
+                  const ImVec2& topLeft, ImU32 ink, const CardPaint& paint) {
     // The padding and line height come from the layout rather than from a
     // literal here, so a card's text sits where the card was measured for it
     // whatever size the interface is drawing at.
-    const float pad = layout.metrics.padding * zoom;
-    const float line = layout.metrics.lineHeight * zoom;
-    const float textLeft = topLeft.x + pad + kAccentStripeWidth * zoom;
+    const float pad = layout.metrics.padding * paint.zoom;
+    const float line = layout.metrics.lineHeight * paint.zoom;
+    const float textLeft = topLeft.x + pad + kAccentStripeWidth * paint.zoom;
+    ImFont* font = ImGui::GetFont();
 
-    draw->AddText(ImVec2(textLeft, topLeft.y + pad),
-                  card.status == NodeStatus::Unchanged ? kTitleInk : ink, card.title.c_str());
+    const ImU32 titleInk = card.status == NodeStatus::Unchanged ? kTitleInk : ink;
+    draw->AddText(font, paint.textSize, ImVec2(textLeft, topLeft.y + pad),
+                  faded(titleInk, paint.textAlpha), card.title.c_str());
     if (!card.subtitle.empty()) {
-        draw->AddText(ImVec2(textLeft, topLeft.y + pad + line), kSubtitleInk,
-                      card.subtitle.c_str());
+        draw->AddText(font, paint.textSize, ImVec2(textLeft, topLeft.y + pad + line),
+                      faded(kSubtitleInk, paint.textAlpha), card.subtitle.c_str());
     }
 }
 
@@ -321,8 +386,8 @@ void drawCardText(ImDrawList* draw, const TreeLayout& layout, const LayoutNode& 
                       0, kHoverEdgeWidth);
     }
 
-    if (paint.withText) {
-        drawCardText(draw, layout, card, topLeft, ink, paint.zoom);
+    if (paint.textAlpha > 0) {
+        drawCardText(draw, layout, card, topLeft, ink, paint);
     }
     if (paint.failed) {
         drawFailedMark(draw, topLeft, bottomRight, paint.zoom);
@@ -330,12 +395,13 @@ void drawCardText(ImDrawList* draw, const TreeLayout& layout, const LayoutNode& 
 
     // A collapsed card says how much it stands for, so nothing is hidden
     // without the reader being told it is there.
-    if (paint.collapsed && !card.children.empty()) {
+    if (paint.collapsed && !card.children.empty() && paint.textAlpha > 0) {
         const std::string chip = "+" + std::to_string(card.hiddenDescendants);
         const ImVec2 at(topLeft.x + (bottomRight.x - topLeft.x) * 0.5f -
                             kChipHalfWidth * paint.zoom,
                         bottomRight.y + kChipGap * paint.zoom);
-        draw->AddText(at, kSubtitleInk, chip.c_str());
+        draw->AddText(ImGui::GetFont(), paint.textSize, at, faded(kSubtitleInk, paint.textAlpha),
+                      chip.c_str());
     }
     return hovered;
 }
@@ -524,7 +590,8 @@ void NodeView::drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot
                       kGhostColour, 6.0f);
     }
 
-    const bool drawText = zoom_ >= kTextZoomThreshold;
+    const float textSize = textSizeFor(zoom_);
+    const int textAlpha = textAlphaFor(textSize);
 
     for (std::size_t i = 0; i < layout.nodes.size(); ++i) {
         const auto id = static_cast<LayoutId>(i);
@@ -540,7 +607,8 @@ void NodeView::drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot
         paint.selected = id == selected;
         paint.collapsed = collapsed_.count(id) != 0;
         paint.hoverable = hovered;
-        paint.withText = drawText;
+        paint.textSize = textSize;
+        paint.textAlpha = textAlpha;
         paint.failed = failedUnder(card);
 
         if (drawOneCard(draw, layout, card, toScreen(card.x, card.y),

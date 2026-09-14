@@ -761,6 +761,16 @@ node whose span contains it.
   child with no edge between them, a chain of them as one block, the way a
   behaviour tree editor shows a decorator over its task. Each member stays
   its own card. M12 carries the design.
+- **Labels scale with the zoom.** Card text is drawn at the interface font
+  size times the zoom, and the pinned Dear ImGui rasterises any size on
+  demand, so it is crisp at every zoom rather than a stretched copy of one.
+  The layout measured every card in character cells at zoom one, so scaled
+  text fits its card at every zoom the same way. Sizes are rounded to half a
+  pixel, because each distinct size costs the atlas a set of glyphs and a
+  wheel zoom passes through hundreds; text fades out between eight and five
+  pixels, where it stops being readable and starts being the expensive part
+  of a card. Before this the text was drawn at one size and dropped below a
+  zoom of 0.55, which was F1.
 - **Scale.** Unchanged subtrees collapse into a chip showing how many nodes are
   hidden, off-screen nodes are culled by bounding box, and below a zoom
   threshold cards degrade to coloured boxes. A minimap and next-change
@@ -1482,7 +1492,7 @@ rows below. The rest are defects with a known cause.
 
 | # | Finding | Priority | Lands in |
 | --- | --- | --- | --- |
-| F1 | Node cards drop their text below a zoom of 0.55, and fitting a twenty-six node tree already lands under it, so the node view opens on unlabelled boxes. `kTextZoomThreshold` in `src/ui/node_view.cpp`. | P0 | Before M14 |
+| F1 | Node cards drop their text below a zoom of 0.55, and fitting a twenty-six node tree already lands under it, so the node view opens on unlabelled boxes. `kTextZoomThreshold` in `src/ui/node_view.cpp`. | P0 | Closed as filed, after M11. Card text scales with the zoom and fades out under five pixels instead of vanishing under one zoom, so a fit lands on labels at whatever size the tree allows. A tree wide enough that its fit is a smudge still has no legible labels, and that is F2's collapse-by-default, not a text threshold |
 | F2 | A wide, flat document degenerates: fifteen thousand nodes draw as a one pixel smear and the minimap with it. Most studio XML is a table, not a tree. Collapsing unchanged subtrees should be the default when changes are sparse against the node count. | P0 | Before M14 |
 | F3 | Sibling order cannot be declared unordered from a script. `childrenOrdered()` is on the C++ interface and not on the Lua surface, so a re-sorted string table reports 4860 moves and the fix needs a compiler. This contradicts the claim that a studio format needs no compiler. | P0 | Closed. `ref:set_children_ordered(b)` on the scripted handle, section 15 step 5 |
 | F4 | There is no search or filter in either view. Finding one entry in a five thousand row table means scrolling to it. | P0 | Before M14 |
@@ -1556,9 +1566,9 @@ using the wrong half of its own output.
 | F24 | Paths given on the command line are decoded through the active code page, because `main()` takes narrow `argv` and the Microsoft toolchain converts it with the ACP. A workspace under a name outside that code page cannot be opened at all. Take `wmain()` on Windows and carry a `std::filesystem::path` from there. | P2 | M15 |
 | F25 | `nodePath()` names a deep node by its full ancestry, so one changed node in a deeply nested document prints a path thousands of segments long and the change list becomes unreadable. F6 already replaces positional paths with provider identity, and that fix should cap or elide depth as well. | P2 | M15 |
 
-*Status, checked against the code on 13 September 2026.* F3, F15 and F21 are
-closed by section 15, and F5, F16, F17, F18 and F19 by M11; their rows say
-where and section 11 says how. F10 is partly served, since the Output pane
+*Status, checked against the code on 15 September 2026.* F3, F15 and F21 are
+closed by section 15, F5, F16, F17, F18 and F19 by M11, and F1 by the zoomed
+labels that followed it; their rows say where and sections 9 and 11 say how. F10 is partly served, since the Output pane
 copies its log to the clipboard, but a path, a value or a node still cannot be
 copied, so it stays open. Everything else in both tables is open as written:
 an unknown option still exits 109, weak identity keys are still discarded,
