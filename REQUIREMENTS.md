@@ -90,4 +90,10 @@ NM Tree Diff Requirements
   `.blackboard` extension called "Blackboard" in the open file dialog. The
   default should filter *all* known extensions, the standard and the ones from
   any format providers.
-
+- *R22*: A node that has exactly one child should be displayable "stacked"
+  with that child, the way services are displayed on a node in Unreal behavior
+  trees: the two drawn as one block, touching, with no edge between them. A
+  chain of one or more such nodes should stack the same way. A format provider
+  says which nodes stack with a boolean flag on the node, and the flag takes
+  effect only when the node has exactly one child. Nothing else in the format
+  provider API changes.
