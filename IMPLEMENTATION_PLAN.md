@@ -848,7 +848,7 @@ submissions, and it is also how the end-to-end tests run.
 | M9 &check; | Properties with parts | Nested properties in the data model, hashing, matching and both views; record and sequence parts, so an array property reorders as a change and a record does not; generic JSON reading a scalar array as one property, with a scripted format able to choose otherwise; the rule that anything not a node becomes a property; a way for a format to take both an element's attributes and its child elements as properties; the scripted surface and the golden corpus updated to match | Done. A list of scalars is one property, a matrix is one property with parts, reordering a list registers while reordering a record does not, and neither built-in format nor the bridge can drop an element it does not recognise |
 | M10 &check; | Output and reload | A GUI launch that opens no console window while a headless run from a shell still prints and pipes; one log sink behind every line the program writes, shown in an Output pane and forwarded to whatever console or pipe is attached; Reload re-running every configuration file, rebuilding the provider registry, re-reading both files and comparing again; every Lua error written in full, with its traceback, to standard error; the open dialog's type list built from the registry, every known extension first and one entry per format under its own name | Done. The binary is GUI-subsystem and finds its console or pipe at startup; Ctrl+R rebuilds a scripted format from disk and a held snapshot keeps the old one alive; a raised `error()` reaches the Output pane and standard error with a traceback that names the script file and line; a scripted format claiming `.blackboard` is offered in the dialog as "Blackboard". P4V and Git remain to be checked by hand |
 | M11 &check; | Trusted answers | The JSON report listing every changed node the text report lists; the exit code and the `identical` verdict taken from the tree diff whenever a provider resolved; the similarity budget charged per parent pair so one wide container degrades nothing else; the matching passes and the layout walking with explicit stacks; the budget tests registered as a labelled suite so they run | Done. A twenty thousand level pair compares, lays out and draws; the whitespace-only pair exits 0 under a report that says the tree decided; four thousand renumbered JSON entities match in 373 ms with the guard untripped, against 4.9 s and a tripped guard before; the JSON report carries `tree.changes`; `ctest -L budget` lists six tests and they run with the rest |
-| M12 | Stacked decorators | A `stacked` flag a format sets on a node, the way it sets a title or an accent; in the node view a flagged node with exactly one child in the union is drawn touching that child with no edge between them, a chain of them as one block, in either graph direction; the sample behaviour tree flags its decorators | A decorator chain in the sample behaviour tree reads as one block, a decorator whose child was replaced draws unstacked, and the interface version is decided and written down |
+| M12 | Stacked decorators | A `stacked` flag a format sets on a node, the way it sets a title or an accent; in the node view a flagged node with exactly one child in the union is drawn under it as one block, vertically whichever way the graph runs, a chain of them likewise; a new sample pair with decorator chains, and the sample formats flagging them | A decorator chain in the new sample reads as one block in both graph directions, a decorator whose child was replaced draws unstacked, and docs/PROVIDERS.md carries the flag at interface version 2 |
 | M13 | Keys | Every action named, every shortcut settable from a configuration script, more than one binding allowed per action, the menus showing whatever is bound | A reader rebinds next-change to two keys of their own and the menu says so |
 | M14 | Ship | Headless report, exit codes, a portable archive built in continuous integration from a tag and attached to a GitHub release, MIT licence and attribution for bundled dependencies, per-extension Perforce and Git setup docs verified against real clients, possibly a Git seven-argument mode, settings persistence | A technical artist can unzip it and configure it without help |
 | M15 | Later | Three-way merge, further game asset formats | Out of initial scope |
@@ -1282,27 +1282,44 @@ no continuous integration yet to set it up on, which is M14's.
 
 **M12 covers R22**, a node drawn stacked with its only child, and it is a
 layout and drawing change with a one-line provider addition. It goes before
-the key table because it is small and because the sample behaviour tree
-would use it the day it lands: a decorator over a task is the most common
-shape in that format, and drawing the two as one block is what the tools
-that write such trees do.
+the key table because it is small and because a behaviour tree uses it the
+day it lands: a decorator over a task is the most common shape in that
+format, and drawing the two as one block is what the tools that write such
+trees do. The sample behaviour tree has no decorators, so the milestone
+adds a sample pair that does, with chains of them, and the sample formats,
+compiled and scripted, flag them; which node types count as decorators in
+the sample format is decided there.
 
 The provider side follows title and accent exactly. A shaping job records
 the flag on the handle, the node carries it, and the views read it back
 through `style()`: one field on the node and on NodeStyle, `setStacked()` on
 the handle, `set_stacked()` on the scripted one. Additive, so no existing
-script changes; whether that moves `kProviderInterfaceVersion` from 2 is
-decided in the milestone and written into docs/PROVIDERS.md either way.
+script changes, and `kProviderInterfaceVersion` stays at 2: a bump is for a
+change that asks something of existing scripts, and this asks nothing.
+docs/PROVIDERS.md carries the flag under a dated note.
 
-The layout keeps one card per node. Each member of a stack stays its own
-card with its own diff colour, selection, hover and change navigation, and
-only where it sits changes. A stacked child sits at its parent's level
-rather than the next one, and that level's extent is the height of the
-whole chain; it is placed at the parent's depth plus the parent's height,
-with no level gap, centred on the same breadth; and the chain shares one
-width, the widest member's, so it reads as a block. The node view skips the
-edge between stacked cards and draws them touching, with a divider where
-the gap was. Collapsing, the minimap and hit testing need nothing.
+A stack is always vertical, whichever way the graph runs. That was decided
+against stacking along the depth axis, which would have laid a behaviour
+tree's decorators out sideways in its left-to-right graph; a decorator
+sits on top of what it decorates in every editor that draws one, and the
+direction the rest of the graph runs does not change that.
+
+So the layout treats a stack as one card and draws it as its members. The
+chain is measured as a composite: the widest member's width, the members'
+heights summed, no gaps. That composite is what the positioning pass sees,
+occupying one level and one breadth span like any card, so nothing in the
+level or breadth bookkeeping learns about stacks. Top-down, the composite's
+height is its depth extent and the level grows to hold it; left-to-right,
+its height is its breadth and the level is as wide as the widest member.
+Once the composite is placed, each member is placed inside it at its
+offset from the top, and the edges to the bottom member's children leave
+the composite's far edge, bottom or right, the way they leave a card.
+
+Each member stays its own card in every other respect: its own diff
+colour, selection, hover, tooltip and place in change navigation. The node
+view skips the edge between members and draws them touching, with a
+divider where the gap was. Collapsing a member hides what is under it as
+it does today; the minimap and hit testing need nothing.
 
 The flag says "if it has exactly one child", and in the node view that means
 one card under it in the union of both sides. A decorator whose child was
@@ -1311,17 +1328,11 @@ unstacked for that comparison. That is the right answer, since the two
 children are the change, and USAGE.md says so rather than leaving it to be
 read as a bug.
 
-Stacking runs along the depth axis: down in a top-down graph, rightward in a
-left-to-right one, so the behaviour tree's decorators stack horizontally.
-The alternative, always vertical, would put a stack in a horizontal graph
-across the breadth axis as one tall card, and the child would no longer sit
-"next" in the tree's own direction. Along the depth axis only the edge
-disappears, which is the smaller claim.
-
-Done when a decorator chain in the sample behaviour tree reads as one block
-in both directions, a decorator whose child was replaced draws unstacked,
-the flag round-trips through the builder and through Lua, and the corpus is
-untouched, since matching does not change.
+Done when a decorator chain in the new sample reads as one block in both
+directions, a decorator whose child was replaced draws unstacked, the flag
+round-trips through the builder and through Lua, docs/PROVIDERS.md carries
+it at version 2, and the corpus is untouched, since matching does not
+change.
 
 12. Testing
 -----------
