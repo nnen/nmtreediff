@@ -848,7 +848,7 @@ submissions, and it is also how the end-to-end tests run.
 | M9 &check; | Properties with parts | Nested properties in the data model, hashing, matching and both views; record and sequence parts, so an array property reorders as a change and a record does not; generic JSON reading a scalar array as one property, with a scripted format able to choose otherwise; the rule that anything not a node becomes a property; a way for a format to take both an element's attributes and its child elements as properties; the scripted surface and the golden corpus updated to match | Done. A list of scalars is one property, a matrix is one property with parts, reordering a list registers while reordering a record does not, and neither built-in format nor the bridge can drop an element it does not recognise |
 | M10 &check; | Output and reload | A GUI launch that opens no console window while a headless run from a shell still prints and pipes; one log sink behind every line the program writes, shown in an Output pane and forwarded to whatever console or pipe is attached; Reload re-running every configuration file, rebuilding the provider registry, re-reading both files and comparing again; every Lua error written in full, with its traceback, to standard error; the open dialog's type list built from the registry, every known extension first and one entry per format under its own name | Done. The binary is GUI-subsystem and finds its console or pipe at startup; Ctrl+R rebuilds a scripted format from disk and a held snapshot keeps the old one alive; a raised `error()` reaches the Output pane and standard error with a traceback that names the script file and line; a scripted format claiming `.blackboard` is offered in the dialog as "Blackboard". P4V and Git remain to be checked by hand |
 | M11 &check; | Trusted answers | The JSON report listing every changed node the text report lists; the exit code and the `identical` verdict taken from the tree diff whenever a provider resolved; the similarity budget charged per parent pair so one wide container degrades nothing else; the matching passes and the layout walking with explicit stacks; the budget tests registered as a labelled suite so they run | Done. A twenty thousand level pair compares, lays out and draws; the whitespace-only pair exits 0 under a report that says the tree decided; four thousand renumbered JSON entities match in 373 ms with the guard untripped, against 4.9 s and a tripped guard before; the JSON report carries `tree.changes`; `ctest -L budget` lists six tests and they run with the rest |
-| M12 | Stacked decorators | A `stacked` flag a format sets on a node, the way it sets a title or an accent; in the node view a flagged node with exactly one child in the union is drawn under it as one block, vertically whichever way the graph runs, a chain of them likewise; a new sample pair with decorator chains, and the sample formats flagging them | A decorator chain in the new sample reads as one block in both graph directions, a decorator whose child was replaced draws unstacked, and docs/PROVIDERS.md carries the flag at interface version 2 |
+| M12 &check; | Stacked decorators | A `stacked` flag a format sets on a node, the way it sets a title or an accent; in the node view a flagged node with exactly one child in the union is drawn under it as one block, vertically whichever way the graph runs, a chain of them likewise; a new sample pair with decorator chains, and the sample formats flagging them | Done. The sentry sample's Cooldown over Inverter reads as one block top-down and left-to-right, its Succeeder with a replaced child draws with both children under it, the flag round-trips through the builder and the script, docs/PROVIDERS.md carries it at version 2, and the corpus did not move |
 | M13 | Keys | Every action named, every shortcut settable from a configuration script, more than one binding allowed per action, the menus showing whatever is bound | A reader rebinds next-change to two keys of their own and the menu says so |
 | M14 | Ship | Headless report, exit codes, a portable archive built in continuous integration from a tag and attached to a GitHub release, MIT licence and attribution for bundled dependencies, per-extension Perforce and Git setup docs verified against real clients, possibly a Git seven-argument mode, settings persistence | A technical artist can unzip it and configure it without help |
 | M15 | Later | Three-way merge, further game asset formats | Out of initial scope |
@@ -1333,6 +1333,37 @@ directions, a decorator whose child was replaced draws unstacked, the flag
 round-trips through the builder and through Lua, docs/PROVIDERS.md carries
 it at version 2, and the corpus is untouched, since matching does not
 change.
+
+**M12 landed** as designed, and four details are worth recording.
+
+The stacking axis is a `StackDirection` on the layout, `Vertical` today and
+`AlongDepth` defined beside it, and the layout code asks "does a stack run
+along the depth axis in this layout" rather than "is it vertical". Vertical
+is the depth axis top-down and the breadth axis left-to-right, and that one
+predicate is the whole of what the composite measurement, the placement and
+the corner rounding consult. Nothing sets the second value, and the option
+is not on the menu; a stack that follows the graph is a value away, as the
+decision asked.
+
+The sample format's decorators are `Inverter`, `Repeater`, `Cooldown`,
+`Succeeder` and `Limit`, as a list in both providers, and the sentry pair
+in `testdata/sample` carries a chain of two, a decorator over a sequence,
+and a decorator whose child was replaced. The last is the fallback case on
+purpose: the pair shows what stacking does and what it refuses to hide, in
+one screen.
+
+Two drawing details the design did not name. A member squares the corners
+it shares with the member above or below, so a block has a line across it
+rather than two cards resting on one another; and the edge to the bottom
+member's children leaves the bottom member, which top-down is the block's
+bottom and left-to-right is the block's right edge at the bottom member's
+height rather than at the block's centre. That reads as what it is, the
+child of the innermost decorator, and it keeps the edge code ignorant of
+stacks. The collapse chip likewise sits under whichever member was
+collapsed.
+
+`kProviderInterfaceVersion` stayed at 2, and docs/PROVIDERS.md carries the
+addition under a dated note at the top rather than a new number.
 
 12. Testing
 -----------

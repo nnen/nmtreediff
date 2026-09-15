@@ -14,6 +14,10 @@ when something already declared changes shape or meaning. Version 2 replaced
 the shaping functions of version 1 with the document and the builder described
 here; nothing written against version 1 shapes a document in version 2.
 
+*Added since version 2, on 15 September 2026:* `setStacked()` on the handle
+and `set_stacked()` in a script, which say a node may draw stacked on its only
+child. A script written before it runs unchanged, so the number did not move.
+
 Two ways to write one
 ---------------------
 
@@ -313,6 +317,7 @@ node.setChildrenOrdered(false);           // JSON object members, say
 node.setIdentity("guid-1", Identity::Strong);
 node.setTitle("Patrol", "Sequence");
 node.setAccent(0x4080C0);
+node.setStacked(true);                     // draw as one block with its only child
 node.parent(); node.owner();               // the enclosing handle; the nearest node
 ```
 
@@ -338,6 +343,18 @@ std::span<const std::string_view> subtitleProperties() const override {
     return kSubtitleProperties;  // {"name"}: the first of these a node has
 }
 ```
+
+**A decorator stacks on the node it decorates.** `setStacked(true)`, or
+`set_stacked(true)` in a script, says the node view may draw the node and its
+only child as one block, the child directly under it with no edge between
+them, and a chain of such nodes as one taller block. The block is vertical
+whichever way the graph runs. The flag is a request: the view honours it only
+while the node has exactly one card under it in the drawn union, so a
+decorator whose child was replaced draws with the deleted child and the added
+one both under it, because those two are the change. Presentation only;
+matching never reads it. The sample behaviour-tree format flags `Inverter`,
+`Repeater`, `Cooldown`, `Succeeder` and `Limit`, and `sentry_before.bt` and
+`sentry_after.bt` in `testdata/sample` show the result.
 
 Return `Identity::Strong` only when the key is genuinely stable, meaning the
 same key in two files really is the same node however far it has moved. A

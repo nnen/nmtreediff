@@ -36,6 +36,14 @@ provider "bt-lua" {
   -- the same as a shallow one.
   shape = function(doc, out)
 
+    -- The node types that decorate exactly one node under them. A decorator
+    -- wraps the node it sits over rather than choosing among children, so
+    -- the two read as one thing and the node view draws them stacked. The
+    -- same list the compiled provider keeps.
+    local decorators = {
+      Inverter = true, Repeater = true, Cooldown = true, Succeeder = true, Limit = true,
+    }
+
     -- An element's attributes, as a list. The XML reading records a leaf's
     -- text under "#text", which is content rather than an attribute.
     local function attributes(element)
@@ -105,6 +113,7 @@ provider "bt-lua" {
         local node = owner:child(element):set_name(kind)
         copy_attributes(node, element)
         node:set_identity(element.attr.id, "strong")
+        if decorators[kind] then node:set_stacked(true) end
         for child in element:children() do
           out:next(visit, child, node)
         end

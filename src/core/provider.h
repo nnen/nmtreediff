@@ -54,6 +54,11 @@ struct NodeStyle {
     Color accent;
     /// \brief An optional glyph key.
     std::string icon;
+    /// \brief Whether the node may be drawn stacked on its only child.
+    ///
+    /// \remarks Recorded by the shaping job through Ref::setStacked(), the way
+    ///          the title and accent are. See NodeAnnotation::stacked.
+    bool stacked = false;
 };
 
 /// \brief Which way a node graph runs.

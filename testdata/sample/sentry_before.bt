@@ -1,0 +1,34 @@
+<behaviortree version="2">
+  <node id="s0001" type="Selector" name="Sentry">
+    <property name="interruptible" value="true"/>
+
+    <node id="s0100" type="Cooldown" name="Not too often">
+      <property name="seconds" value="5.0"/>
+      <node id="s0110" type="Inverter" name="Unless seen">
+        <node id="s0111" type="Condition" name="Sees enemy">
+          <property name="sense" value="sight"/>
+          <property name="range" value="12.0"/>
+        </node>
+      </node>
+    </node>
+
+    <node id="s0200" type="Repeater" name="Keep looking">
+      <property name="times" value="3"/>
+      <node id="s0210" type="Sequence" name="Sweep">
+        <node id="s0211" type="Wait" name="Pause">
+          <property name="seconds" value="1.0"/>
+        </node>
+        <node id="s0212" type="MoveTo" name="Next post">
+          <property name="waypoint" value="post_02"/>
+          <property name="speed" value="0.8"/>
+        </node>
+      </node>
+    </node>
+
+    <node id="s0300" type="Succeeder" name="Always fine">
+      <node id="s0310" type="PlaySound" name="Hum">
+        <property name="clip" value="hum_01"/>
+      </node>
+    </node>
+  </node>
+</behaviortree>

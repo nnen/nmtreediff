@@ -233,6 +233,15 @@ struct NodeAnnotation {
     /// \remarks Packed rather than a Color, because Color is declared with
     ///          the provider interface and that interface is built on this file.
     std::uint32_t accent = 0;
+
+    /// \brief Whether the node view may draw this node stacked on its only
+    ///        child, as one block with no edge between them.
+    ///
+    /// \remarks A decorator over the node it decorates, in a behaviour tree.
+    ///          Presentation only, like the title: matching never reads it.
+    ///          It takes effect only when the node has exactly one child in
+    ///          the drawn union; the view decides that, not the format.
+    bool stacked = false;
 };
 
 /// \brief One job of a shaping pass that raised an error.

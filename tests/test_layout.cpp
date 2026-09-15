@@ -5,6 +5,7 @@
 #include "core/diff.h"
 #include "core/layout_tree.h"
 #include "core/source.h"
+#include "formats/bt_xml.h"
 #include "formats/xml_generic.h"
 
 using nmxd::buildLayout;
@@ -333,4 +334,124 @@ TEST_CASE("a pair nested thousands of levels deep compares and lays out without 
         const TreeLayout layout = buildLayout(left, right, model, *provider);
         CHECK(layout.size() == right.size() + static_cast<std::size_t>(kDepth / 2 + 1));
     }
+}
+
+namespace {
+
+/// A behaviour tree: the compiled provider flags Inverter and Cooldown as
+/// decorators, so a chain of them over a leaf is the stacking case.
+const char* kDecoratorChain =
+    "<behaviortree version='2'>"
+    "<node id='a' type='Inverter' name='Not'>"
+    "<node id='b' type='Cooldown' name='Every so often'>"
+    "<node id='c' type='Wait' name='Hold'/>"
+    "</node></node></behaviortree>";
+
+/// Stacked cards share one width and touch along y, whichever way the graph
+/// runs; the reader sees a block.
+void checkStackedUnder(const TreeLayout& layout, nmxd::LayoutId upper, nmxd::LayoutId lower) {
+    const LayoutNode& top = layout.nodes[upper];
+    const LayoutNode& bottom = layout.nodes[lower];
+    CHECK(bottom.stackedOnParent);
+    CHECK(bottom.parent == upper);
+    CHECK(bottom.x == top.x);
+    CHECK(bottom.width == top.width);
+    CHECK(bottom.y == top.y + top.height);
+}
+
+}  // namespace
+
+TEST_CASE("a flagged node stacks on its only child, vertically in both directions", "[layout]") {
+    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const Tree left = parse(*provider, kDecoratorChain);
+    const Tree right = parse(*provider, kDecoratorChain);
+    const auto model = nmxd::diffTrees(left, right, *provider);
+
+    const nmxd::NodeId inverter = right.node(right.root()).children[0];
+    const nmxd::NodeId cooldown = right.node(inverter).children[0];
+    const nmxd::NodeId wait = right.node(cooldown).children[0];
+
+    for (const nmxd::GraphDirection direction :
+         {nmxd::GraphDirection::TopDown, nmxd::GraphDirection::LeftToRight}) {
+        INFO("direction " << (direction == nmxd::GraphDirection::TopDown ? "top-down" : "left-to-right"));
+        const TreeLayout layout = buildLayout(left, right, model, *provider, {}, {}, direction);
+        REQUIRE(layout.size() == right.size());
+
+        const nmxd::LayoutId head = layout.find(Side::Right, inverter);
+        const nmxd::LayoutId middle = layout.find(Side::Right, cooldown);
+        const nmxd::LayoutId foot = layout.find(Side::Right, wait);
+        REQUIRE(head != kInvalidLayout);
+        REQUIRE(middle != kInvalidLayout);
+        REQUIRE(foot != kInvalidLayout);
+
+        // The root is not a decorator, so the chain starts one level below it
+        // with the usual gap, and the whole chain sits on that one level.
+        const LayoutNode& root = layout.nodes[layout.root];
+        const LayoutNode& top = layout.nodes[head];
+        CHECK_FALSE(top.stackedOnParent);
+        if (direction == nmxd::GraphDirection::TopDown) {
+            CHECK(top.y == root.y + root.height + layout.metrics.levelGap);
+        } else {
+            CHECK(top.x == root.x + root.width + layout.metrics.levelGap);
+        }
+        checkStackedUnder(layout, head, middle);
+        checkStackedUnder(layout, middle, foot);
+    }
+}
+
+TEST_CASE("a flagged node with two children in the union draws unstacked", "[layout]") {
+    // The decorator's child was replaced: a deleted child beside an added one.
+    // The two of them are the change, and stacking either would hide it.
+    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const Tree left = parse(*provider,
+                            "<behaviortree version='2'><node id='a' type='Inverter'>"
+                            "<node id='b' type='Wait'/></node></behaviortree>");
+    const Tree right = parse(*provider,
+                             "<behaviortree version='2'><node id='a' type='Inverter'>"
+                             "<node id='c' type='MoveTo'/></node></behaviortree>");
+    const auto model = nmxd::diffTrees(left, right, *provider);
+    CHECK(model.added == 1);
+    CHECK(model.deleted == 1);
+
+    const TreeLayout layout = buildLayout(left, right, model, *provider);
+    const nmxd::LayoutId inverter = layout.find(Side::Right, right.node(right.root()).children[0]);
+    REQUIRE(inverter != kInvalidLayout);
+    const LayoutNode& card = layout.nodes[inverter];
+    CHECK(card.stackable);
+    REQUIRE(card.children.size() == 2);
+    for (const nmxd::LayoutId child : card.children) {
+        CHECK_FALSE(layout.nodes[child].stackedOnParent);
+        CHECK(layout.nodes[child].y == card.y + card.height + layout.metrics.levelGap);
+    }
+}
+
+TEST_CASE("a stacked member keeps its own status and its siblings keep their gap", "[layout]") {
+    // Two chains side by side under one parent, one of them edited inside.
+    // Each member is still its own card with its own status, and the two
+    // blocks are laid out as siblings with the ordinary gap between them.
+    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto document = [](const char* seconds) {
+        return std::string("<behaviortree version='2'><node id='r' type='Selector'>") +
+               "<node id='a' type='Cooldown'><property name='seconds' value='" + seconds +
+               "'/><node id='b' type='Wait'/></node>"
+               "<node id='c' type='Inverter'><node id='d' type='Condition'/></node>"
+               "</node></behaviortree>";
+    };
+    const Tree left = parse(*provider, document("1.0"));
+    const Tree right = parse(*provider, document("2.0"));
+    const auto model = nmxd::diffTrees(left, right, *provider);
+    CHECK(model.modified == 1);
+
+    const TreeLayout layout = buildLayout(left, right, model, *provider);
+    const nmxd::NodeId selector = right.node(right.root()).children[0];
+    const nmxd::NodeId cooldown = right.node(selector).children[0];
+    const nmxd::NodeId inverter = right.node(selector).children[1];
+
+    const LayoutNode& first = layout.nodes[layout.find(Side::Right, cooldown)];
+    const LayoutNode& second = layout.nodes[layout.find(Side::Right, inverter)];
+    CHECK(first.status == NodeStatus::Modified);
+    CHECK(layout.nodes[first.children[0]].status == NodeStatus::Unchanged);
+    CHECK(layout.nodes[first.children[0]].stackedOnParent);
+    CHECK(first.y == second.y);
+    CHECK(second.x >= first.x + first.width + layout.metrics.siblingGap);
 }

@@ -304,6 +304,19 @@ public:
     ///          the kind.
     Ref& setAccent(std::uint32_t rgb);
 
+    /// \brief Says whether the node view may draw the node stacked on its
+    ///        only child, as one block with no edge between them.
+    ///
+    /// \param stacked `true` for a node that decorates the one node under it.
+    ///
+    /// \returns This handle, for chaining.
+    ///
+    /// \remarks Ignored on a property. Presentation only; the view honours
+    ///          it only while the node has exactly one child in the drawn
+    ///          union, so a decorator whose child was replaced draws with
+    ///          both children under it.
+    Ref& setStacked(bool stacked = true);
+
 private:
     friend class TreeBuilder;
 

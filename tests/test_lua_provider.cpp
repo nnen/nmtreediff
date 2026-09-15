@@ -92,6 +92,28 @@ TEST_CASE("a scripted provider builds the same tree as the compiled one", "[lua]
     }
 }
 
+TEST_CASE("a scripted provider flags the same decorators as the compiled one", "[lua]") {
+    // The sentry sample is the one with decorator chains. Which types count
+    // as decorators is the sample format's own list, kept in both providers,
+    // and the flag reaches the tree the way title and accent do.
+    const auto registry = registryWithScript(readFile(samplePath("behaviortree.lua")));
+    const Tree compiled = parseWith(registry, "bt", "sentry_before.bt");
+    const Tree scripted = parseWith(registry, "bt-lua", "sentry_before.bt");
+
+    REQUIRE(compiled.size() == scripted.size());
+    std::size_t flagged = 0;
+    for (nmxd::NodeId id = 0; id < compiled.size(); ++id) {
+        INFO("node " << id << " " << compiled.node(id).kind);
+        CHECK(compiled.annotation(id).stacked == scripted.annotation(id).stacked);
+        if (compiled.annotation(id).stacked) {
+            ++flagged;
+        }
+    }
+    // Cooldown, Inverter, Repeater and Succeeder; the Selector and the leaves
+    // are not decorators.
+    CHECK(flagged == 4);
+}
+
 TEST_CASE("a scripted provider reports the same changes", "[lua]") {
     // The whole pipeline, not just the parse: identity, matching and the change
     // list all have to agree, which is what makes this worth more than a tree

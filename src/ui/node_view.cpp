@@ -109,6 +109,7 @@ struct CardPaint {
     bool selected = false;   ///< Whether this card is the selected one.
     bool collapsed = false;  ///< Whether this card is standing in for its subtree.
     bool hoverable = false;  ///< Whether the canvas has the mouse.
+    ImDrawFlags corners = 0; ///< Which corners are rounded; a stack member squares the shared ones.
     float textSize = 0.0f;   ///< Pixel size to draw text at, for this zoom.
     int textAlpha = 0;       ///< How visible text is at that size; zero skips it.
     bool failed = false;     ///< Whether a shaping job failed under this node.
@@ -179,6 +180,53 @@ void drawFailedMark(ImDrawList* draw, const ImVec2& topLeft, const ImVec2& botto
         return ImVec2(card.x, card.y + card.height * 0.5f);
     }
     return ImVec2(card.x + card.width * 0.5f, card.y);
+}
+
+/// \brief Says which of a card's corners are rounded.
+///
+/// \param layout The layout being drawn, for the stacking direction and the
+///        card's children.
+/// \param card The card to draw.
+///
+/// \returns Draw flags naming the rounded corners.
+///
+/// \remarks A card in a stack squares the corners it shares with the member
+///          above or below it, so the stack reads as one block with a line
+///          across it rather than as cards resting on one another. The shared
+///          edge is the bottom one for a vertical stack, and the right one
+///          when stacks follow a left-to-right graph instead.
+[[nodiscard]] ImDrawFlags cornersFor(const TreeLayout& layout, const LayoutNode& card) {
+    const bool joinedAbove = card.stackedOnParent;
+    const bool joinedBelow =
+        card.children.size() == 1 && layout.nodes[card.children[0]].stackedOnParent;
+    const bool sideways = layout.stacking == nmxd::StackDirection::AlongDepth &&
+                          horizontal(layout.direction);
+    if (joinedAbove && joinedBelow) {
+        return ImDrawFlags_RoundCornersNone;
+    }
+    if (joinedAbove) {
+        return sideways ? ImDrawFlags_RoundCornersRight : ImDrawFlags_RoundCornersBottom;
+    }
+    if (joinedBelow) {
+        return sideways ? ImDrawFlags_RoundCornersLeft : ImDrawFlags_RoundCornersTop;
+    }
+    return ImDrawFlags_RoundCornersAll;
+}
+
+/// \brief Keeps only the left-hand corners of a set of rounding flags.
+///
+/// \param corners The card's rounding flags.
+///
+/// \returns Flags rounding the card's left corners that \p corners rounds,
+///          or none.
+///
+/// \remarks For the accent stripe, which sits against the card's left edge
+///          and follows the card's corners there while staying square where
+///          it meets the fill.
+[[nodiscard]] ImDrawFlags leftCornersOf(ImDrawFlags corners) {
+    const ImDrawFlags left =
+        corners & (ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersBottomLeft);
+    return left == 0 ? ImDrawFlags_RoundCornersNone : left;
 }
 
 /// \brief The text size, in pixels, below which card text is not drawn.
@@ -362,7 +410,7 @@ void drawCardText(ImDrawList* draw, const TreeLayout& layout, const LayoutNode& 
     // top of it. Half its width falls inside the card and is covered by the
     // fill, which is what leaves a clean ring outside.
     if (paint.selected) {
-        draw->AddRect(topLeft, bottomRight, kSelectionColour, kCardRounding, 0,
+        draw->AddRect(topLeft, bottomRight, kSelectionColour, kCardRounding, paint.corners,
                       kSelectionEdgeWidth);
     }
 
@@ -372,18 +420,20 @@ void drawCardText(ImDrawList* draw, const TreeLayout& layout, const LayoutNode& 
     const bool quiet = card.status == NodeStatus::Unchanged;
     const ImU32 ink = inkFor(card.status);
     draw->AddRectFilled(topLeft, bottomRight,
-                        quiet ? kUnchangedFill : withAlpha(ink, kChangedFillAlpha), kCardRounding);
-    draw->AddRect(topLeft, bottomRight, ink, kCardRounding, 0,
+                        quiet ? kUnchangedFill : withAlpha(ink, kChangedFillAlpha), kCardRounding,
+                        paint.corners);
+    draw->AddRect(topLeft, bottomRight, ink, kCardRounding, paint.corners,
                   quiet ? kQuietEdgeWidth : kLoudEdgeWidth);
     draw->AddRectFilled(topLeft, ImVec2(topLeft.x + kAccentStripeWidth * paint.zoom, bottomRight.y),
-                        IM_COL32(card.accent.r, card.accent.g, card.accent.b, 255), kCardRounding);
+                        IM_COL32(card.accent.r, card.accent.g, card.accent.b, 255), kCardRounding,
+                        leftCornersOf(paint.corners));
 
     // Hover is drawn over the card, unlike the selection halo underneath it,
     // because it is a light hint rather than a standing mark.
     const bool hovered = paint.hoverable && ImGui::IsMouseHoveringRect(topLeft, bottomRight);
     if (hovered) {
         draw->AddRect(topLeft, bottomRight, withAlpha(kSelectionColour, kHoverAlpha), kCardRounding,
-                      0, kHoverEdgeWidth);
+                      paint.corners, kHoverEdgeWidth);
     }
 
     if (paint.textAlpha > 0) {
@@ -552,10 +602,13 @@ void NodeView::drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot
     const LayoutId selected =
         selection.active() ? layout.find(selection.side, selection.node) : kInvalidLayout;
 
-    // Edges first, so a card always sits on top of the lines reaching it.
+    // Edges first, so a card always sits on top of the lines reaching it. A
+    // card stacked on its parent touches it, and the touching outlines are
+    // the divider: an edge there would say the two are apart.
     for (std::size_t i = 0; i < layout.nodes.size(); ++i) {
         const LayoutNode& card = layout.nodes[i];
-        if (card.parent == kInvalidLayout || hiddenByCollapse(layout, static_cast<LayoutId>(i))) {
+        if (card.parent == kInvalidLayout || card.stackedOnParent ||
+            hiddenByCollapse(layout, static_cast<LayoutId>(i))) {
             continue;
         }
         const LayoutNode& parent = layout.nodes[card.parent];
@@ -607,6 +660,7 @@ void NodeView::drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot
         paint.selected = id == selected;
         paint.collapsed = collapsed_.count(id) != 0;
         paint.hoverable = hovered;
+        paint.corners = cornersFor(layout, card);
         paint.textSize = textSize;
         paint.textAlpha = textAlpha;
         paint.failed = failedUnder(card);

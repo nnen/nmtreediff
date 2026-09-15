@@ -339,7 +339,9 @@ void bindHandle(sol::state& lua) {
             return r.setTitle(title.value_or(std::string_view{}),
                               subtitle.value_or(std::string_view{}));
         },
-        "set_accent", [](Ref& r, std::uint32_t rgb) { return r.setAccent(rgb); });
+        "set_accent", [](Ref& r, std::uint32_t rgb) { return r.setAccent(rgb); },
+        "set_stacked",
+        [](Ref& r, sol::optional<bool> stacked) { return r.setStacked(stacked.value_or(true)); });
 }
 
 /// \brief Binds the builder and its queue, which a script sees as `out`.

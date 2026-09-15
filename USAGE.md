@@ -121,6 +121,13 @@ node: added, deleted, modified, moved, or unchanged.
   and fade out only when they would be too small to read.
 - **Double-click** a node to collapse or expand it. A collapsed node is
   replaced by a chip saying how many nodes it stands for.
+- **Stacked nodes.** A format can mark a node as a decorator, one that wraps
+  the single node under it. Such a node is drawn as one block with its child,
+  touching, with no edge between them, and a chain of them stacks the same
+  way. The block is vertical whichever way the graph runs. Each card in it is
+  still its own node: click, hover and step through changes as usual. When
+  the comparison puts two nodes under a decorator, a deleted child beside an
+  added one, it draws unstacked, because those two are the change.
 - **Right-click** for a menu: collapse or expand the node under the pointer,
   collapse everything unchanged, expand everything, fit the graph to the
   window, or change the direction. Right-clicking empty canvas gives the same
