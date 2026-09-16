@@ -82,6 +82,14 @@ struct LayoutNode {
     ///          children, and neither stacks: the two of them are the change.
     bool stackedOnParent = false;
 
+    /// \brief The last member of the stack this card is in, or the card
+    ///        itself when it is in none.
+    ///
+    /// \remarks Collapsing acts there, whichever member was asked, so a stack
+    ///          folds as a unit: what disappears is the block's subtree, never
+    ///          part of the block. It is also where a pinned edge arrives.
+    LayoutId stackBottom = kInvalidLayout;
+
     /// \brief Whether anything below this node changed.
     ///
     /// \remarks Drives the default collapse: a subtree with nothing to report is
@@ -159,6 +167,14 @@ struct TreeLayout {
     /// \brief Which way stacked cards sit in this layout.
     StackDirection stacking = StackDirection::Vertical;
 
+    /// \brief Where the edge from a parent arrives on a stack, as the format
+    ///        asked.
+    ///
+    /// \remarks Carried with the layout like the direction is, so the view
+    ///          draws the edge where the format meant it whatever else has
+    ///          changed since.
+    StackEntryPin entryPin = StackEntryPin::Top;
+
     /// \brief The sizes this layout was built in.
     ///
     /// \remarks Carried with the layout so the view draws a card's text at the
@@ -197,6 +213,7 @@ struct TreeLayout {
 /// \param metrics The sizes to lay out in.
 /// \param direction Which way the graph runs.
 /// \param stacking Which way a stacked card sits relative to its parent.
+/// \param entryPin Where the edge from a parent arrives on a stack.
 ///
 /// \returns The positioned union. TreeLayout::cancelled is set when the token
 ///          stopped the work.
@@ -222,7 +239,8 @@ struct TreeLayout {
                                      const IFormatProvider& provider, std::stop_token token = {},
                                      LayoutMetrics metrics = {},
                                      GraphDirection direction = GraphDirection::TopDown,
-                                     StackDirection stacking = StackDirection::Vertical);
+                                     StackDirection stacking = StackDirection::Vertical,
+                                     StackEntryPin entryPin = StackEntryPin::Top);
 
 /// \brief Finds the innermost node whose span covers a byte offset.
 ///

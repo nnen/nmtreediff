@@ -300,6 +300,14 @@ public:
         return GraphDirection::LeftToRight;
     }
 
+    StackEntryPin stackEntryPin() const override {
+        // Left to right, a decorator stack stands across the line of flow.
+        // Pinning the incoming edge to the bottom member puts the decorated
+        // node on that line and its decorators above it, which is how the
+        // editors that write these trees draw them.
+        return StackEntryPin::Bottom;
+    }
+
 private:
     /// \brief Adds one `<node>` element as a node.
     ///

@@ -396,7 +396,27 @@ TEST_CASE("a flagged node stacks on its only child, vertically in both direction
         }
         checkStackedUnder(layout, head, middle);
         checkStackedUnder(layout, middle, foot);
+
+        // Every member names the bottom, and a card in no stack names itself,
+        // so a collapse asked of any member acts on the block's subtree.
+        CHECK(top.stackBottom == foot);
+        CHECK(layout.nodes[middle].stackBottom == foot);
+        CHECK(layout.nodes[foot].stackBottom == foot);
+        CHECK(root.stackBottom == layout.root);
     }
+}
+
+TEST_CASE("the layout carries the format's entry pin", "[layout]") {
+    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const Tree tree = parse(*provider, kDecoratorChain);
+    const auto model = nmxd::diffTrees(tree, tree, *provider);
+
+    CHECK(buildLayout(tree, tree, model, *provider).entryPin == nmxd::StackEntryPin::Top);
+    CHECK(buildLayout(tree, tree, model, *provider, {}, {}, nmxd::GraphDirection::LeftToRight,
+                      nmxd::StackDirection::Vertical, nmxd::StackEntryPin::Bottom)
+              .entryPin == nmxd::StackEntryPin::Bottom);
+    // The sample format pins the entry to the bottom, the way its editors draw it.
+    CHECK(provider->stackEntryPin() == nmxd::StackEntryPin::Bottom);
 }
 
 TEST_CASE("a flagged node with two children in the union draws unstacked", "[layout]") {

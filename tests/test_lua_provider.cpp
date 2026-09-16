@@ -114,6 +114,16 @@ TEST_CASE("a scripted provider flags the same decorators as the compiled one", "
     CHECK(flagged == 4);
 }
 
+TEST_CASE("a scripted provider answers the pin it declared", "[lua]") {
+    const auto registry = registryWithScript(readFile(samplePath("behaviortree.lua")));
+    const auto* scripted = registry.byName("bt-lua");
+    const auto* compiled = registry.byName("bt");
+    REQUIRE(scripted != nullptr);
+    REQUIRE(compiled != nullptr);
+    CHECK(scripted->stackEntryPin() == nmxd::StackEntryPin::Bottom);
+    CHECK(scripted->stackEntryPin() == compiled->stackEntryPin());
+}
+
 TEST_CASE("a scripted provider reports the same changes", "[lua]") {
     // The whole pipeline, not just the parse: identity, matching and the change
     // list all have to agree, which is what makes this worth more than a tree

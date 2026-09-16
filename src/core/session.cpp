@@ -194,8 +194,8 @@ void Session::runOpen(const SessionRequest& request,
 
     auto layout = std::make_shared<TreeLayout>(
         buildLayout(*result.leftTree, *result.rightTree, *treeDiff, *provider, token,
-                    request.layoutMetrics,
-                    resolveDirection(*provider, request.graphDirection)));
+                    request.layoutMetrics, resolveDirection(*provider, request.graphDirection),
+                    StackDirection::Vertical, provider->stackEntryPin()));
     if (token.stop_requested() || layout->cancelled) {
         return;
     }

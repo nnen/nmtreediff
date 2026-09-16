@@ -31,6 +31,8 @@ struct ScriptedProviderSpec {
     std::vector<std::string> extensions;
     /// \brief Which way this format's graph reads best.
     GraphDirection direction = GraphDirection::Inherit;
+    /// \brief Where the edge from a parent arrives on a stack of cards.
+    StackEntryPin entryPin = StackEntryPin::Top;
 
     /// \brief Property names that sort first, in the order they sort.
     ///

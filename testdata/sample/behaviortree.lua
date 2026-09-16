@@ -22,6 +22,12 @@ provider "bt-lua" {
   -- A behaviour tree is deep and narrow, so it reads better left to right.
   graph_direction = "left_to_right",
 
+  -- Left to right, a stack of decorators stands across the line of flow.
+  -- Leading the incoming edge to the bottom of the stack puts the decorated
+  -- node on that line and its decorators above it, the way the editors that
+  -- write these trees draw them.
+  stack_entry_pin = "bottom",
+
   -- What makes a node the same node across versions comes first, then what it
   -- does, then what its author called it. Everything else keeps document order
   -- behind these. Presentation only: matching compares properties as a set

@@ -16,7 +16,10 @@ here; nothing written against version 1 shapes a document in version 2.
 
 *Added since version 2, on 15 September 2026:* `setStacked()` on the handle
 and `set_stacked()` in a script, which say a node may draw stacked on its only
-child. A script written before it runs unchanged, so the number did not move.
+child; and on 16 September, `stackEntryPin()` on the provider and
+`stack_entry_pin` in a declaration, which say where the edge into such a stack
+arrives. A script written before either runs unchanged, so the number did not
+move.
 
 Two ways to write one
 ---------------------
@@ -462,6 +465,18 @@ Return `GraphDirection::LeftToRight` or `TopDown` to say which way this
 format's graph reads best, or `Inherit`, the default, to accept the reader's
 choice. Returning `Inherit` is not the same as returning `TopDown`: a provider
 with no opinion must not overrule a reader who has one.
+
+### stackEntryPin
+
+Return `StackEntryPin::Bottom` to have the edge from a parent arrive at the
+bottom member of a stacked block rather than at the top one, which is the node
+it logically reaches; the default is `Top`. It only shows when the block
+stands across the graph's depth axis, which with vertical stacks means left to
+right: there the bottom pin puts the decorated node on the line of flow and its
+decorators above it, the way behaviour-tree editors draw them. Top-down the
+block's top face is the target either way. In a script the key is
+`stack_entry_pin = "bottom"`. The sample behaviour tree sets it, compiled and
+scripted alike.
 
 ### parse
 

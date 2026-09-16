@@ -73,6 +73,22 @@ enum class GraphDirection {
     LeftToRight,  ///< Children to the right of their parent.
 };
 
+/// \brief Where the edge from a parent visually arrives on a stack of cards.
+///
+/// \remarks A stack is drawn as one block, and in a left-to-right graph the
+///          block stands across the line of flow. Leading the edge to the top
+///          member, which is the node it logically reaches, puts the decorated
+///          node below the line; leading it to the bottom member puts the
+///          decorators above the line and the decorated node on it, which is
+///          how behaviour-tree editors draw it and reads better for that
+///          shape. The format knows which it wants, so the choice is its.
+///          Top-down the block's top face is the edge's target either way and
+///          the pin has no effect.
+enum class StackEntryPin {
+    Top,     ///< At the top member, the node the edge logically reaches.
+    Bottom,  ///< At the bottom member, so the decorators hang above the flow.
+};
+
 /// \brief How the matcher decides two nodes are the same node.
 struct IdentityKey {
     /// \brief Whether this key may be matched across arbitrary distance.
@@ -298,6 +314,15 @@ public:
     ///          so the default answers Inherit and only a provider that really
     ///          knows its shape names a direction.
     [[nodiscard]] virtual GraphDirection graphDirection() const { return GraphDirection::Inherit; }
+
+    /// \brief Returns where the edge from a parent arrives on a stack of
+    ///        this format's cards.
+    ///
+    /// \returns The pin, StackEntryPin::Top by default.
+    ///
+    /// \remarks Presentation only, and only visible when stacks run across
+    ///          the graph's depth axis. See StackEntryPin.
+    [[nodiscard]] virtual StackEntryPin stackEntryPin() const { return StackEntryPin::Top; }
 
     /// \brief Writes a tree back out in this format.
     ///

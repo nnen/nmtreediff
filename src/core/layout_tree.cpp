@@ -375,7 +375,9 @@ private:
     ///          measured in its own width before this and drawn in the
     ///          shared one after, and the elision it was given still fits.
     void markStacks() {
-        for (LayoutNode& card : layout_.nodes) {
+        for (std::size_t i = 0; i < layout_.nodes.size(); ++i) {
+            LayoutNode& card = layout_.nodes[i];
+            card.stackBottom = static_cast<LayoutId>(i);
             if (card.parent == kInvalidLayout) {
                 continue;
             }
@@ -388,12 +390,14 @@ private:
             if (layout_.nodes[i].stackedOnParent || stackedChild(head) == kInvalidLayout) {
                 continue;
             }
+            const LayoutId bottom = stackBottom(head);
             float widest = 0.0f;
             for (LayoutId m = head; m != kInvalidLayout; m = stackedChild(m)) {
                 widest = std::max(widest, layout_.nodes[m].width);
             }
             for (LayoutId m = head; m != kInvalidLayout; m = stackedChild(m)) {
                 layout_.nodes[m].width = widest;
+                layout_.nodes[m].stackBottom = bottom;
             }
         }
     }
@@ -714,12 +718,14 @@ LayoutId TreeLayout::find(Side side, NodeId node) const {
 
 TreeLayout buildLayout(const Tree& left, const Tree& right, const DiffModel& model,
                        const IFormatProvider& provider, std::stop_token token,
-                       LayoutMetrics metrics, GraphDirection direction, StackDirection stacking) {
+                       LayoutMetrics metrics, GraphDirection direction, StackDirection stacking,
+                       StackEntryPin entryPin) {
     LayoutBuilder builder(left, right, model, provider, metrics, direction, stacking);
     TreeLayout layout = builder.build(token);
     layout.metrics = metrics;
     layout.direction = direction;
     layout.stacking = stacking;
+    layout.entryPin = entryPin;
     return layout;
 }
 

@@ -125,9 +125,14 @@ node: added, deleted, modified, moved, or unchanged.
   the single node under it. Such a node is drawn as one block with its child,
   touching, with no edge between them, and a chain of them stacks the same
   way. The block is vertical whichever way the graph runs. Each card in it is
-  still its own node: click, hover and step through changes as usual. When
-  the comparison puts two nodes under a decorator, a deleted child beside an
-  added one, it draws unstacked, because those two are the change.
+  still its own node: click, hover and step through changes as usual, but a
+  block collapses as a unit: collapsing any card in it folds away what is
+  under the block, never part of the block. When the comparison puts two
+  nodes under a decorator, a deleted child beside an added one, it draws
+  unstacked, because those two are the change. A format may pin the edge
+  into a block to its bottom card, which in a left-to-right graph puts the
+  decorated node on the line of flow and its decorators above it; the sample
+  behaviour tree does.
 - **Right-click** for a menu: collapse or expand the node under the pointer,
   collapse everything unchanged, expand everything, fit the graph to the
   window, or change the direction. Right-clicking empty canvas gives the same
@@ -398,6 +403,7 @@ The body may hold these entries. Every one is optional.
 | `base` | string | `"xml"` |
 | `extensions` | list of strings | none |
 | `graph_direction` | string | inherit |
+| `stack_entry_pin` | string | `"top"` |
 | `property_order` | list of strings | none |
 | `shape` | function | the document is copied one to one |
 
@@ -418,6 +424,12 @@ name.
 **`graph_direction`** takes the same two words as the global function and
 applies to this format alone. An unknown word is reported and the entry
 ignored.
+
+**`stack_entry_pin`** takes `"top"` or `"bottom"` and says where the edge from
+a parent arrives on a stack of decorators: at the top member, the node it
+logically reaches, or at the bottom one. It shows only in a left-to-right
+graph, where the bottom pin puts the decorated node on the line of flow and its
+decorators above it. An unknown word is reported and the entry ignored.
 
 **`property_order`** lists property names that sort first, in the order they
 sort. Names are compared as written, without case folding. This is presentation

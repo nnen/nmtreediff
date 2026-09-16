@@ -1365,6 +1365,20 @@ collapsed.
 `kProviderInterfaceVersion` stayed at 2, and docs/PROVIDERS.md carries the
 addition under a dated note at the top rather than a new number.
 
+Two things followed from using it, the next day. A stack could be collapsed
+in the middle: "collapse unchanged" folded the Condition away from under its
+Inverter in the sentry sample and left the block cut with a chip inside it.
+A stack now collapses as a unit, at its bottom member, whichever member was
+asked; the layout records each card's stack bottom and the view's three
+collapse paths ask it. And a format may pin the edge into a block to the
+bottom member, `stackEntryPin()` on the provider and `stack_entry_pin` in a
+declaration: left to right, where the block stands across the line of flow,
+that puts the decorated node on the line and its decorators above it, which
+is how behaviour-tree editors draw it. The pin travels with the layout like
+the direction does, takes effect only where the stack runs across the depth
+axis, and the sample behaviour tree sets it. Both additive; the version is
+still 2.
+
 12. Testing
 -----------
 
