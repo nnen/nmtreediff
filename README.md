@@ -145,6 +145,7 @@ Repository contents
 | [Doxyfile](Doxyfile) | Configuration for the API reference. Undocumented code is an error, so the `docs` target fails rather than quietly producing a thinner reference. |
 | [testdata/sample/providers.lua](testdata/sample/providers.lua) | A sample configuration script. |
 | [testdata/sample/behaviortree.lua](testdata/sample/behaviortree.lua) | The behaviour-tree format written in script rather than compiled in. |
+| [testdata/sample/sentry_before.bt](testdata/sample/sentry_before.bt) | A behaviour tree with decorator chains, which the node view draws stacked. Compare it with `sentry_after.bt`. |
 | [testdata/golden/](testdata/golden/) | The corpus of comparisons whose expected output the tests check against. |
 
 Licence

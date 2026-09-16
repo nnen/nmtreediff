@@ -40,6 +40,15 @@ constexpr std::string_view kTypeAttribute = "type";
 /// \brief The kind given to a node element with no type attribute.
 constexpr std::string_view kUntypedKind = "node";
 
+/// \brief The node types that decorate exactly one node under them.
+///
+/// \remarks A decorator wraps the node it sits over rather than choosing
+///          among children, so the two read as one thing and the node view
+///          draws them stacked. The list is this sample format's own; a format
+///          whose files say so in an attribute would read that instead.
+constexpr std::array<std::string_view, 5> kDecoratorTypes{"Inverter", "Repeater", "Cooldown",
+                                                          "Succeeder", "Limit"};
+
 /// \brief Attribute names worth seeing first on a node card.
 ///
 /// \remarks The identifier leads because it is what makes a node the same node
@@ -291,6 +300,14 @@ public:
         return GraphDirection::LeftToRight;
     }
 
+    StackEntryPin stackEntryPin() const override {
+        // Left to right, a decorator stack stands across the line of flow.
+        // Pinning the incoming edge to the bottom member puts the decorated
+        // node on that line and its decorators above it, which is how the
+        // editors that write these trees draw them.
+        return StackEntryPin::Bottom;
+    }
+
 private:
     /// \brief Adds one `<node>` element as a node.
     ///
@@ -315,6 +332,11 @@ private:
         const auto identifier = element.attribute(kIdAttribute);
         if (identifier.has_value() && !identifier->empty()) {
             node.setIdentity(*identifier, Identity::Strong);
+        }
+        if (type.has_value() &&
+            std::find(kDecoratorTypes.begin(), kDecoratorTypes.end(), *type) !=
+                kDecoratorTypes.end()) {
+            node.setStacked(true);
         }
         return node;
     }

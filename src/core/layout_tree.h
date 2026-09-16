@@ -66,6 +66,30 @@ struct LayoutNode {
     /// \brief The provider's colour, before diff status is applied.
     Color accent;
 
+    /// \brief Whether the format asked for this card to stack on its only
+    ///        child.
+    ///
+    /// \remarks The request, not the outcome: whether it happens depends on
+    ///          how many cards end up under this one in the union. See
+    ///          \ref stackedOnParent.
+    bool stackable = false;
+
+    /// \brief Whether this card is drawn as part of its parent's block,
+    ///        directly under it with no edge between them.
+    ///
+    /// \remarks True when the parent is stackable and this is its only child
+    ///          in the union. A deleted child beside an added one is two
+    ///          children, and neither stacks: the two of them are the change.
+    bool stackedOnParent = false;
+
+    /// \brief The last member of the stack this card is in, or the card
+    ///        itself when it is in none.
+    ///
+    /// \remarks Collapsing acts there, whichever member was asked, so a stack
+    ///          folds as a unit: what disappears is the block's subtree, never
+    ///          part of the block. It is also where a pinned edge arrives.
+    LayoutId stackBottom = kInvalidLayout;
+
     /// \brief Whether anything below this node changed.
     ///
     /// \remarks Drives the default collapse: a subtree with nothing to report is
@@ -98,6 +122,20 @@ struct LayoutMetrics {
     float levelGap = 46.0f;
 };
 
+/// \brief Which way a stacked card sits relative to the card it stacks on.
+///
+/// \remarks A stack is always vertical today: the child sits under its parent
+///          on screen whichever way the graph runs, the way a behaviour tree
+///          editor shows a decorator over its task. The choice is an enum so
+///          the layout is written against an axis rather than against
+///          "vertical", and a stack that follows the graph's own direction is
+///          a value away rather than a rewrite. Nothing sets the second value
+///          yet.
+enum class StackDirection : std::uint8_t {
+    Vertical,    ///< Under the parent on screen, whichever way the graph runs.
+    AlongDepth,  ///< Along the graph's depth axis: down top-down, right left-to-right.
+};
+
 /// \brief The union of both trees, laid out for drawing.
 ///
 /// \remarks Holds one card per node of the right tree, plus a card for every
@@ -125,6 +163,17 @@ struct TreeLayout {
     ///          the view draws edges between cards and has to attach them to the
     ///          sides the positions were computed for.
     GraphDirection direction = GraphDirection::TopDown;
+
+    /// \brief Which way stacked cards sit in this layout.
+    StackDirection stacking = StackDirection::Vertical;
+
+    /// \brief Where the edge from a parent arrives on a stack, as the format
+    ///        asked.
+    ///
+    /// \remarks Carried with the layout like the direction is, so the view
+    ///          draws the edge where the format meant it whatever else has
+    ///          changed since.
+    StackEntryPin entryPin = StackEntryPin::Top;
 
     /// \brief The sizes this layout was built in.
     ///
@@ -163,6 +212,8 @@ struct TreeLayout {
 ///        requested.
 /// \param metrics The sizes to lay out in.
 /// \param direction Which way the graph runs.
+/// \param stacking Which way a stacked card sits relative to its parent.
+/// \param entryPin Where the edge from a parent arrives on a stack.
 ///
 /// \returns The positioned union. TreeLayout::cancelled is set when the token
 ///          stopped the work.
@@ -174,13 +225,22 @@ struct TreeLayout {
 ///          one ended, so levels line up instead of running ragged. Card sizes
 ///          stay in screen space either way, because text does not rotate.
 ///
+///          A card the format flagged, with exactly one card under it, and
+///          that card in turn, form a stack. The positioning pass sees a
+///          stack as one card, the widest member wide and the members' extents
+///          summed along the stacking axis, and places the members inside it
+///          afterwards. Nothing in the level or breadth bookkeeping knows
+///          stacks exist.
+///
 ///          Both passes are linear. A tighter packing that interleaves subtrees
 ///          of different depths would save space and is a possible refinement,
 ///          not a correctness fix.
 [[nodiscard]] TreeLayout buildLayout(const Tree& left, const Tree& right, const DiffModel& model,
                                      const IFormatProvider& provider, std::stop_token token = {},
                                      LayoutMetrics metrics = {},
-                                     GraphDirection direction = GraphDirection::TopDown);
+                                     GraphDirection direction = GraphDirection::TopDown,
+                                     StackDirection stacking = StackDirection::Vertical,
+                                     StackEntryPin entryPin = StackEntryPin::Top);
 
 /// \brief Finds the innermost node whose span covers a byte offset.
 ///

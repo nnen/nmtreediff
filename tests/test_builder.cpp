@@ -221,7 +221,10 @@ TEST_CASE("what a handle records travels with the renumbering", "[builder]") {
     Ref root = builder.root("r");
     Ref late = root.child("late");
     Ref early = root.child("early");
-    early.setIdentity("guid-1", Identity::Strong).setTitle("Early", "sub").setAccent(0x102030);
+    early.setIdentity("guid-1", Identity::Strong)
+        .setTitle("Early", "sub")
+        .setAccent(0x102030)
+        .setStacked();
     late.setChildrenOrdered(false);
     CHECK_THROWS_AS(root.setValue("no"), BuildError);
     CHECK_THROWS_AS(root.property("p").setChildrenOrdered(true), BuildError);
@@ -235,6 +238,8 @@ TEST_CASE("what a handle records travels with the renumbering", "[builder]") {
     CHECK(tree.annotation(earlyId).title == "Early");
     CHECK(tree.annotation(earlyId).subtitle == "sub");
     CHECK(tree.annotation(earlyId).accent == 0x102030u);
+    CHECK(tree.annotation(earlyId).stacked);
+    CHECK_FALSE(tree.annotation(lateId).stacked);
     CHECK(tree.annotation(lateId).identity.empty());
     CHECK_FALSE(tree.node(lateId).childrenOrdered);
     CHECK(tree.node(earlyId).childrenOrdered);

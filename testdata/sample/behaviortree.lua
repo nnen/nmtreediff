@@ -22,6 +22,12 @@ provider "bt-lua" {
   -- A behaviour tree is deep and narrow, so it reads better left to right.
   graph_direction = "left_to_right",
 
+  -- Left to right, a stack of decorators stands across the line of flow.
+  -- Leading the incoming edge to the bottom of the stack puts the decorated
+  -- node on that line and its decorators above it, the way the editors that
+  -- write these trees draw them.
+  stack_entry_pin = "bottom",
+
   -- What makes a node the same node across versions comes first, then what it
   -- does, then what its author called it. Everything else keeps document order
   -- behind these. Presentation only: matching compares properties as a set
@@ -35,6 +41,14 @@ provider "bt-lua" {
   -- rather than the stack, and a tree nested thousands of levels deep shapes
   -- the same as a shallow one.
   shape = function(doc, out)
+
+    -- The node types that decorate exactly one node under them. A decorator
+    -- wraps the node it sits over rather than choosing among children, so
+    -- the two read as one thing and the node view draws them stacked. The
+    -- same list the compiled provider keeps.
+    local decorators = {
+      Inverter = true, Repeater = true, Cooldown = true, Succeeder = true, Limit = true,
+    }
 
     -- An element's attributes, as a list. The XML reading records a leaf's
     -- text under "#text", which is content rather than an attribute.
@@ -105,6 +119,7 @@ provider "bt-lua" {
         local node = owner:child(element):set_name(kind)
         copy_attributes(node, element)
         node:set_identity(element.attr.id, "strong")
+        if decorators[kind] then node:set_stacked(true) end
         for child in element:children() do
           out:next(visit, child, node)
         end

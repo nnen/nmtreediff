@@ -85,6 +85,24 @@ TEST_CASE("a script sets the graph direction and the exit key", "[config]") {
     CHECK(config.exitKey == "none");
 }
 
+TEST_CASE("a provider declaration sets its stack entry pin", "[config]") {
+    const auto config = runClean(
+        "provider 'pinned' { base = 'xml', stack_entry_pin = 'Bottom' }\n"
+        "provider 'plain' { base = 'xml' }\n");
+    REQUIRE(config.providers.size() == 2);
+    CHECK(config.providers[0].entryPin == nmxd::StackEntryPin::Bottom);
+    CHECK(config.providers[1].entryPin == nmxd::StackEntryPin::Top);
+}
+
+TEST_CASE("an unknown stack entry pin is reported", "[config]") {
+    ProviderConfig config;
+    const auto problems =
+        runDirty("provider 'odd' { base = 'xml', stack_entry_pin = 'sideways' }\n", config);
+    REQUIRE(problems.size() == 1);
+    CHECK(problems[0].message.find("sideways") != std::string::npos);
+    CHECK(problems[0].message.find("stack_entry_pin") != std::string::npos);
+}
+
 TEST_CASE("an empty script asks for nothing", "[config]") {
     const auto config = runClean("-- nothing but a comment\n");
     CHECK(config.empty());

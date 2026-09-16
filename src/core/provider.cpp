@@ -89,6 +89,7 @@ NodeStyle IFormatProvider::style(const Tree& tree, NodeId id) const {
 
     style.accent = unpackAccent(annotation.accent != 0 ? annotation.accent
                                                        : accentForKind(node.kind));
+    style.stacked = annotation.stacked;
     return style;
 }
 

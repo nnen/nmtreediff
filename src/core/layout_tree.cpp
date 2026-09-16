@@ -48,11 +48,12 @@ public:
     /// \param provider The format provider.
     /// \param metrics The sizes to lay out in.
     /// \param direction Which way the graph runs.
+    /// \param stacking Which way a stacked card sits relative to its parent.
     LayoutBuilder(const Tree& left, const Tree& right, const DiffModel& model,
                   const IFormatProvider& provider, const LayoutMetrics& metrics,
-                  GraphDirection direction)
+                  GraphDirection direction, StackDirection stacking)
         : left_(left), right_(right), model_(model), provider_(provider), metrics_(metrics),
-          direction_(direction) {}
+          direction_(direction), stacking_(stacking) {}
 
     /// \brief Builds and positions the union.
     ///
@@ -88,6 +89,7 @@ public:
 
         markChangedSubtrees();
         resolveMoves();
+        markStacks();
         position();
         return std::move(layout_);
     }
@@ -115,6 +117,7 @@ private:
         card.title = elide(style.title, maximumCharacters);
         card.subtitle = elide(style.subtitle, maximumCharacters);
         card.accent = style.accent;
+        card.stackable = style.stacked;
 
         const std::size_t widest = std::max(card.title.size(), card.subtitle.size());
         card.width = std::clamp(static_cast<float>(widest) * metrics_.characterWidth +
@@ -345,6 +348,116 @@ private:
     /// \returns `true` when depth advances along x and breadth along y.
     [[nodiscard]] bool horizontal() const { return direction_ == GraphDirection::LeftToRight; }
 
+    /// \brief Reports whether a stacked card sits further along the depth
+    ///        axis than its parent, rather than further along the breadth axis.
+    ///
+    /// \returns `true` when stacks run along depth in this layout.
+    ///
+    /// \remarks Vertical is the depth axis top-down and the breadth axis
+    ///          left-to-right; the graph's direction decides which. The rest
+    ///          of the stacking code asks this and never asks about
+    ///          "vertical", which is what leaves the other direction open.
+    [[nodiscard]] bool stacksAlongDepth() const {
+        if (stacking_ == StackDirection::AlongDepth) {
+            return true;
+        }
+        return !horizontal();
+    }
+
+    /// \brief Decides which cards draw as part of the card above them.
+    ///
+    /// \remarks A card stacks on its parent when the format flagged the
+    ///          parent and the parent has exactly one card under it in the
+    ///          union. Two cards under it, a deleted child beside an added
+    ///          one, are the change, and drawing either as the block's own
+    ///          would hide it. The members of a chain then share one width,
+    ///          the widest, so the chain reads as one block; a card is
+    ///          measured in its own width before this and drawn in the
+    ///          shared one after, and the elision it was given still fits.
+    void markStacks() {
+        for (std::size_t i = 0; i < layout_.nodes.size(); ++i) {
+            LayoutNode& card = layout_.nodes[i];
+            card.stackBottom = static_cast<LayoutId>(i);
+            if (card.parent == kInvalidLayout) {
+                continue;
+            }
+            const LayoutNode& parent = layout_.nodes[card.parent];
+            card.stackedOnParent = parent.stackable && parent.children.size() == 1;
+        }
+
+        for (std::size_t i = 0; i < layout_.nodes.size(); ++i) {
+            const auto head = static_cast<LayoutId>(i);
+            if (layout_.nodes[i].stackedOnParent || stackedChild(head) == kInvalidLayout) {
+                continue;
+            }
+            const LayoutId bottom = stackBottom(head);
+            float widest = 0.0f;
+            for (LayoutId m = head; m != kInvalidLayout; m = stackedChild(m)) {
+                widest = std::max(widest, layout_.nodes[m].width);
+            }
+            for (LayoutId m = head; m != kInvalidLayout; m = stackedChild(m)) {
+                layout_.nodes[m].width = widest;
+                layout_.nodes[m].stackBottom = bottom;
+            }
+        }
+    }
+
+    /// \brief Returns the card stacked directly under one card.
+    ///
+    /// \param id The card to look under.
+    ///
+    /// \returns The stacked child, or kInvalidLayout when the card ends its
+    ///          stack, which is the usual case.
+    [[nodiscard]] LayoutId stackedChild(LayoutId id) const {
+        const auto& children = layout_.nodes[id].children;
+        if (children.size() == 1 && layout_.nodes[children[0]].stackedOnParent) {
+            return children[0];
+        }
+        return kInvalidLayout;
+    }
+
+    /// \brief Returns the last card of the stack one card heads.
+    ///
+    /// \param head The first card of the stack.
+    ///
+    /// \returns The bottom member, or \p head itself when nothing stacks on
+    ///          it. Its children are the stack's children.
+    [[nodiscard]] LayoutId stackBottom(LayoutId head) const {
+        LayoutId bottom = head;
+        for (LayoutId m = stackedChild(head); m != kInvalidLayout; m = stackedChild(m)) {
+            bottom = m;
+        }
+        return bottom;
+    }
+
+    /// \brief The size of a stack taken as one card.
+    struct Composite {
+        float breadth = 0.0f;  ///< Extent along the sibling axis.
+        float depth = 0.0f;    ///< Extent along the axis that grows with depth.
+    };
+
+    /// \brief Measures a stack as the one card the positioning pass sees.
+    ///
+    /// \param head The first card of the stack, or any card that heads none.
+    ///
+    /// \returns The members' extents summed along the stacking axis and the
+    ///          widest of them across it. For a card that heads no stack,
+    ///          its own size.
+    [[nodiscard]] Composite composite(LayoutId head) const {
+        Composite block;
+        for (LayoutId m = head; m != kInvalidLayout; m = stackedChild(m)) {
+            const LayoutNode& card = layout_.nodes[m];
+            if (stacksAlongDepth()) {
+                block.depth += depthOf(card);
+                block.breadth = std::max(block.breadth, breadthOf(card));
+            } else {
+                block.breadth += breadthOf(card);
+                block.depth = std::max(block.depth, depthOf(card));
+            }
+        }
+        return block;
+    }
+
     /// \brief Returns how much of the breadth axis a card occupies.
     ///
     /// \param card The card to measure.
@@ -380,15 +493,23 @@ private:
 
     /// \brief Gives every card the breadth its whole subtree needs.
     ///
-    /// \returns The subtree breadth of each card, indexed by card id.
+    /// \returns The subtree breadth of each card, indexed by card id. A card
+    ///          stacked on its parent is measured as part of its stack's head
+    ///          and has no entry of its own.
     ///
     /// \remarks Runs backwards, so a card's children are already measured
     ///          when it is reached. Parents before children in the card order is
-    ///          what makes that true.
+    ///          what makes that true, and it holds for a stack's bottom member
+    ///          and its children too.
     [[nodiscard]] std::vector<float> measureSubtrees() const {
         std::vector<float> breadth(layout_.nodes.size(), 0.0f);
         for (std::size_t i = layout_.nodes.size(); i-- > 0;) {
-            breadth[i] = std::max(breadthOf(layout_.nodes[i]), childrenBreadth(i, breadth));
+            if (layout_.nodes[i].stackedOnParent) {
+                continue;
+            }
+            const auto head = static_cast<LayoutId>(i);
+            breadth[i] = std::max(composite(head).breadth,
+                                  childrenBreadth(stackBottom(head), breadth));
         }
         return breadth;
     }
@@ -414,13 +535,14 @@ private:
 
     /// \brief Returns how deep each card sits, counted in levels.
     ///
-    /// \returns The level of each card, indexed by card id. A root is zero.
+    /// \returns The level of each card, indexed by card id. A root is zero,
+    ///          and a card stacked on its parent shares the parent's level.
     [[nodiscard]] std::vector<std::uint32_t> measureLevels() const {
         std::vector<std::uint32_t> level(layout_.nodes.size(), 0);
         for (std::size_t i = 0; i < layout_.nodes.size(); ++i) {
-            const LayoutId parent = layout_.nodes[i].parent;
-            if (parent != kInvalidLayout) {
-                level[i] = level[parent] + 1;
+            const LayoutNode& card = layout_.nodes[i];
+            if (card.parent != kInvalidLayout) {
+                level[i] = level[card.parent] + (card.stackedOnParent ? 0 : 1);
             }
         }
         return level;
@@ -446,7 +568,11 @@ private:
         const std::uint32_t deepest = *std::max_element(level.begin(), level.end());
         std::vector<float> extent(deepest + 1, 0.0f);
         for (std::size_t i = 0; i < layout_.nodes.size(); ++i) {
-            extent[level[i]] = std::max(extent[level[i]], depthOf(layout_.nodes[i]));
+            if (layout_.nodes[i].stackedOnParent) {
+                continue;  // counted in its head's composite
+            }
+            extent[level[i]] =
+                std::max(extent[level[i]], composite(static_cast<LayoutId>(i)).depth);
         }
 
         std::vector<float> offset(deepest + 1, 0.0f);
@@ -512,7 +638,9 @@ private:
     ///
     /// \remarks Each card's position follows from its parent's allotment
     ///          alone, so the order cards are placed in does not matter and a
-    ///          plain stack serves in place of recursion.
+    ///          plain stack serves in place of recursion. A stack is placed as
+    ///          one card, its members inside it, and the bottom member's
+    ///          children are the stack's children.
     void place(LayoutId root, float breadth, const std::vector<float>& subtreeBreadth,
                const std::vector<float>& levelOffset) {
         std::vector<Placement> pending;
@@ -522,18 +650,46 @@ private:
             const Placement next = pending.back();
             pending.pop_back();
 
-            // The card sits centred in the span its parent allotted it.
-            LayoutNode& card = layout_.nodes[next.id];
-            setPosition(card, next.breadth + (subtreeBreadth[next.id] - breadthOf(card)) * 0.5f,
-                        levelOffset[next.depth]);
+            // The card, or the stack it heads, sits centred in the span its
+            // parent allotted it.
+            const Composite block = composite(next.id);
+            placeStack(next.id, next.breadth + (subtreeBreadth[next.id] - block.breadth) * 0.5f,
+                       levelOffset[next.depth], block);
 
             // Children fill that same span from its start, so a parent with
             // one child lines up exactly with it.
-            const float total = childrenBreadth(next.id, subtreeBreadth);
+            const LayoutId bottom = stackBottom(next.id);
+            const float total = childrenBreadth(bottom, subtreeBreadth);
             float cursor = next.breadth + (subtreeBreadth[next.id] - total) * 0.5f;
-            for (const LayoutId child : card.children) {
+            for (const LayoutId child : layout_.nodes[bottom].children) {
                 pending.push_back(Placement{child, cursor, next.depth + 1});
                 cursor += subtreeBreadth[child] + metrics_.siblingGap;
+            }
+        }
+    }
+
+    /// \brief Places the members of one stack inside the block allotted to it.
+    ///
+    /// \param head The first card of the stack, or a card that heads none.
+    /// \param breadth Where the block begins along the sibling axis.
+    /// \param depth Where the block begins along the depth axis.
+    /// \param block The block's size, from composite().
+    ///
+    /// \remarks Members follow one another along the stacking axis with no
+    ///          gap, each centred across it. A card that heads no stack is
+    ///          its own block, so this places it exactly where the plain
+    ///          card placement did.
+    void placeStack(LayoutId head, float breadth, float depth, const Composite& block) {
+        float along = 0.0f;
+        for (LayoutId m = head; m != kInvalidLayout; m = stackedChild(m)) {
+            LayoutNode& card = layout_.nodes[m];
+            if (stacksAlongDepth()) {
+                setPosition(card, breadth + (block.breadth - breadthOf(card)) * 0.5f,
+                            depth + along);
+                along += depthOf(card);
+            } else {
+                setPosition(card, breadth + along, depth + (block.depth - depthOf(card)) * 0.5f);
+                along += breadthOf(card);
             }
         }
     }
@@ -544,6 +700,7 @@ private:
     const IFormatProvider& provider_;
     LayoutMetrics metrics_;
     GraphDirection direction_;
+    StackDirection stacking_;
     TreeLayout layout_;
     std::unordered_map<std::uint64_t, LayoutId> index_;
 };
@@ -561,11 +718,14 @@ LayoutId TreeLayout::find(Side side, NodeId node) const {
 
 TreeLayout buildLayout(const Tree& left, const Tree& right, const DiffModel& model,
                        const IFormatProvider& provider, std::stop_token token,
-                       LayoutMetrics metrics, GraphDirection direction) {
-    LayoutBuilder builder(left, right, model, provider, metrics, direction);
+                       LayoutMetrics metrics, GraphDirection direction, StackDirection stacking,
+                       StackEntryPin entryPin) {
+    LayoutBuilder builder(left, right, model, provider, metrics, direction, stacking);
     TreeLayout layout = builder.build(token);
     layout.metrics = metrics;
     layout.direction = direction;
+    layout.stacking = stacking;
+    layout.entryPin = entryPin;
     return layout;
 }
 

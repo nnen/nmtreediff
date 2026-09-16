@@ -66,6 +66,8 @@ public:
 
     GraphDirection graphDirection() const override { return spec_.direction; }
 
+    StackEntryPin stackEntryPin() const override { return spec_.entryPin; }
+
     std::span<const std::string_view> subtitleProperties() const override {
         return base_.subtitleProperties();
     }

@@ -109,6 +109,7 @@ struct CardPaint {
     bool selected = false;   ///< Whether this card is the selected one.
     bool collapsed = false;  ///< Whether this card is standing in for its subtree.
     bool hoverable = false;  ///< Whether the canvas has the mouse.
+    ImDrawFlags corners = 0; ///< Which corners are rounded; a stack member squares the shared ones.
     float textSize = 0.0f;   ///< Pixel size to draw text at, for this zoom.
     int textAlpha = 0;       ///< How visible text is at that size; zero skips it.
     bool failed = false;     ///< Whether a shaping job failed under this node.
@@ -179,6 +180,99 @@ void drawFailedMark(ImDrawList* draw, const ImVec2& topLeft, const ImVec2& botto
         return ImVec2(card.x, card.y + card.height * 0.5f);
     }
     return ImVec2(card.x + card.width * 0.5f, card.y);
+}
+
+/// \brief Reports whether stacks run along the depth axis in a layout.
+///
+/// \param layout The layout being drawn.
+///
+/// \returns `true` when a stacked card sits further along the depth axis than
+///          the card it stacks on; `false` when it sits across it.
+[[nodiscard]] bool stacksAlongDepth(const TreeLayout& layout) {
+    return layout.stacking == nmxd::StackDirection::AlongDepth || !horizontal(layout.direction);
+}
+
+/// \brief Returns the card an edge from the parent visually arrives at.
+///
+/// \param layout The layout being drawn.
+/// \param card The card the edge logically reaches.
+///
+/// \returns \p card, or the bottom member of its stack when the format pinned
+///          the entry there and the stack stands across the depth axis.
+///
+/// \remarks Along the depth axis the head's face is the block's face and
+///          there is nothing to choose, so the pin only matters when the
+///          block stands across the line of flow, which with vertical stacks
+///          means left to right.
+[[nodiscard]] const LayoutNode& entryCard(const TreeLayout& layout, const LayoutNode& card) {
+    if (layout.entryPin == nmxd::StackEntryPin::Bottom && !stacksAlongDepth(layout) &&
+        card.stackBottom != kInvalidLayout) {
+        return layout.nodes[card.stackBottom];
+    }
+    return card;
+}
+
+/// \brief Returns the card a collapse asked of one card acts on.
+///
+/// \param layout The layout being drawn.
+/// \param id The card the reader pointed at.
+///
+/// \returns The bottom member of the card's stack, or the card itself when
+///          it is in none.
+///
+/// \remarks A stack collapses as a unit: what folds away is the block's
+///          subtree, never part of the block. Collapsing a member in the
+///          middle would cut the block and leave a chip hanging inside it.
+[[nodiscard]] LayoutId collapseAnchor(const TreeLayout& layout, LayoutId id) {
+    const LayoutId bottom = layout.nodes[id].stackBottom;
+    return bottom == kInvalidLayout ? id : bottom;
+}
+
+/// \brief Says which of a card's corners are rounded.
+///
+/// \param layout The layout being drawn, for the stacking direction and the
+///        card's children.
+/// \param card The card to draw.
+///
+/// \returns Draw flags naming the rounded corners.
+///
+/// \remarks A card in a stack squares the corners it shares with the member
+///          above or below it, so the stack reads as one block with a line
+///          across it rather than as cards resting on one another. The shared
+///          edge is the bottom one for a vertical stack, and the right one
+///          when stacks follow a left-to-right graph instead.
+[[nodiscard]] ImDrawFlags cornersFor(const TreeLayout& layout, const LayoutNode& card) {
+    const bool joinedAbove = card.stackedOnParent;
+    const bool joinedBelow =
+        card.children.size() == 1 && layout.nodes[card.children[0]].stackedOnParent;
+    const bool sideways = layout.stacking == nmxd::StackDirection::AlongDepth &&
+                          horizontal(layout.direction);
+    if (joinedAbove && joinedBelow) {
+        return ImDrawFlags_RoundCornersNone;
+    }
+    if (joinedAbove) {
+        return sideways ? ImDrawFlags_RoundCornersRight : ImDrawFlags_RoundCornersBottom;
+    }
+    if (joinedBelow) {
+        return sideways ? ImDrawFlags_RoundCornersLeft : ImDrawFlags_RoundCornersTop;
+    }
+    return ImDrawFlags_RoundCornersAll;
+}
+
+/// \brief Keeps only the left-hand corners of a set of rounding flags.
+///
+/// \param corners The card's rounding flags.
+///
+/// \returns Flags rounding the card's left corners that \p corners rounds,
+///          or none.
+///
+/// \remarks For the accent stripe, which sits against the card's left edge
+///          and follows the card's corners there while staying square where
+///          it meets the fill.
+[[nodiscard]] ImDrawFlags leftCornersOf(ImDrawFlags corners) {
+    const ImDrawFlags left =
+        corners & (ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersBottomLeft);
+    return left == 0 ? ImDrawFlags_RoundCornersNone : left;
 }
 
 /// \brief The text size, in pixels, below which card text is not drawn.
@@ -362,7 +456,7 @@ void drawCardText(ImDrawList* draw, const TreeLayout& layout, const LayoutNode& 
     // top of it. Half its width falls inside the card and is covered by the
     // fill, which is what leaves a clean ring outside.
     if (paint.selected) {
-        draw->AddRect(topLeft, bottomRight, kSelectionColour, kCardRounding, 0,
+        draw->AddRect(topLeft, bottomRight, kSelectionColour, kCardRounding, paint.corners,
                       kSelectionEdgeWidth);
     }
 
@@ -372,18 +466,20 @@ void drawCardText(ImDrawList* draw, const TreeLayout& layout, const LayoutNode& 
     const bool quiet = card.status == NodeStatus::Unchanged;
     const ImU32 ink = inkFor(card.status);
     draw->AddRectFilled(topLeft, bottomRight,
-                        quiet ? kUnchangedFill : withAlpha(ink, kChangedFillAlpha), kCardRounding);
-    draw->AddRect(topLeft, bottomRight, ink, kCardRounding, 0,
+                        quiet ? kUnchangedFill : withAlpha(ink, kChangedFillAlpha), kCardRounding,
+                        paint.corners);
+    draw->AddRect(topLeft, bottomRight, ink, kCardRounding, paint.corners,
                   quiet ? kQuietEdgeWidth : kLoudEdgeWidth);
     draw->AddRectFilled(topLeft, ImVec2(topLeft.x + kAccentStripeWidth * paint.zoom, bottomRight.y),
-                        IM_COL32(card.accent.r, card.accent.g, card.accent.b, 255), kCardRounding);
+                        IM_COL32(card.accent.r, card.accent.g, card.accent.b, 255), kCardRounding,
+                        leftCornersOf(paint.corners));
 
     // Hover is drawn over the card, unlike the selection halo underneath it,
     // because it is a light hint rather than a standing mark.
     const bool hovered = paint.hoverable && ImGui::IsMouseHoveringRect(topLeft, bottomRight);
     if (hovered) {
         draw->AddRect(topLeft, bottomRight, withAlpha(kSelectionColour, kHoverAlpha), kCardRounding,
-                      0, kHoverEdgeWidth);
+                      paint.corners, kHoverEdgeWidth);
     }
 
     if (paint.textAlpha > 0) {
@@ -552,15 +648,18 @@ void NodeView::drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot
     const LayoutId selected =
         selection.active() ? layout.find(selection.side, selection.node) : kInvalidLayout;
 
-    // Edges first, so a card always sits on top of the lines reaching it.
+    // Edges first, so a card always sits on top of the lines reaching it. A
+    // card stacked on its parent touches it, and the touching outlines are
+    // the divider: an edge there would say the two are apart.
     for (std::size_t i = 0; i < layout.nodes.size(); ++i) {
         const LayoutNode& card = layout.nodes[i];
-        if (card.parent == kInvalidLayout || hiddenByCollapse(layout, static_cast<LayoutId>(i))) {
+        if (card.parent == kInvalidLayout || card.stackedOnParent ||
+            hiddenByCollapse(layout, static_cast<LayoutId>(i))) {
             continue;
         }
         const LayoutNode& parent = layout.nodes[card.parent];
         const ImVec2 exit = exitPoint(parent, layout.direction);
-        const ImVec2 entry = entryPoint(card, layout.direction);
+        const ImVec2 entry = entryPoint(entryCard(layout, card), layout.direction);
         const ImVec2 from = toScreen(exit.x, exit.y);
         const ImVec2 to = toScreen(entry.x, entry.y);
         if (std::max(from.y, to.y) < origin.y || std::min(from.y, to.y) > origin.y + size.y) {
@@ -607,6 +706,7 @@ void NodeView::drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot
         paint.selected = id == selected;
         paint.collapsed = collapsed_.count(id) != 0;
         paint.hoverable = hovered;
+        paint.corners = cornersFor(layout, card);
         paint.textSize = textSize;
         paint.textAlpha = textAlpha;
         paint.failed = failedUnder(card);
@@ -659,10 +759,14 @@ void NodeView::drawCanvas(const TreeLayout& layout, const DiffSnapshot& snapshot
         }
         ImGui::Separator();
         ImGui::TextDisabled("%s", describe(card.status));
-        if (!card.children.empty()) {
+        // A collapse acts at the bottom of the card's stack, so the tooltip
+        // counts what that would hide.
+        const LayoutId anchor = collapseAnchor(layout, hovered_);
+        const LayoutNode& anchored = layout.nodes[anchor];
+        if (!anchored.children.empty()) {
             ImGui::TextDisabled("right-click to %s %u below",
-                                collapsed_.count(hovered_) != 0 ? "expand" : "collapse",
-                                card.hiddenDescendants);
+                                collapsed_.count(anchor) != 0 ? "expand" : "collapse",
+                                anchored.hiddenDescendants);
         }
         ImGui::EndTooltip();
     }
@@ -672,6 +776,7 @@ void NodeView::toggleCollapse(const TreeLayout& layout, LayoutId id) {
     if (id == kInvalidLayout) {
         return;
     }
+    id = collapseAnchor(layout, id);
     if (collapsed_.count(id) != 0) {
         collapsed_.erase(id);
     } else if (!layout.nodes[id].children.empty()) {
@@ -696,13 +801,16 @@ void NodeView::drawCardMenuItems(const TreeLayout& layout) {
     }
 
     const LayoutNode& card = layout.nodes[menuTarget_];
-    const bool collapsed = collapsed_.count(menuTarget_) != 0;
+    const LayoutId anchor = collapseAnchor(layout, menuTarget_);
+    const bool collapsed = collapsed_.count(anchor) != 0;
 
     // Named after the card, so the menu says which node it is about rather than
-    // leaving the reader to remember what was under the pointer.
+    // leaving the reader to remember what was under the pointer. The collapse
+    // itself acts at the bottom of the card's stack.
     const std::string label =
         (collapsed ? "Expand " : "Collapse ") + (card.title.empty() ? "node" : card.title);
-    if (ImGui::MenuItem(label.c_str(), nullptr, false, collapsed || !card.children.empty())) {
+    if (ImGui::MenuItem(label.c_str(), nullptr, false,
+                        collapsed || !layout.nodes[anchor].children.empty())) {
         toggleCollapse(layout, menuTarget_);
     }
     ImGui::Separator();
@@ -863,6 +971,11 @@ void NodeView::collapseUnchanged(const DiffSnapshot& snapshot) {
     for (std::size_t i = 0; i < layout.nodes.size(); ++i) {
         const LayoutNode& card = layout.nodes[i];
         if (card.children.empty() || card.subtreeChanged) {
+            continue;
+        }
+        // A stack folds only at its bottom member, so a block is never cut
+        // in the middle; the bottom is reached in its turn.
+        if (collapseAnchor(layout, static_cast<LayoutId>(i)) != static_cast<LayoutId>(i)) {
             continue;
         }
         // Only the topmost unchanged card is collapsed; collapsing one already

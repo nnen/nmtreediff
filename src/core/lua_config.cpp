@@ -210,6 +210,20 @@ private:
             }
         }
 
+        const sol::optional<std::string> pin = body["stack_entry_pin"];
+        if (pin) {
+            const std::string word = lower(*pin);
+            if (word == "top") {
+                spec.entryPin = StackEntryPin::Top;
+            } else if (word == "bottom") {
+                spec.entryPin = StackEntryPin::Bottom;
+            } else {
+                complain(problems_, origin_,
+                         "provider \"" + name + "\" asked for an unknown stack entry pin; " +
+                             "stack_entry_pin takes \"top\" or \"bottom\", not \"" + *pin + "\"");
+            }
+        }
+
         config_.providers.push_back(std::move(spec));
     }
 

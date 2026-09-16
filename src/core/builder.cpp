@@ -268,6 +268,16 @@ Ref& Ref::setAccent(std::uint32_t rgb) {
     return *this;
 }
 
+Ref& Ref::setStacked(bool stacked) {
+    if (!valid() || !isNode()) {
+        return *this;
+    }
+    TreeBuilder::BuiltNode& node = builder_->node(id_);
+    node.annotation.stacked = stacked;
+    node.annotated = true;
+    return *this;
+}
+
 // ---- TreeBuilder ----------------------------------------------------------
 
 TreeBuilder::TreeBuilder(std::string formatName, std::stop_token token)
