@@ -353,6 +353,14 @@ constexpr float kMinimapSize = 150.0f;
 ///          tree without the mark being stretched out of shape.
 constexpr float kMinimapMark = 2.0f;
 
+/// \brief Minimap mark for a node that did not change.
+///
+/// \remarks Dim, so the unchanged nodes give the minimap the shape of the
+///          tree without competing with the changes plotted over them. The
+///          minimap answers "where are the changes", and the answer needs the
+///          tree drawn for "where" to mean anything.
+constexpr ImU32 kMinimapUnchangedMark = IM_COL32(78, 86, 98, 120);
+
 /// \brief Chooses the ink colour for a change status.
 ///
 /// \param status The node's status.
@@ -885,20 +893,28 @@ void NodeView::drawMinimap(const TreeLayout& layout) {
                         3.0f);
     draw->AddRect(at, ImVec2(at.x + mapWidth, at.y + mapHeight), IM_COL32(90, 98, 112, 200), 3.0f);
 
-    // Only changed nodes are plotted: the minimap answers "where are the
-    // changes", and plotting everything would answer nothing.
-    for (const LayoutNode& card : layout.nodes) {
-        if (card.status == NodeStatus::Unchanged) {
-            continue;
-        }
-        // Both axes are scaled and both have the same floor. Scaling only the
-        // width, as this once did, stretched a card that is roughly twice as
-        // wide as it is tall into a mark ten times as wide as it was tall.
+    // Every card is plotted, the unchanged ones dimly and first, so the
+    // changes sit on top of the shape of the tree rather than floating in an
+    // empty box. Both axes are scaled and both have the same floor. Scaling
+    // only the width, as this once did, stretched a card that is roughly
+    // twice as wide as it is tall into a mark ten times as wide as it was
+    // tall.
+    const auto plot = [&](const LayoutNode& card, ImU32 colour) {
         const ImVec2 dot(at.x + card.x * scale, at.y + card.y * scale);
         draw->AddRectFilled(dot,
                             ImVec2(dot.x + std::max(kMinimapMark, card.width * scale),
                                    dot.y + std::max(kMinimapMark, card.height * scale)),
-                            inkFor(card.status));
+                            colour);
+    };
+    for (const LayoutNode& card : layout.nodes) {
+        if (card.status == NodeStatus::Unchanged) {
+            plot(card, kMinimapUnchangedMark);
+        }
+    }
+    for (const LayoutNode& card : layout.nodes) {
+        if (card.status != NodeStatus::Unchanged) {
+            plot(card, inkFor(card.status));
+        }
     }
 
     // The viewport rectangle, so the reader can see where they are looking. It
