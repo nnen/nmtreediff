@@ -4,6 +4,7 @@
 #include "ui/app_window.h"
 
 #include "ui/screenshot.h"
+#include "ui/theme.h"
 #include "ui/welcome.h"
 
 #include "app/configure.h"
@@ -242,7 +243,7 @@ bool AppWindow::open() {
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
-    ImGui::StyleColorsDark();
+    applyTheme();
     ImGui::GetStyle().FontScaleMain = kFontScale;
     ImGui_ImplGlfw_InitForOpenGL(window_, true);
     ImGui_ImplOpenGL3_Init("#version 330");
@@ -293,7 +294,11 @@ int AppWindow::run() {
         int height = 0;
         glfwGetFramebufferSize(window_, &width, &height);
         glViewport(0, 0, width, height);
-        glClearColor(0.09f, 0.10f, 0.12f, 1.0f);
+        // The same surface the menu bar and the node canvas use, so a gap
+        // between panels shows the material they sit on rather than a colour
+        // of its own.
+        const ImVec4 clear = ImGui::ColorConvertU32ToFloat4(theme::kSurfaceDeep);
+        glClearColor(clear.x, clear.y, clear.z, clear.w);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 

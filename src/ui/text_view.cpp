@@ -4,6 +4,7 @@
 #include "ui/text_view.h"
 
 #include "core/layout_tree.h"
+#include "ui/theme.h"
 
 #include <algorithm>
 #include <string_view>
@@ -44,6 +45,9 @@ constexpr ImU32 kModifiedMark = IM_COL32(224, 176, 82, 255);
 
 /// \brief Width in pixels of the change overview strip.
 constexpr float kOverviewWidth = 14.0f;
+
+/// \brief Corner radius of the overview strip's backing, in pixels.
+constexpr float kOverviewRounding = 4.0f;
 
 /// \brief Fill behind bytes the format left out of the tree.
 ///
@@ -438,7 +442,7 @@ void TextView::drawOverview(const TextDiff& diff, float height) {
     ImDrawList* draw = ImGui::GetWindowDrawList();
 
     draw->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + size.y),
-                        IM_COL32(255, 255, 255, 10), 2.0f);
+                        theme::kSurfaceRaised, kOverviewRounding);
 
     const auto rowCount = static_cast<float>(std::max<std::size_t>(diff.rows.size(), 1));
     for (std::size_t index = 0; index < diff.rows.size(); ++index) {
