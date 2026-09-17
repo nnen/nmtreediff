@@ -55,6 +55,10 @@ constexpr const char* kOutputTitle = "Output";
 /// \brief Colour of a line the program wrote to standard error.
 constexpr ImVec4 kErrorLineColour{0.89f, 0.43f, 0.41f, 1.0f};
 
+/// \brief How much of the main area's height the text view takes in a fresh
+///        layout, the node view having the rest.
+constexpr float kTextViewShare = 1.0f / 3.0f;
+
 /// \brief How many frames the Output pane asks for focus after opening.
 ///
 /// \remarks A window is docked the frame after it first appears, so a focus
@@ -431,7 +435,7 @@ void AppWindow::buildFrame() {
 
     // Focusing a window requires it to exist, and the panels are only created
     // by the calls above. Doing this after the first frame has built them is
-    // what makes --view actually pick the tab that opens.
+    // what makes --view actually pick the view that starts with the focus.
     if (!initialViewFocused_ && framesPresented_ > 0 && options_.hasInputs()) {
         ImGui::SetWindowFocus(view_ == InitialView::Node ? kNodeViewTitle : kTextViewTitle);
         initialViewFocused_ = true;
@@ -735,9 +739,16 @@ void AppWindow::layoutDockSpaceOnce() {
     const ImGuiID bottom = ImGui::DockBuilderSplitNode(main, ImGuiDir_Down, 0.16f, nullptr, &main);
     const ImGuiID right = ImGui::DockBuilderSplitNode(main, ImGuiDir_Right, 0.26f, nullptr, &main);
 
+    // The two views side by side rather than as tabs: the node view above,
+    // with the larger share because a tree wants room in both directions, and
+    // the text view below it, where a few lines of context are enough to say
+    // what a selected card is.
+    const ImGuiID lower =
+        ImGui::DockBuilderSplitNode(main, ImGuiDir_Down, kTextViewShare, nullptr, &main);
+
     ImGui::DockBuilderDockWindow(kWelcomeTitle, main);
-    ImGui::DockBuilderDockWindow(kTextViewTitle, main);
     ImGui::DockBuilderDockWindow(kNodeViewTitle, main);
+    ImGui::DockBuilderDockWindow(kTextViewTitle, lower);
     ImGui::DockBuilderDockWindow(kDetailsTitle, right);
     ImGui::DockBuilderDockWindow(kStatusTitle, bottom);
     // A tab beside the status bar, whose node always exists. A node of its
