@@ -12,14 +12,15 @@ tool rather than work on it.
 ![The node view: a behaviour tree drawn as a graph, each card coloured by what happened to it, with the details panel listing every property and what it changed from](docs/screenshots/node_view.png)
 
 The node view. A behaviour tree drawn left to right because the format asked
-for it, each card coloured by what happened to the node, and the details
-panel saying what each property changed from.
+for it, each card coloured by what happened to the node, the text view of the
+same pair below it, and the details panel saying what each property changed
+from.
 
 ![The text view: a side-by-side line diff of the same pair, with the words that changed picked out inside rewritten lines](docs/screenshots/text_view.png)
 
-The text view of a larger pair. The same comparison as lines, with the words
-that changed picked out inside a rewritten line, and the node outline beside
-it.
+The text view of a larger pair, with the two views stacked as tabs. The same
+comparison as lines, with the words that changed picked out inside a rewritten
+line, and the node outline beside it.
 
 ![A JSON level file in the node view: objects are nodes, a list of scalars is one property, and a reordered array item reads as a move](docs/screenshots/json_node_view.png)
 
