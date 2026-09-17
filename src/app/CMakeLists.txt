@@ -22,6 +22,7 @@ if(NMXD_BUILD_GUI)
         ${CMAKE_SOURCE_DIR}/src/ui/node_view.cpp
         ${CMAKE_SOURCE_DIR}/src/ui/screenshot.cpp
         ${CMAKE_SOURCE_DIR}/src/ui/text_view.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/theme.cpp
         ${CMAKE_SOURCE_DIR}/src/ui/welcome.cpp
     )
     target_include_directories(nmxd_ui PUBLIC ${CMAKE_SOURCE_DIR}/src)

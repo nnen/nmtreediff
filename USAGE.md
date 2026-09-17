@@ -83,8 +83,11 @@ changelist means opening one file after another, and dismissing each with a
 single key is what makes a long list bearable. If a menu is open, Escape closes
 that first.
 
-Switch with **Ctrl+1** for text and **Ctrl+2** for the node view, or from the
-View menu. Both views show the same comparison and share one selection, so a
+A fresh layout shows both at once: the node view on top with two thirds of the
+height, the text view below it with the rest. Drag the divider to change the
+share, or drag a view's tab onto the other to stack them. **Ctrl+1** gives the
+text view the focus and **Ctrl+2** the node view, as does the View menu. Both
+views show the same comparison and share one selection, so a
 node picked in one is the node selected in the other. **Ctrl+R** reloads
 everything: the configuration files are read again, a format defined in a
 script is rebuilt from what is on disk now, and both files are read and

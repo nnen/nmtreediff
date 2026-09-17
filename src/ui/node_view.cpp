@@ -3,6 +3,8 @@
 
 #include "ui/node_view.h"
 
+#include "ui/theme.h"
+
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -24,32 +26,35 @@ constexpr ImU32 kModifiedInk = IM_COL32(224, 176, 82, 255);
 constexpr ImU32 kMovedInk = IM_COL32(168, 143, 224, 255);
 
 /// \brief Card fill behind an unchanged node.
-constexpr ImU32 kUnchangedFill = IM_COL32(38, 42, 50, 255);
+constexpr ImU32 kUnchangedFill = theme::kSurfaceRaised;
 /// \brief Card outline for an unchanged node.
-constexpr ImU32 kUnchangedEdge = IM_COL32(78, 86, 98, 255);
+constexpr ImU32 kUnchangedEdge = theme::kOutlineStrong;
 /// \brief Colour of the lines joining a parent to its children.
-constexpr ImU32 kEdgeColour = IM_COL32(110, 120, 134, 190);
+///
+/// \remarks The strong outline, a little translucent so a run of edges
+///          crossing the canvas stays lighter than the cards they join.
+constexpr ImU32 kEdgeColour = (theme::kOutlineStrong & 0x00FFFFFFu) | (190u << 24);
 /// \brief Colour of the dashed line back to where a moved node used to sit.
 constexpr ImU32 kGhostColour = IM_COL32(168, 143, 224, 120);
 /// \brief Outline drawn around the selected card.
 constexpr ImU32 kSelectionColour = IM_COL32(240, 244, 250, 255);
 /// \brief Text colour of a title on an unchanged card.
-constexpr ImU32 kTitleInk = IM_COL32(220, 226, 234, 255);
+constexpr ImU32 kTitleInk = theme::kInk;
 /// \brief Text colour of a subtitle, and of a collapsed card's chip.
-constexpr ImU32 kSubtitleInk = IM_COL32(150, 158, 170, 255);
+constexpr ImU32 kSubtitleInk = theme::kInkMuted;
 
 /// \brief How opaque a changed card's fill is, out of 255.
-constexpr int kChangedFillAlpha = 46;
+constexpr int kChangedFillAlpha = 64;
 /// \brief How opaque the outline drawn around a hovered card is.
 constexpr int kHoverAlpha = 120;
 
 /// \brief Corner radius of a card, in pixels.
-constexpr float kCardRounding = 3.0f;
+constexpr float kCardRounding = 4.0f;
 /// \brief Outline thickness of an unchanged card.
 constexpr float kQuietEdgeWidth = 1.0f;
 
 /// \brief How much thicker a changed card's outline is than a quiet one's.
-constexpr float kLoudEdgeFactor = 5.0f;
+constexpr float kLoudEdgeFactor = 3.0f;
 
 /// \brief Outline thickness of a card that changed, so it reads first.
 ///
@@ -76,7 +81,11 @@ constexpr float kChipHalfWidth = 10.0f;
 constexpr float kChipGap = 3.0f;
 
 /// \brief Background of the canvas.
-constexpr ImU32 kCanvasColour = IM_COL32(22, 25, 31, 255);
+///
+/// \remarks The deepest surface of the theme, the same one the viewport shows
+///          between panels, so the canvas reads as a well the panels open onto
+///          rather than a picture hung on one.
+constexpr ImU32 kCanvasColour = theme::kSurfaceDeep;
 
 /// \brief Reports whether the left button was released without dragging.
 ///
@@ -352,6 +361,12 @@ constexpr float kMinimapSize = 150.0f;
 /// \remarks Applied to both axes equally, so a change stays visible in a large
 ///          tree without the mark being stretched out of shape.
 constexpr float kMinimapMark = 2.0f;
+
+/// \brief How opaque the minimap's backing is, out of 255.
+///
+/// \remarks Not quite solid, so the drawing it covers still shows through as
+///          a hint of where the map sits over it.
+constexpr int kMinimapFillAlpha = 225;
 
 /// \brief Minimap mark for a node that did not change.
 ///
@@ -889,9 +904,10 @@ void NodeView::drawMinimap(const TreeLayout& layout) {
                     canvasY_ + canvasHeight_ - mapHeight - 12.0f);
 
     ImDrawList* draw = ImGui::GetWindowDrawList();
-    draw->AddRectFilled(at, ImVec2(at.x + mapWidth, at.y + mapHeight), IM_COL32(16, 18, 23, 210),
-                        3.0f);
-    draw->AddRect(at, ImVec2(at.x + mapWidth, at.y + mapHeight), IM_COL32(90, 98, 112, 200), 3.0f);
+    draw->AddRectFilled(at, ImVec2(at.x + mapWidth, at.y + mapHeight),
+                        withAlpha(theme::kSurfacePanel, kMinimapFillAlpha), kCardRounding);
+    draw->AddRect(at, ImVec2(at.x + mapWidth, at.y + mapHeight), theme::kOutlineStrong,
+                  kCardRounding);
 
     // Every card is plotted, the unchanged ones dimly and first, so the
     // changes sit on top of the shape of the tree rather than floating in an
