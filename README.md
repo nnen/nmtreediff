@@ -1,6 +1,8 @@
 NM Tree Diff
 ============
 
+[![CI](https://github.com/nnen/nmtreediff/actions/workflows/ci.yml/badge.svg)](https://github.com/nnen/nmtreediff/actions/workflows/ci.yml)
+
 A lightweight GUI tool for diffing tree-shaped data. It shows the same diff two
 ways, as text and as a node graph, and it runs from the command line so a
 version control system can open it for the file types it understands. It is not
