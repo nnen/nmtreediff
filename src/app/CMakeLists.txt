@@ -54,6 +54,25 @@ if(MSVC)
     target_link_options(nmtreediff PRIVATE /ENTRY:mainCRTStartup)
 endif()
 
+# The version resource, which is what the file's properties, Task Manager and
+# installers read to say what the executable is. The binary form of a version
+# always has four parts, and project() leaves the ones it was not given empty,
+# so those are filled with zeros.
+if(WIN32)
+    set(NMTREEDIFF_RC_VERSION_PARTS "")
+    foreach(part IN ITEMS MAJOR MINOR PATCH TWEAK)
+        if(PROJECT_VERSION_${part} STREQUAL "")
+            list(APPEND NMTREEDIFF_RC_VERSION_PARTS 0)
+        else()
+            list(APPEND NMTREEDIFF_RC_VERSION_PARTS ${PROJECT_VERSION_${part}})
+        endif()
+    endforeach()
+    list(JOIN NMTREEDIFF_RC_VERSION_PARTS "," NMTREEDIFF_RC_VERSION)
+
+    configure_file(version.rc.in ${CMAKE_CURRENT_BINARY_DIR}/version.rc @ONLY)
+    target_sources(nmtreediff PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
+endif()
+
 # The application icon, embedded as a resource. The resource compiler does not
 # report the icon as a dependency of the script, so it is named here; without
 # that a regenerated icon would not be picked up.

@@ -1,0 +1,48 @@
+// The version resource of the executable: what the Details tab of the file's
+// properties, Task Manager and installers say the file is.
+//
+// This is a template. CMake fills in the @...@ placeholders from the project()
+// call, so the version is written down in one place only. See CMakeLists.txt
+// in this directory.
+
+#include <winver.h>
+
+// This file is UTF-8; without this the resource compiler reads it in the
+// system's ANSI code page and garbles the accented letters.
+#pragma code_page(65001)
+
+// The language and the character set the strings below are in, which the
+// string block's name and the translation table must both state: US English
+// (0x0409) and Unicode (1200, which is 0x04B0).
+#define NMTREEDIFF_RC_LANGUAGE 0x0409
+#define NMTREEDIFF_RC_CHARSET 1200
+#define NMTREEDIFF_RC_STRING_BLOCK "040904B0"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     @NMTREEDIFF_RC_VERSION@
+PRODUCTVERSION  @NMTREEDIFF_RC_VERSION@
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK NMTREEDIFF_RC_STRING_BLOCK
+        BEGIN
+            VALUE "CompanyName",      "Jan Milík"
+            VALUE "FileDescription",  "NM Tree Diff"
+            VALUE "FileVersion",      "@PROJECT_VERSION@"
+            VALUE "InternalName",     "nmtreediff"
+            VALUE "LegalCopyright",   "Copyright (c) 2026 Jan Milík"
+            VALUE "OriginalFilename", "nmtreediff.exe"
+            VALUE "ProductName",      "NM Tree Diff"
+            VALUE "ProductVersion",   "@PROJECT_VERSION@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", NMTREEDIFF_RC_LANGUAGE, NMTREEDIFF_RC_CHARSET
+    END
+END
