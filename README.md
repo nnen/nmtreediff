@@ -145,6 +145,8 @@ Repository contents
 | [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Architecture, data model, provider interface and matching algorithm, with the reasoning behind each choice. |
 | [docs/PROVIDERS.md](docs/PROVIDERS.md) | How to teach the tool a format of your own. Carries the provider interface version, which is 2. |
 | [docs/screenshots/](docs/screenshots/) | The screenshots above, taken with the tool's own `--screenshot` option from the sample pairs in `testdata/sample`. |
+| [assets/icon/](assets/icon/) | The application icon, as Netpbm images and as the Windows icon that is embedded in the executable. |
+| [tools/generate_icon.py](tools/generate_icon.py) | Draws the icon. Run it after changing the design to rewrite everything in `assets/icon/`; it needs only the Python standard library. |
 | [Doxyfile](Doxyfile) | Configuration for the API reference. Undocumented code is an error, so the `docs` target fails rather than quietly producing a thinner reference. |
 | [testdata/sample/providers.lua](testdata/sample/providers.lua) | A sample configuration script. |
 | [testdata/sample/behaviortree.lua](testdata/sample/behaviortree.lua) | The behaviour-tree format written in script rather than compiled in. |

@@ -6,6 +6,11 @@ project(nmtreediff
     LANGUAGES CXX
 )
 
+# The resource script that embeds the application icon; see src/app.
+if(WIN32)
+    enable_language(RC)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

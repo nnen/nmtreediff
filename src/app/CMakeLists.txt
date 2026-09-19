@@ -53,3 +53,15 @@ set_target_properties(nmtreediff PROPERTIES WIN32_EXECUTABLE ON)
 if(MSVC)
     target_link_options(nmtreediff PRIVATE /ENTRY:mainCRTStartup)
 endif()
+
+# The application icon, embedded as a resource. The resource compiler does not
+# report the icon as a dependency of the script, so it is named here; without
+# that a regenerated icon would not be picked up.
+if(WIN32)
+    set(NMTREEDIFF_ICON_DIR ${CMAKE_SOURCE_DIR}/assets/icon)
+    target_sources(nmtreediff PRIVATE nmtreediff.rc)
+    set_source_files_properties(nmtreediff.rc PROPERTIES
+        INCLUDE_DIRECTORIES ${NMTREEDIFF_ICON_DIR}
+        OBJECT_DEPENDS ${NMTREEDIFF_ICON_DIR}/nmtreediff.ico
+    )
+endif()
