@@ -9,12 +9,18 @@
 # A third job builds Debug on Windows and runs everything but the budget tests.
 # Assertions, the dependencies' own development checks among them, exist only
 # in that configuration, so a failure they catch is invisible to the other two.
+#
+# Pushing a tag that starts with "v" also publishes a release: the Windows
+# Release job packs the executable, the licence and the documentation into a
+# zip archive, and once every job has passed the release job attaches it to a
+# GitHub release named after the tag.
 
 name: CI
 
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -29,6 +35,9 @@ permissions:
 
 env:
   BUILD_CONFIG: Release
+  # The name the packed archive travels under from the Windows job to the
+  # release job.
+  PACKAGE_ARTIFACT: nmtreediff-windows
 
 jobs:
   windows:
@@ -52,6 +61,20 @@ jobs:
       - name: Budget tests
         continue-on-error: true
         run: ctest --test-dir build/ninja -C $env:BUILD_CONFIG -L budget --output-on-failure
+
+      # What goes into the archive is decided by the install rules in
+      # cmake/Packaging.cmake. It is packed on every run, not only for a tag,
+      # so that packaging cannot break unnoticed between releases, and so that
+      # any run's build can be downloaded and tried.
+      - name: Package
+        run: cpack --config build/ninja/CPackConfig.cmake -C $env:BUILD_CONFIG -B build/package
+
+      - name: Upload the package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PACKAGE_ARTIFACT }}
+          path: build/package/*.zip
+          if-no-files-found: error
 
   windows-debug:
     name: Windows, MSVC, Debug
@@ -97,3 +120,44 @@ jobs:
       - name: Budget tests
         continue-on-error: true
         run: ctest --test-dir build -L budget --output-on-failure
+
+  release:
+    name: Publish the release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, windows-debug, linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Creating a release writes to the repository, which the read-only default
+    # at the top of this file does not allow.
+    permissions:
+      contents: write
+    steps:
+      - name: Download the package
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.PACKAGE_ARTIFACT }}
+          path: package
+
+      # The archive is named after the version in CMakeLists.txt. A tag that
+      # says anything else would publish a release whose name and contents
+      # disagree, so that is refused rather than published.
+      - name: Check that the tag matches the project version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if ! ls package/nmtreediff-"$version"-*.zip > /dev/null 2>&1; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match the packaged version: $(ls package)"
+            exit 1
+          fi
+
+      # A published asset is never replaced: package managers record its hash,
+      # so a changed file under the same name would break every manifest that
+      # points at it. If the release already exists this step fails.
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" package/*.zip
+          --repo "$GITHUB_REPOSITORY"
+          --title "NM Tree Diff ${GITHUB_REF_NAME#v}"
+          --generate-notes
+          --verify-tag

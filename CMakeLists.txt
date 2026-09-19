@@ -51,6 +51,8 @@ endif()
 add_subdirectory(src/core)
 add_subdirectory(src/app)
 
+include(cmake/Packaging.cmake)
+
 if(NMTREEDIFF_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)

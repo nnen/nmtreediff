@@ -125,6 +125,16 @@ Build the API reference, which needs Doxygen on the path:
 cmake --build build --target docs
 ```
 
+Pack the executable, the licence, the user guide and the provider guide into a
+zip archive under `build/package`:
+
+```bash
+cpack --config build/CPackConfig.cmake -C RelWithDebInfo -B build/package
+```
+
+Pushing a tag such as `v1.2.3`, matching the version in `CMakeLists.txt`,
+makes the continuous integration publish that archive as a GitHub release.
+
 Then compare two files:
 
 ```bash
