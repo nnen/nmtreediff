@@ -10,7 +10,7 @@
 #include "core/config.h"
 #include "core/provider.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 class ProviderRegistry;
 
@@ -53,4 +53,4 @@ class ProviderRegistry;
 [[nodiscard]] std::vector<std::string> addScriptedProviders(ProviderRegistry& registry,
                                                             const ProviderConfig& config);
 
-}  // namespace nmxd
+}  // namespace nmtreediff

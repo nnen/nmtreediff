@@ -141,7 +141,7 @@ future three-way merge adds a second run of the same pipeline, base against
 each side, and composes the two matchings.
 
 ```
-nmxmldiff/
+nmtreediff/
   CMakeLists.txt
   cmake/Dependencies.cmake   pinned FetchContent declarations
   LICENSE              MIT
@@ -780,7 +780,7 @@ node whose span contains it.
 ------------------------------------
 
 ```
-nmxmldiff [options] <left> <right>
+nmtreediff [options] <left> <right>
 
   --format <name>             override provider sniffing
   --left-label, --right-label titles a VCS wants shown
@@ -1063,7 +1063,7 @@ and reopens the two streams on it. Launched from the desktop or by a version
 control client there is neither, and nothing is attached, which is the whole of
 R20. There is one known cost, and it is why this is a milestone item rather
 than a flag: a command shell does not wait for a GUI subsystem process, so
-`nmxmldiff --headless a b` typed at a prompt returns the prompt before the
+`nmtreediff --headless a b` typed at a prompt returns the prompt before the
 report, with the two interleaved. Version control tools wait on the process
 handle and are unaffected; a person at a shell is. The alternative is two
 executables built from one object library, differing only in subsystem, which

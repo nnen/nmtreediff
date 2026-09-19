@@ -15,7 +15,7 @@
 #include "core/source.h"
 #include "core/tree.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 class ShapeContext;
 
@@ -389,4 +389,4 @@ public:
 [[nodiscard]] std::vector<std::uint32_t> propertyDisplayOrder(const IFormatProvider& provider,
                                                               const Tree& tree, NodeId id);
 
-}  // namespace nmxd
+}  // namespace nmtreediff

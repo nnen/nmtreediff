@@ -12,7 +12,7 @@
 
 #include <imgui.h>
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -229,7 +229,7 @@ void TextView::draw(const DiffSnapshot& snapshot, Selection& selection) {
             ImGui::Spacing();
             ImGui::TextWrapped(
                 "Pass two files on the command line, for example:\n\n"
-                "    nmxmldiff before.xml after.xml\n\n"
+                "    nmtreediff before.xml after.xml\n\n"
                 "Perforce and Git can be configured to do that for you; see "
                 "docs/vcs-integration.md.");
         } else {
@@ -524,4 +524,4 @@ void TextView::goToPreviousChange(const DiffSnapshot& snapshot) {
     scrollToRow_ = selectedRow_;
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

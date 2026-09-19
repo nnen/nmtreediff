@@ -3,7 +3,7 @@
 
 #include "ui/theme.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -174,4 +174,4 @@ void applyTheme() {
     applyColours(style);
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

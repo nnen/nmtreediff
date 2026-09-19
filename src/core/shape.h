@@ -16,7 +16,7 @@
 #include "core/builder.h"
 #include "core/dom.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief A failure inside a shaping job that has more to say than one line.
 ///
@@ -236,4 +236,4 @@ void copyDocument(ShapeContext& context);
 ///          kept content too. A sort and a sweep, no recursion.
 [[nodiscard]] std::vector<SourceSpan> unrepresentedSpans(const Dom& dom, const TreeBuilder& out);
 
-}  // namespace nmxd
+}  // namespace nmtreediff

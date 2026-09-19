@@ -11,7 +11,7 @@ namespace sol {
 class state;
 }  // namespace sol
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Owns one Lua interpreter.
 ///
@@ -89,4 +89,4 @@ private:
 /// \returns The one-based line, or zero when the message does not carry one.
 [[nodiscard]] std::uint32_t luaErrorLine(const std::string& message);
 
-}  // namespace nmxd
+}  // namespace nmtreediff

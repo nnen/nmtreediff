@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Which view opens first.
 enum class InitialView {
@@ -136,4 +136,4 @@ struct ParseResult {
 ///          process.
 [[nodiscard]] ParseResult parseArguments(const std::vector<std::string>& arguments);
 
-}  // namespace nmxd
+}  // namespace nmtreediff

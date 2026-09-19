@@ -8,17 +8,17 @@
 #include "formats/bt_xml.h"
 #include "formats/xml_generic.h"
 
-using nmxd::buildLayout;
-using nmxd::findNodeAt;
-using nmxd::IFormatProvider;
-using nmxd::kInvalidLayout;
-using nmxd::kInvalidNode;
-using nmxd::LayoutNode;
-using nmxd::NodeStatus;
-using nmxd::Side;
-using nmxd::SourceFile;
-using nmxd::Tree;
-using nmxd::TreeLayout;
+using nmtreediff::buildLayout;
+using nmtreediff::findNodeAt;
+using nmtreediff::IFormatProvider;
+using nmtreediff::kInvalidLayout;
+using nmtreediff::kInvalidNode;
+using nmtreediff::LayoutNode;
+using nmtreediff::NodeStatus;
+using nmtreediff::Side;
+using nmtreediff::SourceFile;
+using nmtreediff::Tree;
+using nmtreediff::TreeLayout;
 
 namespace {
 
@@ -39,11 +39,11 @@ bool overlaps(const LayoutNode& a, const LayoutNode& b) {
 }  // namespace
 
 TEST_CASE("an unchanged pair lays out one card per node", "[layout]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const std::string xml = "<r><a/><b><c/></b></r>";
     const Tree left = parse(*provider, xml);
     const Tree right = parse(*provider, xml);
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
 
     const TreeLayout layout = buildLayout(left, right, model, *provider);
 
@@ -60,11 +60,11 @@ TEST_CASE("an unchanged pair lays out one card per node", "[layout]") {
 TEST_CASE("no two cards overlap", "[layout]") {
     // Overlapping cards would make the graph unreadable, and the packing is the
     // one part of layout that can silently get this wrong.
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree left = parse(*provider, "<r><a><x/><y/></a><b/></r>");
     const Tree right = parse(
         *provider, "<r><a><x/><y/><z><deep><deeper/></deep></z></a><b/><c><d/><e/></c></r>");
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
 
     const TreeLayout layout = buildLayout(left, right, model, *provider);
     REQUIRE(layout.size() > 8);
@@ -78,10 +78,10 @@ TEST_CASE("no two cards overlap", "[layout]") {
 }
 
 TEST_CASE("a child sits below its parent", "[layout]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const std::string xml = "<r><a><b/></a></r>";
     const Tree tree = parse(*provider, xml);
-    const auto model = nmxd::diffTrees(tree, tree, *provider);
+    const auto model = nmtreediff::diffTrees(tree, tree, *provider);
 
     const TreeLayout layout = buildLayout(tree, tree, model, *provider);
     for (const LayoutNode& card : layout.nodes) {
@@ -95,10 +95,10 @@ TEST_CASE("a child sits below its parent", "[layout]") {
 }
 
 TEST_CASE("a lone child is centred under its parent", "[layout]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const std::string xml = "<root><onlychild/></root>";
     const Tree tree = parse(*provider, xml);
-    const auto model = nmxd::diffTrees(tree, tree, *provider);
+    const auto model = nmtreediff::diffTrees(tree, tree, *provider);
 
     const TreeLayout layout = buildLayout(tree, tree, model, *provider);
     REQUIRE(layout.size() == 2);
@@ -113,10 +113,10 @@ TEST_CASE("a lone child is centred under its parent", "[layout]") {
 TEST_CASE("deleted nodes get a card from the left tree", "[layout]") {
     // Without this the node view would only ever show what survived, which is
     // the half of a diff a reader already has.
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree left = parse(*provider, "<r><keep/><gone><under/></gone></r>");
     const Tree right = parse(*provider, "<r><keep/></r>");
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
 
     const TreeLayout layout = buildLayout(left, right, model, *provider);
 
@@ -132,10 +132,10 @@ TEST_CASE("deleted nodes get a card from the left tree", "[layout]") {
 }
 
 TEST_CASE("added nodes are marked and come from the right", "[layout]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree left = parse(*provider, "<r><keep/></r>");
     const Tree right = parse(*provider, "<r><keep/><fresh/></r>");
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
 
     const TreeLayout layout = buildLayout(left, right, model, *provider);
 
@@ -150,10 +150,10 @@ TEST_CASE("added nodes are marked and come from the right", "[layout]") {
 }
 
 TEST_CASE("a moved node points back at where it used to sit", "[layout]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree left = parse(*provider, "<r><g1><n a=\"1\"/></g1><g2/></r>");
     const Tree right = parse(*provider, "<r><g1/><g2><n a=\"1\"/></g2></r>");
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
 
     const TreeLayout layout = buildLayout(left, right, model, *provider);
 
@@ -171,10 +171,10 @@ TEST_CASE("a moved node points back at where it used to sit", "[layout]") {
 TEST_CASE("subtrees know whether anything below them changed", "[layout]") {
     // This is what the default collapse reads: a subtree with nothing to report
     // is worth hiding, and one with a change in it is not.
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree left = parse(*provider, "<r><quiet><x/></quiet><noisy><y k=\"1\"/></noisy></r>");
     const Tree right = parse(*provider, "<r><quiet><x/></quiet><noisy><y k=\"2\"/></noisy></r>");
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
 
     const TreeLayout layout = buildLayout(left, right, model, *provider);
 
@@ -196,24 +196,24 @@ TEST_CASE("subtrees know whether anything below them changed", "[layout]") {
 }
 
 TEST_CASE("a card counts what it would hide", "[layout]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const std::string xml = "<r><a><b><c/></b></a></r>";
     const Tree tree = parse(*provider, xml);
-    const auto model = nmxd::diffTrees(tree, tree, *provider);
+    const auto model = nmtreediff::diffTrees(tree, tree, *provider);
 
     const TreeLayout layout = buildLayout(tree, tree, model, *provider);
     CHECK(layout.nodes[layout.root].hiddenDescendants == 3);
 }
 
 TEST_CASE("cancelling the layout reports that it stopped", "[layout]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     std::string xml = "<r>";
     for (int i = 0; i < 400; ++i) {
         xml += "<n k=\"" + std::to_string(i) + "\"/>";
     }
     xml += "</r>";
     const Tree tree = parse(*provider, xml);
-    const auto model = nmxd::diffTrees(tree, tree, *provider);
+    const auto model = nmtreediff::diffTrees(tree, tree, *provider);
 
     std::stop_source source;
     source.request_stop();
@@ -224,7 +224,7 @@ TEST_CASE("cancelling the layout reports that it stopped", "[layout]") {
 TEST_CASE("a byte offset resolves to the innermost node covering it", "[layout]") {
     // This is what turns a click in the text view into a selection in the node
     // view, so an off-by-one here selects the wrong node.
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const std::string xml = "<root><outer><inner/></outer></root>";
     const Tree tree = parse(*provider, xml);
 
@@ -232,9 +232,9 @@ TEST_CASE("a byte offset resolves to the innermost node covering it", "[layout]"
         return static_cast<std::uint32_t>(xml.find(needle));
     };
 
-    const nmxd::NodeId root = tree.root();
-    const nmxd::NodeId outer = tree.node(root).children[0];
-    const nmxd::NodeId inner = tree.node(outer).children[0];
+    const nmtreediff::NodeId root = tree.root();
+    const nmtreediff::NodeId outer = tree.node(root).children[0];
+    const nmtreediff::NodeId inner = tree.node(outer).children[0];
 
     CHECK(findNodeAt(tree, offsetOf("<root>")) == root);
     CHECK(findNodeAt(tree, offsetOf("<outer>")) == outer);
@@ -245,10 +245,10 @@ TEST_CASE("a byte offset resolves to the innermost node covering it", "[layout]"
 }
 
 TEST_CASE("the layout can be looked up by document node", "[layout]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const std::string xml = "<r><a/></r>";
     const Tree tree = parse(*provider, xml);
-    const auto model = nmxd::diffTrees(tree, tree, *provider);
+    const auto model = nmtreediff::diffTrees(tree, tree, *provider);
 
     const TreeLayout layout = buildLayout(tree, tree, model, *provider);
     const auto id = layout.find(Side::Right, tree.node(tree.root()).children[0]);
@@ -278,12 +278,12 @@ TEST_CASE("a pair nested thousands of levels deep compares and lays out without 
         }
         return xml;
     };
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
 
     SECTION("an identical pair pairs every level through the subtree pass") {
         const Tree left = parse(*provider, nested("<leaf v=\"1\"/>"));
         const Tree right = parse(*provider, nested("<leaf v=\"1\"/>"));
-        const auto model = nmxd::diffTrees(left, right, *provider);
+        const auto model = nmtreediff::diffTrees(left, right, *provider);
         CHECK(model.identical());
         CHECK(model.unchanged == left.size());
 
@@ -294,15 +294,15 @@ TEST_CASE("a pair nested thousands of levels deep compares and lays out without 
     SECTION("a change at the bottom is one modification, placed") {
         const Tree left = parse(*provider, nested("<leaf v=\"1\"/>"));
         const Tree right = parse(*provider, nested("<leaf v=\"2\"/>"));
-        const auto model = nmxd::diffTrees(left, right, *provider);
+        const auto model = nmtreediff::diffTrees(left, right, *provider);
         CHECK(model.modified == 1);
         CHECK(model.added == 0);
         CHECK(model.deleted == 0);
 
         const TreeLayout layout = buildLayout(left, right, model, *provider);
         REQUIRE(layout.size() == right.size());
-        const nmxd::LayoutId deepest =
-            layout.find(Side::Right, static_cast<nmxd::NodeId>(right.size() - 1));
+        const nmtreediff::LayoutId deepest =
+            layout.find(Side::Right, static_cast<nmtreediff::NodeId>(right.size() - 1));
         REQUIRE(deepest != kInvalidLayout);
         CHECK(layout.nodes[deepest].status == NodeStatus::Modified);
         // Placement is by level, so the bottom card sits below every other.
@@ -325,7 +325,7 @@ TEST_CASE("a pair nested thousands of levels deep compares and lays out without 
 
         const Tree left = parse(*provider, nested(gone));
         const Tree right = parse(*provider, nested(come));
-        const auto model = nmxd::diffTrees(left, right, *provider);
+        const auto model = nmtreediff::diffTrees(left, right, *provider);
         CHECK(model.deleted == static_cast<std::uint32_t>(kDepth / 2 + 1));
         CHECK(model.added == static_cast<std::uint32_t>(kDepth / 2 + 1));
 
@@ -349,7 +349,8 @@ const char* kDecoratorChain =
 
 /// Stacked cards share one width and touch along y, whichever way the graph
 /// runs; the reader sees a block.
-void checkStackedUnder(const TreeLayout& layout, nmxd::LayoutId upper, nmxd::LayoutId lower) {
+void checkStackedUnder(const TreeLayout& layout, nmtreediff::LayoutId upper,
+                       nmtreediff::LayoutId lower) {
     const LayoutNode& top = layout.nodes[upper];
     const LayoutNode& bottom = layout.nodes[lower];
     CHECK(bottom.stackedOnParent);
@@ -362,24 +363,25 @@ void checkStackedUnder(const TreeLayout& layout, nmxd::LayoutId upper, nmxd::Lay
 }  // namespace
 
 TEST_CASE("a flagged node stacks on its only child, vertically in both directions", "[layout]") {
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree left = parse(*provider, kDecoratorChain);
     const Tree right = parse(*provider, kDecoratorChain);
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
 
-    const nmxd::NodeId inverter = right.node(right.root()).children[0];
-    const nmxd::NodeId cooldown = right.node(inverter).children[0];
-    const nmxd::NodeId wait = right.node(cooldown).children[0];
+    const nmtreediff::NodeId inverter = right.node(right.root()).children[0];
+    const nmtreediff::NodeId cooldown = right.node(inverter).children[0];
+    const nmtreediff::NodeId wait = right.node(cooldown).children[0];
 
-    for (const nmxd::GraphDirection direction :
-         {nmxd::GraphDirection::TopDown, nmxd::GraphDirection::LeftToRight}) {
-        INFO("direction " << (direction == nmxd::GraphDirection::TopDown ? "top-down" : "left-to-right"));
+    for (const nmtreediff::GraphDirection direction :
+         {nmtreediff::GraphDirection::TopDown, nmtreediff::GraphDirection::LeftToRight}) {
+        const bool topDown = direction == nmtreediff::GraphDirection::TopDown;
+        INFO("direction " << (topDown ? "top-down" : "left-to-right"));
         const TreeLayout layout = buildLayout(left, right, model, *provider, {}, {}, direction);
         REQUIRE(layout.size() == right.size());
 
-        const nmxd::LayoutId head = layout.find(Side::Right, inverter);
-        const nmxd::LayoutId middle = layout.find(Side::Right, cooldown);
-        const nmxd::LayoutId foot = layout.find(Side::Right, wait);
+        const nmtreediff::LayoutId head = layout.find(Side::Right, inverter);
+        const nmtreediff::LayoutId middle = layout.find(Side::Right, cooldown);
+        const nmtreediff::LayoutId foot = layout.find(Side::Right, wait);
         REQUIRE(head != kInvalidLayout);
         REQUIRE(middle != kInvalidLayout);
         REQUIRE(foot != kInvalidLayout);
@@ -389,7 +391,7 @@ TEST_CASE("a flagged node stacks on its only child, vertically in both direction
         const LayoutNode& root = layout.nodes[layout.root];
         const LayoutNode& top = layout.nodes[head];
         CHECK_FALSE(top.stackedOnParent);
-        if (direction == nmxd::GraphDirection::TopDown) {
+        if (direction == nmtreediff::GraphDirection::TopDown) {
             CHECK(top.y == root.y + root.height + layout.metrics.levelGap);
         } else {
             CHECK(top.x == root.x + root.width + layout.metrics.levelGap);
@@ -407,39 +409,40 @@ TEST_CASE("a flagged node stacks on its only child, vertically in both direction
 }
 
 TEST_CASE("the layout carries the format's entry pin", "[layout]") {
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree tree = parse(*provider, kDecoratorChain);
-    const auto model = nmxd::diffTrees(tree, tree, *provider);
+    const auto model = nmtreediff::diffTrees(tree, tree, *provider);
 
-    CHECK(buildLayout(tree, tree, model, *provider).entryPin == nmxd::StackEntryPin::Top);
-    CHECK(buildLayout(tree, tree, model, *provider, {}, {}, nmxd::GraphDirection::LeftToRight,
-                      nmxd::StackDirection::Vertical, nmxd::StackEntryPin::Bottom)
-              .entryPin == nmxd::StackEntryPin::Bottom);
+    CHECK(buildLayout(tree, tree, model, *provider).entryPin == nmtreediff::StackEntryPin::Top);
+    CHECK(buildLayout(tree, tree, model, *provider, {}, {}, nmtreediff::GraphDirection::LeftToRight,
+                      nmtreediff::StackDirection::Vertical, nmtreediff::StackEntryPin::Bottom)
+              .entryPin == nmtreediff::StackEntryPin::Bottom);
     // The sample format pins the entry to the bottom, the way its editors draw it.
-    CHECK(provider->stackEntryPin() == nmxd::StackEntryPin::Bottom);
+    CHECK(provider->stackEntryPin() == nmtreediff::StackEntryPin::Bottom);
 }
 
 TEST_CASE("a flagged node with two children in the union draws unstacked", "[layout]") {
     // The decorator's child was replaced: a deleted child beside an added one.
     // The two of them are the change, and stacking either would hide it.
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree left = parse(*provider,
                             "<behaviortree version='2'><node id='a' type='Inverter'>"
                             "<node id='b' type='Wait'/></node></behaviortree>");
     const Tree right = parse(*provider,
                              "<behaviortree version='2'><node id='a' type='Inverter'>"
                              "<node id='c' type='MoveTo'/></node></behaviortree>");
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
     CHECK(model.added == 1);
     CHECK(model.deleted == 1);
 
     const TreeLayout layout = buildLayout(left, right, model, *provider);
-    const nmxd::LayoutId inverter = layout.find(Side::Right, right.node(right.root()).children[0]);
+    const nmtreediff::LayoutId inverter =
+        layout.find(Side::Right, right.node(right.root()).children[0]);
     REQUIRE(inverter != kInvalidLayout);
     const LayoutNode& card = layout.nodes[inverter];
     CHECK(card.stackable);
     REQUIRE(card.children.size() == 2);
-    for (const nmxd::LayoutId child : card.children) {
+    for (const nmtreediff::LayoutId child : card.children) {
         CHECK_FALSE(layout.nodes[child].stackedOnParent);
         CHECK(layout.nodes[child].y == card.y + card.height + layout.metrics.levelGap);
     }
@@ -449,7 +452,7 @@ TEST_CASE("a stacked member keeps its own status and its siblings keep their gap
     // Two chains side by side under one parent, one of them edited inside.
     // Each member is still its own card with its own status, and the two
     // blocks are laid out as siblings with the ordinary gap between them.
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const auto document = [](const char* seconds) {
         return std::string("<behaviortree version='2'><node id='r' type='Selector'>") +
                "<node id='a' type='Cooldown'><property name='seconds' value='" + seconds +
@@ -459,13 +462,13 @@ TEST_CASE("a stacked member keeps its own status and its siblings keep their gap
     };
     const Tree left = parse(*provider, document("1.0"));
     const Tree right = parse(*provider, document("2.0"));
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
     CHECK(model.modified == 1);
 
     const TreeLayout layout = buildLayout(left, right, model, *provider);
-    const nmxd::NodeId selector = right.node(right.root()).children[0];
-    const nmxd::NodeId cooldown = right.node(selector).children[0];
-    const nmxd::NodeId inverter = right.node(selector).children[1];
+    const nmtreediff::NodeId selector = right.node(right.root()).children[0];
+    const nmtreediff::NodeId cooldown = right.node(selector).children[0];
+    const nmtreediff::NodeId inverter = right.node(selector).children[1];
 
     const LayoutNode& first = layout.nodes[layout.find(Side::Right, cooldown)];
     const LayoutNode& second = layout.nodes[layout.find(Side::Right, inverter)];

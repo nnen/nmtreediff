@@ -6,7 +6,7 @@
 
 #include <sol/forward.hpp>
 
-namespace nmxd {
+namespace nmtreediff {
 
 class ShapeContext;
 
@@ -34,4 +34,4 @@ void bindShapeApi(sol::state& lua);
 ///          drain after this returns, each job catching its own error.
 void runShapeFunction(sol::state& lua, sol::protected_function shape, ShapeContext& context);
 
-}  // namespace nmxd
+}  // namespace nmtreediff

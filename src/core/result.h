@@ -9,7 +9,7 @@
 #include <utility>
 #include <variant>
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Wraps an error value so that a failed Result can be constructed
 ///        without ambiguity.
@@ -162,4 +162,4 @@ private:
     std::optional<E> error_;
 };
 
-}  // namespace nmxd
+}  // namespace nmtreediff

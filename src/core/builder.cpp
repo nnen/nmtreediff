@@ -8,7 +8,7 @@
 
 #include "core/hash.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -480,4 +480,4 @@ void TreeBuilder::placeProperties(Tree& tree, const std::vector<NodeId>& placed)
     }
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

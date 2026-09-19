@@ -8,7 +8,7 @@
 #include "core/diff.h"
 #include "core/tree.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief The node both views are pointing at.
 ///
@@ -60,4 +60,4 @@ struct Selection {
     }
 };
 
-}  // namespace nmxd
+}  // namespace nmtreediff

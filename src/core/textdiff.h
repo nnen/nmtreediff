@@ -10,7 +10,7 @@
 
 #include "core/source.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief The line index that means "this row has no line on this side".
 inline constexpr std::uint32_t kNoLine = 0xFFFFFFFFu;
@@ -184,4 +184,4 @@ struct TextDiff {
 /// \remarks Exposed for tests.
 [[nodiscard]] std::vector<std::string_view> tokenizeLine(std::string_view line);
 
-}  // namespace nmxd
+}  // namespace nmtreediff

@@ -26,16 +26,16 @@
 
 namespace fs = std::filesystem;
 
-using nmxd::ConfigProblem;
-using nmxd::GraphDirection;
-using nmxd::IFormatProvider;
-using nmxd::ProviderConfig;
-using nmxd::SourceFile;
-using nmxd::Tree;
+using nmtreediff::ConfigProblem;
+using nmtreediff::GraphDirection;
+using nmtreediff::IFormatProvider;
+using nmtreediff::ProviderConfig;
+using nmtreediff::SourceFile;
+using nmtreediff::Tree;
 
 namespace {
 
-fs::path samplePath(const char* name) { return fs::path(NMXD_TESTDATA_DIR) / "sample" / name; }
+fs::path samplePath(const char* name) { return fs::path(NMTREEDIFF_TESTDATA_DIR) / "sample" / name; }
 
 std::string readFile(const fs::path& path) {
     std::ifstream in(path, std::ios::binary);
@@ -45,17 +45,18 @@ std::string readFile(const fs::path& path) {
 }
 
 /// Builds a registry with the sample script's provider in it.
-nmxd::ProviderRegistry registryWithScript(const std::string& script) {
+nmtreediff::ProviderRegistry registryWithScript(const std::string& script) {
     ProviderConfig config;
     std::vector<ConfigProblem> problems;
-    REQUIRE(nmxd::runConfigScript(script, "test.lua", config, problems));
+    REQUIRE(nmtreediff::runConfigScript(script, "test.lua", config, problems));
 
-    auto registry = nmxd::makeDefaultRegistry();
-    REQUIRE(nmxd::addScriptedProviders(registry, config).empty());
+    auto registry = nmtreediff::makeDefaultRegistry();
+    REQUIRE(nmtreediff::addScriptedProviders(registry, config).empty());
     return registry;
 }
 
-Tree parseWith(const nmxd::ProviderRegistry& registry, const char* format, const char* sample) {
+Tree parseWith(const nmtreediff::ProviderRegistry& registry, const char* format,
+               const char* sample) {
     const auto* provider = registry.byName(format);
     REQUIRE(provider != nullptr);
 
@@ -75,7 +76,7 @@ TEST_CASE("a scripted provider builds the same tree as the compiled one", "[lua]
     const Tree scripted = parseWith(registry, "bt-lua", "guard_before.bt");
 
     REQUIRE(compiled.size() == scripted.size());
-    for (nmxd::NodeId id = 0; id < compiled.size(); ++id) {
+    for (nmtreediff::NodeId id = 0; id < compiled.size(); ++id) {
         INFO("node " << id);
         const auto& left = compiled.node(id);
         const auto& right = scripted.node(id);
@@ -102,7 +103,7 @@ TEST_CASE("a scripted provider flags the same decorators as the compiled one", "
 
     REQUIRE(compiled.size() == scripted.size());
     std::size_t flagged = 0;
-    for (nmxd::NodeId id = 0; id < compiled.size(); ++id) {
+    for (nmtreediff::NodeId id = 0; id < compiled.size(); ++id) {
         INFO("node " << id << " " << compiled.node(id).kind);
         CHECK(compiled.annotation(id).stacked == scripted.annotation(id).stacked);
         if (compiled.annotation(id).stacked) {
@@ -120,7 +121,7 @@ TEST_CASE("a scripted provider answers the pin it declared", "[lua]") {
     const auto* compiled = registry.byName("bt");
     REQUIRE(scripted != nullptr);
     REQUIRE(compiled != nullptr);
-    CHECK(scripted->stackEntryPin() == nmxd::StackEntryPin::Bottom);
+    CHECK(scripted->stackEntryPin() == nmtreediff::StackEntryPin::Bottom);
     CHECK(scripted->stackEntryPin() == compiled->stackEntryPin());
 }
 
@@ -140,16 +141,16 @@ TEST_CASE("a scripted provider reports the same changes", "[lua]") {
     REQUIRE(compiled != nullptr);
     REQUIRE(scripted != nullptr);
 
-    const auto compiledDiff = nmxd::diffTrees(compiledLeft, compiledRight, *compiled);
-    const auto scriptedDiff = nmxd::diffTrees(scriptedLeft, scriptedRight, *scripted);
+    const auto compiledDiff = nmtreediff::diffTrees(compiledLeft, compiledRight, *compiled);
+    const auto scriptedDiff = nmtreediff::diffTrees(scriptedLeft, scriptedRight, *scripted);
 
     CHECK(compiledDiff.added == scriptedDiff.added);
     CHECK(compiledDiff.deleted == scriptedDiff.deleted);
     CHECK(compiledDiff.modified == scriptedDiff.modified);
     CHECK(compiledDiff.moved == scriptedDiff.moved);
 
-    CHECK(nmxd::serializeChanges(compiledLeft, compiledRight, compiledDiff) ==
-          nmxd::serializeChanges(scriptedLeft, scriptedRight, scriptedDiff));
+    CHECK(nmtreediff::serializeChanges(compiledLeft, compiledRight, compiledDiff) ==
+          nmtreediff::serializeChanges(scriptedLeft, scriptedRight, scriptedDiff));
 }
 
 TEST_CASE("a scripted identity survives a change of kind", "[lua]") {
@@ -161,12 +162,12 @@ TEST_CASE("a scripted identity survives a change of kind", "[lua]") {
 
     const Tree left = parseWith(registry, "bt-lua", "guard_before.bt");
     const Tree right = parseWith(registry, "bt-lua", "guard_after.bt");
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
 
     // "Stand easy" is an Idle before and a LookAround after, and it keeps its
     // identifier. It has to survive as one modified node rather than becoming a
     // deletion beside an addition.
-    const std::string changes = nmxd::serializeChanges(left, right, model);
+    const std::string changes = nmtreediff::serializeChanges(left, right, model);
     CHECK(changes.find("LookAround[0] [type") != std::string::npos);
     CHECK(changes.find("- /behaviortree/Selector[0]/Idle") == std::string::npos);
 }
@@ -196,11 +197,11 @@ TEST_CASE("a script may claim extensions and win them", "[lua]") {
 TEST_CASE("a provider built on a format that does not exist is reported", "[lua]") {
     ProviderConfig config;
     std::vector<ConfigProblem> problems;
-    REQUIRE(nmxd::runConfigScript("provider 'x' { base = 'yaml' }\n", "test.lua", config,
-                                  problems));
+    REQUIRE(nmtreediff::runConfigScript("provider 'x' { base = 'yaml' }\n", "test.lua", config,
+                                        problems));
 
-    auto registry = nmxd::makeDefaultRegistry();
-    const auto unknown = nmxd::addScriptedProviders(registry, config);
+    auto registry = nmtreediff::makeDefaultRegistry();
+    const auto unknown = nmtreediff::addScriptedProviders(registry, config);
     REQUIRE(unknown.size() == 1);
     CHECK(unknown[0] == "yaml");
     CHECK(registry.byName("x") == nullptr);
@@ -350,7 +351,7 @@ TEST_CASE("a script builds the same tree queued, breadth-first or recursing", "[
     // does not care which, because sibling order is call order on one parent.
     const auto source = SourceFile::fromMemory(
         "<r><a x='1'><a1/><a2 y='2'/></a><b/><c><c1><c11/></c1></c></r>", "t.xml", "t.xml");
-    const auto plain = nmxd::makeGenericXmlProvider()->parse(source, {});
+    const auto plain = nmtreediff::makeGenericXmlProvider()->parse(source, {});
     REQUIRE(plain.ok());
     const std::vector<std::string> expected = kindsOf(plain.value());
 
@@ -391,7 +392,7 @@ TEST_CASE("an error in one job is recorded and the rest of the document is built
     REQUIRE(provider != nullptr);
 
     const std::string text = "<r><good/><bad><inside/></bad><after/></r>";
-    nmxd::Log& log = nmxd::Log::instance();
+    nmtreediff::Log& log = nmtreediff::Log::instance();
     log.forwardTo(nullptr, nullptr);
     const std::uint64_t logBefore = log.lastSequence();
     auto shaped = provider->parse(SourceFile::fromMemory(text, "t.xml", "t.xml"), {});
@@ -411,7 +412,7 @@ TEST_CASE("an error in one job is recorded and the rest of the document is built
     CHECK(tree.failures()[0].detail.find("no bad elements here") != std::string::npos);
     const auto logged = log.linesAfter(logBefore);
     REQUIRE(logged.size() == 1);
-    CHECK(logged[0].stream == nmxd::LogStream::Err);
+    CHECK(logged[0].stream == nmtreediff::LogStream::Err);
     CHECK(logged[0].text.find("t.xml") != std::string::npos);
     CHECK(logged[0].text.find("stack traceback") != std::string::npos);
     const auto& where = tree.failures()[0].span;
@@ -436,7 +437,7 @@ TEST_CASE("a script's print reaches the log as standard output", "[lua][log]") {
     const auto* provider = registry.byName("talkative");
     REQUIRE(provider != nullptr);
 
-    nmxd::Log& log = nmxd::Log::instance();
+    nmtreediff::Log& log = nmtreediff::Log::instance();
     log.forwardTo(nullptr, nullptr);
     const std::uint64_t before = log.lastSequence();
     auto shaped = provider->parse(SourceFile::fromMemory("<r><a/></r>", "t.xml", "t.xml"), {});
@@ -445,7 +446,7 @@ TEST_CASE("a script's print reaches the log as standard output", "[lua][log]") {
 
     const auto logged = log.linesAfter(before);
     REQUIRE(logged.size() == 1);
-    CHECK(logged[0].stream == nmxd::LogStream::Out);
+    CHECK(logged[0].stream == nmtreediff::LogStream::Out);
     CHECK(logged[0].text == "shaping\t2\tnil\ttrue");
 }
 
@@ -534,7 +535,7 @@ TEST_CASE("a script on JSON sees every array as a node and folds what it wants",
     const Tree& tree = shaped.value();
     const auto* tags = tree.node(tree.root()).findProperty("tags");
     REQUIRE(tags != nullptr);
-    CHECK(tags->form == nmxd::PropertyForm::Sequence);
+    CHECK(tags->form == nmtreediff::PropertyForm::Sequence);
     REQUIRE(tags->children.size() == 2);
     CHECK(tags->children[1].value == "\"b\"");
     // The spawns array stayed a node with an item node under it.

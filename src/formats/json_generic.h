@@ -7,7 +7,7 @@
 
 #include "core/provider.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Creates the generic JSON provider.
 ///
@@ -32,4 +32,4 @@ namespace nmxd {
 ///          interface and returns strong keys instead.
 [[nodiscard]] std::unique_ptr<IFormatProvider> makeGenericJsonProvider();
 
-}  // namespace nmxd
+}  // namespace nmtreediff

@@ -8,7 +8,7 @@
 #include <cstring>
 #include <unordered_map>
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -622,4 +622,4 @@ TextDiff diffText(const SourceFile& left, const SourceFile& right, std::stop_tok
     return diff;
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

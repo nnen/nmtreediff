@@ -10,7 +10,7 @@
 #include "core/config.h"
 #include "core/result.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Reads a configuration from the text of a script.
 ///
@@ -63,4 +63,4 @@ namespace nmxd {
     const std::filesystem::path& explicitPath, ProviderConfig& config,
     std::vector<ConfigProblem>& problems);
 
-}  // namespace nmxd
+}  // namespace nmtreediff

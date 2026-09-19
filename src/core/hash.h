@@ -9,7 +9,7 @@
 
 #include "core/tree.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Fills in Node::contentHash for every node in a tree, bottom up.
 ///
@@ -69,4 +69,4 @@ void computeHashes(Tree& tree, std::stop_token token = {});
 ///          machines, and to spread ordinary document fragments.
 [[nodiscard]] std::uint64_t hashBytes(std::string_view bytes, std::uint64_t seed = 0) noexcept;
 
-}  // namespace nmxd
+}  // namespace nmtreediff

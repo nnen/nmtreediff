@@ -13,7 +13,7 @@
 #include "core/lua_provider.h"
 #include "core/registry.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -27,7 +27,7 @@ namespace {
 ///          to know which of their functions raised rather than only that one
 ///          did.
 void report(const ConfigProblem& problem) {
-    std::string line = "nmxmldiff: " + problem.origin.string();
+    std::string line = "nmtreediff: " + problem.origin.string();
     if (problem.line != 0) {
         line += ":" + std::to_string(problem.line);
     }
@@ -43,7 +43,7 @@ void report(const ConfigProblem& problem) {
 bool loadConfiguration(Options& options) {
     std::vector<ConfigProblem> problems;
     ProviderConfig config;
-    const auto loaded = nmxd::loadConfiguration(options.configPath, config, problems);
+    const auto loaded = nmtreediff::loadConfiguration(options.configPath, config, problems);
 
     for (const ConfigProblem& problem : problems) {
         report(problem);
@@ -51,7 +51,7 @@ bool loadConfiguration(Options& options) {
 
     // A file that was not there at all has explained nothing above.
     if (!loaded.ok() && problems.empty()) {
-        logErr("nmxmldiff: " + options.configPath.string() + ": " + describe(loaded.error()));
+        logErr("nmtreediff: " + options.configPath.string() + ": " + describe(loaded.error()));
     }
 
     // Names are checked even when the script already failed, so that one run
@@ -63,7 +63,7 @@ bool loadConfiguration(Options& options) {
     const std::vector<std::string> rest = probe.apply(config);
     unknown.insert(unknown.end(), rest.begin(), rest.end());
     for (const std::string& name : unknown) {
-        logErr("nmxmldiff: no format called " + name + "; try --list-formats");
+        logErr("nmtreediff: no format called " + name + "; try --list-formats");
     }
 
     if (!loaded.ok() || !problems.empty() || !unknown.empty()) {
@@ -74,4 +74,4 @@ bool loadConfiguration(Options& options) {
     return true;
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

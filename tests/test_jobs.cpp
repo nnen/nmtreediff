@@ -7,7 +7,7 @@
 #include "core/jobs.h"
 
 using namespace std::chrono_literals;
-using nmxd::JobSystem;
+using nmtreediff::JobSystem;
 
 TEST_CASE("jobs run and the system reports when it is idle", "[jobs]") {
     JobSystem jobs(2);

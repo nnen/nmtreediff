@@ -12,7 +12,7 @@
 
 #include <imgui.h>
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -198,7 +198,8 @@ void drawFailedMark(ImDrawList* draw, const ImVec2& topLeft, const ImVec2& botto
 /// \returns `true` when a stacked card sits further along the depth axis than
 ///          the card it stacks on; `false` when it sits across it.
 [[nodiscard]] bool stacksAlongDepth(const TreeLayout& layout) {
-    return layout.stacking == nmxd::StackDirection::AlongDepth || !horizontal(layout.direction);
+    return layout.stacking == nmtreediff::StackDirection::AlongDepth ||
+           !horizontal(layout.direction);
 }
 
 /// \brief Returns the card an edge from the parent visually arrives at.
@@ -214,7 +215,7 @@ void drawFailedMark(ImDrawList* draw, const ImVec2& topLeft, const ImVec2& botto
 ///          block stands across the line of flow, which with vertical stacks
 ///          means left to right.
 [[nodiscard]] const LayoutNode& entryCard(const TreeLayout& layout, const LayoutNode& card) {
-    if (layout.entryPin == nmxd::StackEntryPin::Bottom && !stacksAlongDepth(layout) &&
+    if (layout.entryPin == nmtreediff::StackEntryPin::Bottom && !stacksAlongDepth(layout) &&
         card.stackBottom != kInvalidLayout) {
         return layout.nodes[card.stackBottom];
     }
@@ -254,7 +255,7 @@ void drawFailedMark(ImDrawList* draw, const ImVec2& topLeft, const ImVec2& botto
     const bool joinedAbove = card.stackedOnParent;
     const bool joinedBelow =
         card.children.size() == 1 && layout.nodes[card.children[0]].stackedOnParent;
-    const bool sideways = layout.stacking == nmxd::StackDirection::AlongDepth &&
+    const bool sideways = layout.stacking == nmtreediff::StackDirection::AlongDepth &&
                           horizontal(layout.direction);
     if (joinedAbove && joinedBelow) {
         return ImDrawFlags_RoundCornersNone;
@@ -1164,4 +1165,4 @@ void NodeView::goToPreviousChange(const DiffSnapshot& snapshot, Selection& selec
     selection.select(side, node, tree.node(node).span.begin);
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

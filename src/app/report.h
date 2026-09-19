@@ -8,7 +8,7 @@
 #include "app/cli.h"
 #include "core/snapshot.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Writes a finished snapshot to a stream.
 ///
@@ -31,4 +31,4 @@ namespace nmxd {
 [[nodiscard]] int writeReport(std::ostream& out, const DiffSnapshot& snapshot,
                               const Options& options);
 
-}  // namespace nmxd
+}  // namespace nmtreediff

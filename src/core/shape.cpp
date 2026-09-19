@@ -9,7 +9,7 @@
 #include <exception>
 #include <utility>
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -91,7 +91,7 @@ void ShapeContext::recordFailure(const Queued& queued, const std::string& messag
     // report line and the card keep the one-line message; a person fixing a
     // script wants the traceback, and this is the only place it is written.
     const std::string& document = label_.empty() ? out_->formatName() : label_;
-    logErr("nmxmldiff: " + document + ": shaping failed: " + (detail.empty() ? message : detail));
+    logErr("nmtreediff: " + document + ": shaping failed: " + (detail.empty() ? message : detail));
 }
 
 void ShapeContext::runOne(Queued& queued) {
@@ -213,4 +213,4 @@ std::vector<SourceSpan> unrepresentedSpans(const Dom& dom, const TreeBuilder& ou
     return spans;
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

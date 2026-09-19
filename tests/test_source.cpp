@@ -5,10 +5,10 @@
 
 #include "core/source.h"
 
-using nmxd::LineCol;
-using nmxd::LoadError;
-using nmxd::SourceFile;
-using nmxd::SourceSpan;
+using nmtreediff::LineCol;
+using nmtreediff::LoadError;
+using nmtreediff::SourceFile;
+using nmtreediff::SourceSpan;
 
 TEST_CASE("an empty file still has one line", "[source]") {
     const auto file = SourceFile::fromMemory("", "empty");
@@ -72,7 +72,7 @@ TEST_CASE("loading reports why it failed", "[source]") {
 }
 
 TEST_CASE("loading a real file keeps its bytes and labels it", "[source]") {
-    const auto path = std::filesystem::temp_directory_path() / "nmxd_source_test.xml";
+    const auto path = std::filesystem::temp_directory_path() / "nmtreediff_source_test.xml";
     {
         std::ofstream out(path, std::ios::binary);
         out << "<root>\n  <child id=\"1\"/>\n</root>\n";

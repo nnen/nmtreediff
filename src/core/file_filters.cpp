@@ -10,7 +10,7 @@
 #include "core/provider.h"
 #include "core/registry.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -113,4 +113,4 @@ std::vector<FileFilter> fileFiltersFor(const ProviderRegistry& registry) {
     return filters;
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

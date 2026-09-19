@@ -5,7 +5,7 @@
 
 #include <imgui.h>
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief The surfaces and inks the interface is drawn with.
 ///
@@ -59,4 +59,4 @@ constexpr ImU32 kAccent = IM_COL32(86, 141, 255, 255);
 ///          diff against a default that may change.
 void applyTheme();
 
-}  // namespace nmxd
+}  // namespace nmtreediff

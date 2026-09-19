@@ -10,7 +10,7 @@
 
 #include <sol/sol.hpp>
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -137,4 +137,4 @@ std::uint32_t luaErrorLine(const std::string& message) {
     return any ? line : 0;
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

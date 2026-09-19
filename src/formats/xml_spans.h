@@ -9,7 +9,7 @@
 
 #include "core/source.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Finds where a tag ends.
 ///
@@ -58,4 +58,4 @@ namespace nmxd {
 ///          look for.
 [[nodiscard]] bool isSelfClosing(std::string_view text, std::uint32_t tagEnd);
 
-}  // namespace nmxd
+}  // namespace nmtreediff

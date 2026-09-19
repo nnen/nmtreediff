@@ -12,16 +12,16 @@
 #include "formats/bt_xml.h"
 #include "formats/xml_generic.h"
 
-using nmxd::describe;
-using nmxd::DiffModel;
-using nmxd::IFormatProvider;
-using nmxd::kInvalidNode;
-using nmxd::MatchOptions;
-using nmxd::NodeId;
-using nmxd::NodeStatus;
-using nmxd::Side;
-using nmxd::SourceFile;
-using nmxd::Tree;
+using nmtreediff::describe;
+using nmtreediff::DiffModel;
+using nmtreediff::IFormatProvider;
+using nmtreediff::kInvalidNode;
+using nmtreediff::MatchOptions;
+using nmtreediff::NodeId;
+using nmtreediff::NodeStatus;
+using nmtreediff::Side;
+using nmtreediff::SourceFile;
+using nmtreediff::Tree;
 
 namespace {
 
@@ -40,19 +40,19 @@ public:
     }
     int score(const SourceFile& source) const override { return inner_->score(source); }
 
-    nmxd::Result<Tree, nmxd::ParseError> read(const SourceFile& source,
-                                              std::stop_token token) const override {
+    nmtreediff::Result<Tree, nmtreediff::ParseError> read(const SourceFile& source,
+                                                          std::stop_token token) const override {
         return inner_->read(source, token);
     }
 
     // The copy generic XML would make, plus a strong key from every `id`.
-    void shape(nmxd::ShapeContext& context) const override {
-        nmxd::copyDocument(context);
-        const nmxd::Tree& read = context.dom().tree();
-        for (nmxd::DomId id = 0; id < read.size(); ++id) {
+    void shape(nmtreediff::ShapeContext& context) const override {
+        nmtreediff::copyDocument(context);
+        const nmtreediff::Tree& read = context.dom().tree();
+        for (nmtreediff::DomId id = 0; id < read.size(); ++id) {
             if (const auto* property = read.node(id).findProperty("id")) {
-                context.out().at(nmxd::RefId{id, nmxd::RefKind::Node})
-                    .setIdentity(property->value, nmxd::Identity::Strong);
+                context.out().at(nmtreediff::RefId{id, nmtreediff::RefKind::Node})
+                    .setIdentity(property->value, nmtreediff::Identity::Strong);
             }
         }
     }
@@ -71,16 +71,16 @@ Tree parse(const IFormatProvider& provider, const std::string& xml) {
 }  // namespace
 
 TEST_CASE("an unchanged document matches every node", "[match]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const std::string xml = "<r><a x=\"1\"><b/></a><c/></r>";
     const Tree left = parse(*provider, xml);
     const Tree right = parse(*provider, xml);
 
-    const auto result = nmxd::matchTrees(left, right, *provider);
+    const auto result = nmtreediff::matchTrees(left, right, *provider);
     CHECK(result.matching.pairCount() == left.size());
-    CHECK(result.quality == nmxd::MatchQuality::Full);
+    CHECK(result.quality == nmtreediff::MatchQuality::Full);
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
     CHECK(model.identical());
     CHECK(model.unchanged == left.size());
 }
@@ -88,11 +88,11 @@ TEST_CASE("an unchanged document matches every node", "[match]") {
 TEST_CASE("an identical subtree pairs even after it moves", "[match]") {
     // This is the second pass doing its job: the subtree is untouched, so it
     // costs one hash lookup rather than any similarity work.
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree left = parse(*provider, "<r><g1><item k=\"v\"><leaf/></item></g1><g2/></r>");
     const Tree right = parse(*provider, "<r><g1/><g2><item k=\"v\"><leaf/></item></g2></r>");
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
 
     // The item and its leaf both survived, so neither is an addition.
     CHECK(model.added == 0);
@@ -104,17 +104,17 @@ TEST_CASE("a strong identity key follows a node across the document", "[match]")
     // The behavior-tree case from the requirements: same identifier, different
     // parent, contents changed as well, and it is still the same node.
     const auto provider =
-        std::make_unique<IdentifiedXmlProvider>(nmxd::makeGenericXmlProvider());
+        std::make_unique<IdentifiedXmlProvider>(nmtreediff::makeGenericXmlProvider());
 
     const Tree left = parse(*provider,
                             "<r><g1><node id=\"guid-1\" speed=\"1.0\"/></g1><g2/></r>");
     const Tree right = parse(*provider,
                              "<r><g1/><g2><node id=\"guid-1\" speed=\"9.9\"/></g2></r>");
 
-    const auto result = nmxd::matchTrees(left, right, *provider);
+    const auto result = nmtreediff::matchTrees(left, right, *provider);
     CHECK(result.anchoredByIdentity >= 1);
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
     CHECK(model.added == 0);
     CHECK(model.deleted == 0);
 
@@ -135,7 +135,7 @@ TEST_CASE("different strong keys in the same place are a replacement, not an edi
     // and every other property agree, so similarity alone would pair them and
     // report the id as the one changed property. The keys say otherwise.
     const auto provider =
-        std::make_unique<IdentifiedXmlProvider>(nmxd::makeGenericXmlProvider());
+        std::make_unique<IdentifiedXmlProvider>(nmtreediff::makeGenericXmlProvider());
 
     const Tree left = parse(*provider,
                             "<r><node id=\"guid-1\" type=\"Action\"/>"
@@ -144,7 +144,7 @@ TEST_CASE("different strong keys in the same place are a replacement, not an edi
                              "<r><node id=\"guid-1\" type=\"Action\"/>"
                              "<node id=\"guid-3\" type=\"Action\"/></r>");
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
     CHECK(model.added == 1);
     CHECK(model.deleted == 1);
     CHECK(model.modified == 0);
@@ -157,23 +157,23 @@ TEST_CASE("a strong key still pairs with a node that has none", "[match]") {
     // identity from nothing to something. That is an edit, not a wholesale
     // replacement, so a key only vetoes a pairing against a different key.
     const auto provider =
-        std::make_unique<IdentifiedXmlProvider>(nmxd::makeGenericXmlProvider());
+        std::make_unique<IdentifiedXmlProvider>(nmtreediff::makeGenericXmlProvider());
 
     const Tree left = parse(*provider, "<r><node type=\"Action\"/></r>");
     const Tree right = parse(*provider, "<r><node id=\"guid-1\" type=\"Action\"/></r>");
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
     CHECK(model.added == 0);
     CHECK(model.deleted == 0);
     CHECK(model.modified == 1);
 }
 
 TEST_CASE("without a strong key an identical-content move is still caught", "[match]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree left = parse(*provider, "<r><g1><n a=\"1\"/></g1><g2/></r>");
     const Tree right = parse(*provider, "<r><g1/><g2><n a=\"1\"/></g2></r>");
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
     CHECK(model.added == 0);
     CHECK(model.deleted == 0);
     CHECK(model.moved == 1);
@@ -182,16 +182,16 @@ TEST_CASE("without a strong key an identical-content move is still caught", "[ma
 TEST_CASE("a renamed container keeps its children through similarity", "[match]") {
     // Nothing hashes alike at the top, and there is no identity key. Only the
     // third pass can see that these are the same node.
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree left =
         parse(*provider, "<r><box label=\"one\"><a/><b/><c/><d/></box></r>");
     const Tree right =
         parse(*provider, "<r><box label=\"two\"><a/><b/><c/><d/></box></r>");
 
-    const auto result = nmxd::matchTrees(left, right, *provider);
+    const auto result = nmtreediff::matchTrees(left, right, *provider);
     CHECK(result.anchoredBySimilarity >= 1);
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
     CHECK(model.added == 0);
     CHECK(model.deleted == 0);
     CHECK(model.modified == 1);
@@ -199,11 +199,11 @@ TEST_CASE("a renamed container keeps its children through similarity", "[match]"
 }
 
 TEST_CASE("statuses are readable per node from either side", "[match]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree left = parse(*provider, "<r><keep/><gone/></r>");
     const Tree right = parse(*provider, "<r><keep/><fresh/></r>");
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
 
     const NodeId leftGone = left.node(left.root()).children[1];
     const NodeId rightFresh = right.node(right.root()).children[1];
@@ -213,33 +213,33 @@ TEST_CASE("statuses are readable per node from either side", "[match]") {
 }
 
 TEST_CASE("an added subtree reports every node in it", "[match]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree left = parse(*provider, "<r/>");
     const Tree right = parse(*provider, "<r><a><b/><c/></a></r>");
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
     CHECK(model.added == 3);
     CHECK(model.deleted == 0);
 }
 
 TEST_CASE("documents with different roots are a wholesale replacement", "[match]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree left = parse(*provider, "<alpha><n/></alpha>");
     const Tree right = parse(*provider, "<beta><n/></beta>");
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
     CHECK(model.deleted == 2);
     CHECK(model.added == 2);
     CHECK(model.modified == 0);
 }
 
 TEST_CASE("the change list is ordered by the document, not the arena", "[match]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree left = parse(*provider, "<r><a/><b/><c/><d/></r>");
     const Tree right = parse(*provider, "<r><a/><B/><c/><D/></r>");
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
-    const std::string serialized = nmxd::serializeChanges(left, right, model);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
+    const std::string serialized = nmtreediff::serializeChanges(left, right, model);
 
     // The change to b is reported before the change to d, which is what makes
     // next-change navigation walk the file in reading order.
@@ -251,7 +251,7 @@ TEST_CASE("the change list is ordered by the document, not the arena", "[match]"
 }
 
 TEST_CASE("cancelling a match reports that it stopped", "[match]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     std::string xml = "<r>";
     for (int i = 0; i < 500; ++i) {
         xml += "<n k=\"" + std::to_string(i) + "\"/>";
@@ -263,20 +263,20 @@ TEST_CASE("cancelling a match reports that it stopped", "[match]") {
 
     std::stop_source source;
     source.request_stop();
-    const auto model = nmxd::diffTrees(left, right, *provider, source.get_token());
+    const auto model = nmtreediff::diffTrees(left, right, *provider, source.get_token());
     CHECK(model.cancelled);
 }
 
 TEST_CASE("the size guard trims similarity and says so", "[match]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree left = parse(*provider, "<r><box label=\"one\"><a/><b/></box></r>");
     const Tree right = parse(*provider, "<r><box label=\"two\"><a/><b/></box></r>");
 
     MatchOptions options;
     options.maxNodesForSimilarity = 1;  // far below the tree size
-    const auto result = nmxd::matchTrees(left, right, *provider, {}, options);
+    const auto result = nmtreediff::matchTrees(left, right, *provider, {}, options);
 
-    CHECK(result.quality == nmxd::MatchQuality::SimilarityTrimmed);
+    CHECK(result.quality == nmtreediff::MatchQuality::SimilarityTrimmed);
     CHECK(std::string(describe(result.quality)).find("trimmed") != std::string::npos);
 }
 
@@ -287,7 +287,7 @@ TEST_CASE("a container that overspends the step budget degrades only itself", "[
     // the box came back as a deletion and an addition. The budget is per
     // parent pair now: the rows are what the guard gives up on, and the box
     // pairs as it would have on its own.
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const auto generate = [](const char* prefix, const char* label) {
         std::string xml = "<r><big>";
         for (int i = 0; i < 300; ++i) {
@@ -301,9 +301,9 @@ TEST_CASE("a container that overspends the step budget degrades only itself", "[
 
     MatchOptions options;
     options.maxSimilaritySteps = 1000;  // room for the small container, not the wide one
-    const auto model = nmxd::diffTrees(left, right, *provider, {}, options);
+    const auto model = nmtreediff::diffTrees(left, right, *provider, {}, options);
 
-    CHECK(model.quality == nmxd::MatchQuality::SimilarityTrimmed);
+    CHECK(model.quality == nmtreediff::MatchQuality::SimilarityTrimmed);
     CHECK(model.trimmedParents == 1);
     // The rows are reported added and deleted, the box as the one edit it is.
     CHECK(model.deleted == 300);
@@ -312,19 +312,19 @@ TEST_CASE("a container that overspends the step budget degrades only itself", "[
 }
 
 TEST_CASE("a node path names a node by kind and position among its own kind", "[match]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree tree = parse(*provider, "<r><a/><b/><a/></r>");
 
     const auto& children = tree.node(tree.root()).children;
-    CHECK(nmxd::nodePath(tree, tree.root()) == "/r");
-    CHECK(nmxd::nodePath(tree, children[0]) == "/r/a[0]");
-    CHECK(nmxd::nodePath(tree, children[1]) == "/r/b[0]");
+    CHECK(nmtreediff::nodePath(tree, tree.root()) == "/r");
+    CHECK(nmtreediff::nodePath(tree, children[0]) == "/r/a[0]");
+    CHECK(nmtreediff::nodePath(tree, children[1]) == "/r/b[0]");
     // The second <a> is a[1] even though a <b> sits between them.
-    CHECK(nmxd::nodePath(tree, children[2]) == "/r/a[1]");
+    CHECK(nmtreediff::nodePath(tree, children[2]) == "/r/a[1]");
 }
 
 TEST_CASE("a hundred thousand nodes match inside the milestone budget", "[match][budget]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
 
     const auto generate = [](int tweakEvery) {
         std::string xml = "<tree>";
@@ -344,13 +344,13 @@ TEST_CASE("a hundred thousand nodes match inside the milestone budget", "[match]
     CHECK(left.size() >= 99000);
 
     const auto started = std::chrono::steady_clock::now();
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
     const double millis =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started)
             .count();
 
     INFO("match took " << millis << " ms, changed " << model.changedNodes());
-    CHECK(model.quality == nmxd::MatchQuality::Full);
+    CHECK(model.quality == nmtreediff::MatchQuality::Full);
     CHECK(model.modified == 110);
     CHECK(millis < 2000.0);
 }
@@ -359,7 +359,7 @@ TEST_CASE("a tripped size guard still gives a real diff", "[match]") {
     // The guard used to skip root pairing along with the similarity pass, which
     // turned a one-property edit in a large file into a total replacement: the
     // worst possible answer for exactly the file a reader most needs help with.
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
 
     const auto generate = [](const char* speed) {
         std::string xml = "<tree>";
@@ -378,9 +378,9 @@ TEST_CASE("a tripped size guard still gives a real diff", "[match]") {
 
     MatchOptions options;
     options.maxNodesForSimilarity = 1;  // far below the tree size, so it trips
-    const auto model = nmxd::diffTrees(left, right, *provider, {}, options);
+    const auto model = nmtreediff::diffTrees(left, right, *provider, {}, options);
 
-    CHECK(model.quality == nmxd::MatchQuality::SimilarityTrimmed);
+    CHECK(model.quality == nmtreediff::MatchQuality::SimilarityTrimmed);
 
     // Everything unchanged still pairs through the second pass, and the roots
     // pair outside the guard, so almost nothing is reported.
@@ -390,22 +390,22 @@ TEST_CASE("a tripped size guard still gives a real diff", "[match]") {
 }
 
 TEST_CASE("the roots pair even when nothing else does", "[match]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree left = parse(*provider, "<r><a x=\"1\"/></r>");
     const Tree right = parse(*provider, "<r><b y=\"2\"/></r>");
 
-    const auto result = nmxd::matchTrees(left, right, *provider);
+    const auto result = nmtreediff::matchTrees(left, right, *provider);
     CHECK(result.matching.toRight(left.root()) == right.root());
 }
 
 TEST_CASE("a node's change is reachable without scanning the change list", "[match]") {
     // The details panel asks this per visible node per frame, so it has to be a
     // lookup rather than a search.
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree left = parse(*provider, "<r><item speed=\"1.0\" name=\"a\"/><quiet/></r>");
     const Tree right = parse(*provider, "<r><item speed=\"1.4\" name=\"a\"/><quiet/></r>");
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
 
     const NodeId rightItem = right.node(right.root()).children[0];
     const NodeId leftItem = left.node(left.root()).children[0];
@@ -421,11 +421,11 @@ TEST_CASE("a node's change is reachable without scanning the change list", "[mat
 }
 
 TEST_CASE("an unchanged node has no change to look up", "[match]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree left = parse(*provider, "<r><item speed=\"1.0\"/><quiet/></r>");
     const Tree right = parse(*provider, "<r><item speed=\"1.4\"/><quiet/></r>");
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
 
     const NodeId quiet = right.node(right.root()).children[1];
     CHECK(model.changeFor(Side::Right, quiet) == nullptr);
@@ -439,11 +439,11 @@ TEST_CASE("an unchanged node has no change to look up", "[match]") {
 TEST_CASE("a property present on only one side is reported as changed", "[match]") {
     // The details panel shows one side, so a property that was taken away has
     // no row of its own. It can only be drawn if the diff names it.
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree left = parse(*provider, "<r><item keep=\"1\" doomed=\"yes\"/></r>");
     const Tree right = parse(*provider, "<r><item keep=\"1\" fresh=\"new\"/></r>");
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
     const NodeId item = right.node(right.root()).children[0];
 
     const auto* change = model.changeFor(Side::Right, item);
@@ -456,7 +456,7 @@ TEST_CASE("a second property of the same name is a change, not a shadow", "[matc
     // repeated child elements into properties produces exactly this, and a
     // change list that keyed properties by name saw only the first of them, so
     // adding a second with a different value was reported as no change at all.
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree left = parse(*provider,
                             "<behaviortree><node id=\"n1\" type=\"Wait\">"
                             "<property name=\"cooldown\" value=\"1\"/>"
@@ -467,7 +467,7 @@ TEST_CASE("a second property of the same name is a change, not a shadow", "[matc
                              "<property name=\"cooldown\" value=\"2\"/>"
                              "</node></behaviortree>");
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
     const NodeId node = right.node(right.root()).children[0];
     const auto* change = model.changeFor(Side::Right, node);
     REQUIRE(change != nullptr);
@@ -476,7 +476,7 @@ TEST_CASE("a second property of the same name is a change, not a shadow", "[matc
 
     // And the same pair the other way round is caught just the same, so the
     // miss is not merely asymmetric.
-    const auto reversed = nmxd::diffTrees(right, left, *provider);
+    const auto reversed = nmtreediff::diffTrees(right, left, *provider);
     const auto* undone = reversed.changeFor(Side::Right, left.node(left.root()).children[0]);
     REQUIRE(undone != nullptr);
     CHECK(undone->changedProperties == std::vector<std::string>{"cooldown"});
@@ -487,57 +487,61 @@ TEST_CASE("repeated names pair by occurrence for the details panel", "[match][re
     // only the second one's value changed. Pairing the second against the
     // first read its name as changed from param1 to param2, which was false.
     const auto record = [](const char* name, const char* value) {
-        nmxd::Property part;
+        nmtreediff::Property part;
         part.name = "property";
-        part.form = nmxd::PropertyForm::Record;
-        nmxd::Property n;
+        part.form = nmtreediff::PropertyForm::Record;
+        nmtreediff::Property n;
         n.name = "name";
         n.value = name;
-        nmxd::Property v;
+        nmtreediff::Property v;
         v.name = "value";
         v.value = value;
         part.children = {n, v};
         return part;
     };
-    const std::vector<nmxd::Property> before = {record("param1", "123"), record("param2", "true")};
-    const std::vector<nmxd::Property> after = {record("param1", "123"), record("param2", "false")};
+    const std::vector<nmtreediff::Property> before = {record("param1", "123"),
+                                                      record("param2", "true")};
+    const std::vector<nmtreediff::Property> after = {record("param1", "123"),
+                                                     record("param2", "false")};
 
     // Each occurrence against its own.
-    const nmxd::Property* first = nmxd::counterpartByOccurrence(after, 0, before);
-    const nmxd::Property* second = nmxd::counterpartByOccurrence(after, 1, before);
+    const nmtreediff::Property* first = nmtreediff::counterpartByOccurrence(after, 0, before);
+    const nmtreediff::Property* second = nmtreediff::counterpartByOccurrence(after, 1, before);
     REQUIRE(first != nullptr);
     REQUIRE(second != nullptr);
     CHECK(first == &before[0]);
     CHECK(second == &before[1]);
-    CHECK_FALSE(nmxd::propertiesDiffer(after[0], *first));
-    CHECK(nmxd::propertiesDiffer(after[1], *second));
+    CHECK_FALSE(nmtreediff::propertiesDiffer(after[0], *first));
+    CHECK(nmtreediff::propertiesDiffer(after[1], *second));
 
     // Inside the changed part, the name pairs with the name and the value with
     // the value, so the name reads as unchanged.
-    const nmxd::Property* name = nmxd::counterpartByOccurrence(after[1].children, 0, second->children);
-    const nmxd::Property* value = nmxd::counterpartByOccurrence(after[1].children, 1, second->children);
+    const nmtreediff::Property* name =
+        nmtreediff::counterpartByOccurrence(after[1].children, 0, second->children);
+    const nmtreediff::Property* value =
+        nmtreediff::counterpartByOccurrence(after[1].children, 1, second->children);
     REQUIRE(name != nullptr);
     REQUIRE(value != nullptr);
     CHECK(name->value == "param2");
-    CHECK_FALSE(nmxd::propertiesDiffer(after[1].children[0], *name));
+    CHECK_FALSE(nmtreediff::propertiesDiffer(after[1].children[0], *name));
     CHECK(value->value == "true");
 
     // Fewer on the other side: the extra occurrence has no counterpart, which
     // is what lists it as removed, and only that one.
-    const std::vector<nmxd::Property> shorter = {record("param1", "123")};
-    CHECK(nmxd::counterpartByOccurrence(before, 0, shorter) == &shorter[0]);
-    CHECK(nmxd::counterpartByOccurrence(before, 1, shorter) == nullptr);
+    const std::vector<nmtreediff::Property> shorter = {record("param1", "123")};
+    CHECK(nmtreediff::counterpartByOccurrence(before, 0, shorter) == &shorter[0]);
+    CHECK(nmtreediff::counterpartByOccurrence(before, 1, shorter) == nullptr);
 
     // A name the other side lacks entirely.
-    nmxd::Property other;
+    nmtreediff::Property other;
     other.name = "other";
-    const std::vector<nmxd::Property> unrelated = {other};
-    CHECK(nmxd::counterpartByOccurrence(before, 0, unrelated) == nullptr);
+    const std::vector<nmtreediff::Property> unrelated = {other};
+    CHECK(nmtreediff::counterpartByOccurrence(before, 0, unrelated) == nullptr);
 }
 
 TEST_CASE("repeated properties in a different order are not a change", "[match][repeated]") {
     // A multiset, so the same two cooldowns in either order are the same node.
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree left = parse(*provider,
                             "<behaviortree><node id=\"n1\" type=\"Wait\">"
                             "<property name=\"cooldown\" value=\"1\"/>"
@@ -549,6 +553,6 @@ TEST_CASE("repeated properties in a different order are not a change", "[match][
                              "<property name=\"cooldown\" value=\"1\"/>"
                              "</node></behaviortree>");
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
     CHECK(model.identical());
 }

@@ -13,13 +13,13 @@
 
 namespace fs = std::filesystem;
 
-using nmxd::Node;
-using nmxd::NodeId;
-using nmxd::ParseError;
-using nmxd::Property;
-using nmxd::PropertyForm;
-using nmxd::SourceFile;
-using nmxd::Tree;
+using nmtreediff::Node;
+using nmtreediff::NodeId;
+using nmtreediff::ParseError;
+using nmtreediff::Property;
+using nmtreediff::PropertyForm;
+using nmtreediff::SourceFile;
+using nmtreediff::Tree;
 
 namespace {
 
@@ -42,13 +42,13 @@ SourceFile makeSource(std::string text, std::string name = "case.bt") {
     return SourceFile::fromMemory(std::move(text), name, name);
 }
 
-Tree parseOrFail(const nmxd::IFormatProvider& provider, const SourceFile& source) {
+Tree parseOrFail(const nmtreediff::IFormatProvider& provider, const SourceFile& source) {
     auto result = provider.parse(source, {});
     REQUIRE(result.ok());
     return std::move(result).value();
 }
 
-std::string_view slice(const SourceFile& source, nmxd::SourceSpan span) {
+std::string_view slice(const SourceFile& source, nmtreediff::SourceSpan span) {
     return source.text().substr(span.begin, span.end - span.begin);
 }
 
@@ -64,7 +64,7 @@ const Node* findByKind(const Tree& tree, std::string_view kind) {
 }  // namespace
 
 TEST_CASE("only node elements become nodes", "[bt]") {
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree tree = parseOrFail(*provider, makeSource(kPatrol));
 
     // The document element, plus one node per <node>. The two <property>
@@ -85,7 +85,7 @@ TEST_CASE("only node elements become nodes", "[bt]") {
 }
 
 TEST_CASE("property elements fold into the node they describe", "[bt]") {
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree tree = parseOrFail(*provider, makeSource(kPatrol));
 
     const Node* sequence = findByKind(tree, "Sequence");
@@ -108,7 +108,7 @@ TEST_CASE("property elements fold into the node they describe", "[bt]") {
 }
 
 TEST_CASE("a property with no value attribute takes the element text", "[bt]") {
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree tree = parseOrFail(
         *provider,
         makeSource("<behaviortree>\n"
@@ -128,7 +128,7 @@ TEST_CASE("a property with no name is kept under the element's own name", "[bt]"
     // to call it. It is not dropped either: a diff tool that silently loses
     // content is the one thing a reviewer cannot forgive. So it keeps the name
     // the file gave it, which a reader can match against the file.
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree tree = parseOrFail(*provider,
                                   makeSource("<behaviortree>\n"
                                              "  <node id=\"a\" type=\"Wait\">\n"
@@ -150,7 +150,7 @@ TEST_CASE("a wrapper element is walked through rather than represented", "[bt]")
     // A format that nests its nodes under <children> should still produce the
     // tree the author drew, not one flattened by an element the provider does
     // not recognise.
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree tree = parseOrFail(*provider,
                                   makeSource("<behaviortree>\n"
                                              "  <node id=\"a\" type=\"Sequence\">\n"
@@ -169,25 +169,25 @@ TEST_CASE("a wrapper element is walked through rather than represented", "[bt]")
 }
 
 TEST_CASE("the identifier is a strong key", "[bt][identity]") {
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree tree = parseOrFail(*provider, makeSource(kPatrol));
 
     const Node* moveTo = findByKind(tree, "MoveTo");
     REQUIRE(moveTo != nullptr);
 
-    const nmxd::IdentityKey key = provider->identity(tree, moveTo->id);
+    const nmtreediff::IdentityKey key = provider->identity(tree, moveTo->id);
     CHECK(key.strong);
     CHECK(key.value == "c3d4");
 
     // Generic XML looks at the same attribute and refuses to promise anything
     // about it, because there an "id" might be a colour swatch name.
-    const auto generic = nmxd::makeGenericXmlProvider();
+    const auto generic = nmtreediff::makeGenericXmlProvider();
     const Tree genericTree = parseOrFail(*generic, makeSource(kPatrol));
     CHECK_FALSE(generic->identity(genericTree, genericTree.root()).strong);
 }
 
 TEST_CASE("a node with no identifier anchors nothing", "[bt][identity]") {
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree tree = parseOrFail(*provider,
                                   makeSource("<behaviortree>\n"
                                              "  <node type=\"Wait\"/>\n"
@@ -195,7 +195,7 @@ TEST_CASE("a node with no identifier anchors nothing", "[bt][identity]") {
 
     const Node* wait = findByKind(tree, "Wait");
     REQUIRE(wait != nullptr);
-    const nmxd::IdentityKey key = provider->identity(tree, wait->id);
+    const nmtreediff::IdentityKey key = provider->identity(tree, wait->id);
     CHECK_FALSE(key.strong);
     CHECK(key.value.empty());
 }
@@ -227,11 +227,11 @@ TEST_CASE("a node follows its identifier across the tree", "[bt][identity]") {
         "  </node>\n"
         "</behaviortree>\n";
 
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree left = parseOrFail(*provider, makeSource(before));
     const Tree right = parseOrFail(*provider, makeSource(after));
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
     CHECK(model.moved == 1);
     CHECK(model.added == 0);
     CHECK(model.deleted == 0);
@@ -242,13 +242,13 @@ TEST_CASE("an identified node survives changing its type", "[bt][identity]") {
     // Kind mismatch stops every structural heuristic, so without the strong key
     // this would read as one node deleted and another added. The identifier is
     // what turns it into the edit it actually is.
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree left = parseOrFail(
         *provider, makeSource("<behaviortree><node id=\"x\" type=\"Sequence\"/></behaviortree>"));
     const Tree right = parseOrFail(
         *provider, makeSource("<behaviortree><node id=\"x\" type=\"Selector\"/></behaviortree>"));
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
     CHECK(model.modified == 1);
     CHECK(model.added == 0);
     CHECK(model.deleted == 0);
@@ -258,7 +258,7 @@ TEST_CASE("an identified node survives changing its type", "[bt][identity]") {
 }
 
 TEST_CASE("spans slice back to the source", "[bt][span]") {
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const auto source = makeSource(kPatrol);
     const Tree tree = parseOrFail(*provider, source);
 
@@ -286,12 +286,12 @@ TEST_CASE("spans slice back to the source", "[bt][span]") {
 TEST_CASE("the identifier sorts first among properties", "[bt]") {
     // It is what makes a node the same node across versions, so it is the first
     // thing to check when a match looks wrong.
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree tree = parseOrFail(*provider, makeSource(kPatrol));
 
     const Node* sequence = findByKind(tree, "Sequence");
     REQUIRE(sequence != nullptr);
-    const auto order = nmxd::propertyDisplayOrder(*provider, tree, sequence->id);
+    const auto order = nmtreediff::propertyDisplayOrder(*provider, tree, sequence->id);
     REQUIRE(order.size() == 4);
     CHECK(sequence->properties[order[0]].name == "id");
     CHECK(sequence->properties[order[1]].name == "type");
@@ -300,12 +300,12 @@ TEST_CASE("the identifier sorts first among properties", "[bt]") {
 }
 
 TEST_CASE("a card is titled by behaviour and subtitled by name", "[bt]") {
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree tree = parseOrFail(*provider, makeSource(kPatrol));
 
     const Node* moveTo = findByKind(tree, "MoveTo");
     REQUIRE(moveTo != nullptr);
-    const nmxd::NodeStyle style = provider->style(tree, moveTo->id);
+    const nmtreediff::NodeStyle style = provider->style(tree, moveTo->id);
     CHECK(style.title == "MoveTo");
     CHECK(style.subtitle == "Go to waypoint");
 
@@ -317,7 +317,7 @@ TEST_CASE("a card is titled by behaviour and subtitled by name", "[bt]") {
 }
 
 TEST_CASE("the document element decides the format", "[bt][registry]") {
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
 
     // A behaviour tree saved as .xml is still a behaviour tree, and scoring on
     // the document element is what makes that work. Generic XML claims .xml at
@@ -330,7 +330,7 @@ TEST_CASE("the document element decides the format", "[bt][registry]") {
 }
 
 TEST_CASE("the registry routes a behaviour tree to its own provider", "[bt][registry]") {
-    const auto registry = nmxd::makeDefaultRegistry();
+    const auto registry = nmtreediff::makeDefaultRegistry();
 
     const auto* forBt = registry.resolve(makeSource(kPatrol, "patrol.xml"));
     REQUIRE(forBt != nullptr);
@@ -349,7 +349,7 @@ TEST_CASE("the registry routes a behaviour tree to its own provider", "[bt][regi
 }
 
 TEST_CASE("malformed behaviour trees are refused", "[bt]") {
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
 
     const auto refuses = [&provider](std::string text) {
         auto result = provider->parse(makeSource(std::move(text)), {});
@@ -366,7 +366,7 @@ TEST_CASE("reading one document two ways gives two answers", "[bt]") {
     // The corpus holds this document twice on purpose. Here it is asserted
     // rather than described: the collapsed reading is smaller, and the noise it
     // drops is the property elements.
-    const auto registry = nmxd::makeDefaultRegistry();
+    const auto registry = nmtreediff::makeDefaultRegistry();
     const auto source = makeSource(kPatrol, "patrol.bt");
 
     const auto* bt = registry.resolve(source);
@@ -385,7 +385,7 @@ TEST_CASE("an unrecognised element is kept as a property with parts", "[bt]") {
     // Nothing this format does not recognise may be dropped, and an element
     // that carries several attributes is one thing with parts rather than a
     // handful of loose names.
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree tree = parseOrFail(
         *provider,
         makeSource("<behaviortree>\n"
@@ -410,7 +410,7 @@ TEST_CASE("an unrecognised element is kept as a property with parts", "[bt]") {
 TEST_CASE("a wrapper keeps both itself and the nodes inside it", "[bt]") {
     // The case the rule turns on. Swallowing the nodes would be simpler and
     // would lose them; dropping the wrapper would lose what it carried.
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree tree = parseOrFail(
         *provider,
         makeSource("<behaviortree>\n"
@@ -439,7 +439,7 @@ TEST_CASE("a property with a value keeps its value and reports the elements it d
     // A <property> carrying a value attribute is that value, and whatever
     // elements sit inside it are not read. They used to vanish; now the tree
     // says which bytes it did not account for, so the text view can show them.
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const std::string text =
         "<behaviortree><node id=\"n1\" type=\"Wait\">"
         "<property name=\"speed\" value=\"1.0\"><range min=\"0\"/></property>"
@@ -455,7 +455,7 @@ TEST_CASE("a property with a value keeps its value and reports the elements it d
 }
 
 TEST_CASE("a fully folded document leaves nothing unrepresented", "[bt][dropped]") {
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree tree = parseOrFail(*provider, makeSource(
         "<behaviortree><node id=\"n1\" type=\"Sequence\">"
         "<property name=\"transform\"><position x=\"1\"/><scale x=\"2\"/></property>"
@@ -481,7 +481,7 @@ TEST_CASE("a behaviour tree nested thousands of levels deep shapes without recur
     }
     text += "</behaviortree>";
 
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree tree = parseOrFail(*provider, makeSource(text));
     CHECK(tree.size() == static_cast<std::size_t>(kDepth) + 1);
     CHECK(tree.node(tree.size() - 1).findProperty("deep")->form == PropertyForm::Record);

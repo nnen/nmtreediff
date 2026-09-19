@@ -9,16 +9,16 @@
 #include "formats/json_generic.h"
 #include "formats/xml_generic.h"
 
-using nmxd::Dom;
-using nmxd::DomNode;
-using nmxd::DomProperty;
-using nmxd::PropertyForm;
-using nmxd::SourceFile;
-using nmxd::Tree;
+using nmtreediff::Dom;
+using nmtreediff::DomNode;
+using nmtreediff::DomProperty;
+using nmtreediff::PropertyForm;
+using nmtreediff::SourceFile;
+using nmtreediff::Tree;
 
 namespace {
 
-Tree parse(const nmxd::IFormatProvider& provider, const std::string& text, const char* name) {
+Tree parse(const nmtreediff::IFormatProvider& provider, const std::string& text, const char* name) {
     const auto source = SourceFile::fromMemory(text, name);
     auto result = provider.parse(source, {});
     REQUIRE(result.ok());
@@ -28,7 +28,7 @@ Tree parse(const nmxd::IFormatProvider& provider, const std::string& text, const
 }  // namespace
 
 TEST_CASE("the DOM navigates the tree the base format produced", "[dom]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree tree = parse(*provider, "<r a=\"1\"><x/><y k=\"v\"><z/></y><w/></r>", "t.xml");
     const Dom dom(tree);
 
@@ -73,7 +73,7 @@ TEST_CASE("the DOM navigates the tree the base format produced", "[dom]") {
 TEST_CASE("the DOM exposes every property, repeats included, and the shortcut", "[dom]") {
     // The behaviour-tree format folds repeated <property> elements into
     // properties of one name, so this is where repeats come from in practice.
-    const auto provider = nmxd::makeBehaviorTreeProvider();
+    const auto provider = nmtreediff::makeBehaviorTreeProvider();
     const Tree tree = parse(*provider,
                             "<behaviortree><node id=\"n1\" type=\"Wait\">"
                             "<property name=\"tag\" value=\"a\"/>"
@@ -107,7 +107,7 @@ TEST_CASE("the DOM exposes every property, repeats included, and the shortcut", 
 TEST_CASE("the DOM finds children by name, first and every one", "[dom]") {
     // A record-style document where the same element name repeats among
     // siblings, which is where a lookup by name has to say which one it means.
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree tree = parse(*provider,
                             "<node><id>n1</id><child k=\"a\"/><type>Wait</type>"
                             "<child k=\"b\"/><child k=\"c\"/></node>",
@@ -142,7 +142,7 @@ TEST_CASE("the DOM finds children by name, first and every one", "[dom]") {
 }
 
 TEST_CASE("the DOM reads a property's form and parts", "[dom]") {
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const Tree tree = parse(*provider, R"({"m": [[1, 2], [3]], "s": "x"})", "t.json");
     const Dom dom(tree);
     const DomNode root = dom.root();
@@ -165,7 +165,7 @@ TEST_CASE("the DOM reads a property's form and parts", "[dom]") {
 }
 
 TEST_CASE("text content is reachable from the element", "[dom]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree tree = parse(*provider, "<r><t>hello</t><e/></r>", "t.xml");
     const Dom dom(tree);
     CHECK(dom.root().firstChild().text() == "hello");

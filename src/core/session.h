@@ -16,7 +16,7 @@
 #include "core/registry.h"
 #include "core/snapshot.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief What to open, and how to label it.
 struct SessionRequest {
@@ -147,4 +147,4 @@ private:
     SnapshotBox<DiffSnapshot> box_;
 };
 
-}  // namespace nmxd
+}  // namespace nmtreediff

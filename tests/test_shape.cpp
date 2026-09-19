@@ -9,20 +9,20 @@
 #include "core/source.h"
 #include "formats/xml_generic.h"
 
-using nmxd::Dom;
-using nmxd::DomNode;
-using nmxd::ParseError;
-using nmxd::Ref;
-using nmxd::ShapeContext;
-using nmxd::SourceFile;
-using nmxd::SourceSpan;
-using nmxd::Tree;
-using nmxd::TreeBuilder;
+using nmtreediff::Dom;
+using nmtreediff::DomNode;
+using nmtreediff::ParseError;
+using nmtreediff::Ref;
+using nmtreediff::ShapeContext;
+using nmtreediff::SourceFile;
+using nmtreediff::SourceSpan;
+using nmtreediff::Tree;
+using nmtreediff::TreeBuilder;
 
 namespace {
 
 Tree parseXml(const std::string& xml) {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const auto source = SourceFile::fromMemory(xml, "t.xml");
     auto result = provider->parse(source, {});
     REQUIRE(result.ok());
@@ -59,7 +59,7 @@ TEST_CASE("a queued walk builds the same tree whichever way it drains", "[shape]
     const std::vector<std::string> expected = kindsInOrder(source);
 
     auto shapeWith = [&](bool depthFirst) {
-        return nmxd::shapeTree(dom, "copy", [&](ShapeContext& context) {
+        return nmtreediff::shapeTree(dom, "copy", [&](ShapeContext& context) {
             Ref root = context.out().root(dom.root().name());
             root.setSource(dom.root().id());
             for (const DomNode child : dom.root().children()) {
@@ -112,7 +112,7 @@ TEST_CASE("a failing job is recorded against its element and owner, and the pass
     const Tree source = parseXml("<r><good/><bad/><after/></r>");
     const Dom dom(source);
 
-    auto result = nmxd::shapeTree(dom, "t", [&](ShapeContext& context) {
+    auto result = nmtreediff::shapeTree(dom, "t", [&](ShapeContext& context) {
         Ref root = context.out().root("r");
         root.setSource(dom.root().id());
         for (const DomNode child : dom.root().children()) {
@@ -143,18 +143,18 @@ TEST_CASE("a pass that builds nothing is a failure, and a cancelled one is cance
     const Tree source = parseXml("<r/>");
     const Dom dom(source);
 
-    auto failed = nmxd::shapeTree(dom, "t", [](ShapeContext&) {
+    auto failed = nmtreediff::shapeTree(dom, "t", [](ShapeContext&) {
         throw std::runtime_error("before the root");
     });
     REQUIRE_FALSE(failed.ok());
     CHECK(failed.error() == ParseError::ShapeFailed);
 
-    auto empty = nmxd::shapeTree(dom, "t", [](ShapeContext&) {});
+    auto empty = nmtreediff::shapeTree(dom, "t", [](ShapeContext&) {});
     REQUIRE_FALSE(empty.ok());
     CHECK(empty.error() == ParseError::Empty);
 
     std::stop_source stop;
-    auto cancelled = nmxd::shapeTree(dom, "t", [&](ShapeContext& context) {
+    auto cancelled = nmtreediff::shapeTree(dom, "t", [&](ShapeContext& context) {
         context.out().root("r");
         context.later([&](ShapeContext&) { FAIL("the drain ran a job after the stop"); });
         stop.request_stop();
@@ -173,7 +173,7 @@ TEST_CASE("a dropped wrapper's bytes exclude the elements kept inside it", "[sha
     const Tree source = parseXml(xml);
     const Dom dom(source);
 
-    auto result = nmxd::shapeTree(dom, "t", [&](ShapeContext& context) {
+    auto result = nmtreediff::shapeTree(dom, "t", [&](ShapeContext& context) {
         Ref root = context.out().root("r");
         root.setSource(dom.root().id());
         root.child(dom.root().firstChild().firstChild());  // kept

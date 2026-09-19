@@ -23,7 +23,7 @@
 
 #include <GLFW/glfw3.h>
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -199,7 +199,7 @@ SessionRequest makeRequest(const Options& options, GraphDirection direction) {
 /// \param code The GLFW error code.
 /// \param description GLFW's description, which may be null.
 void reportGlfwError(int code, const char* description) {
-    logErr("nmxmldiff: glfw error " + std::to_string(code) + ": " +
+    logErr("nmtreediff: glfw error " + std::to_string(code) + ": " +
            (description != nullptr ? description : ""));
 }
 
@@ -364,7 +364,7 @@ void AppWindow::captureFrame(int width, int height) {
     if (writeBitmap(options_.screenshotPath, width, height, pixels)) {
         std::printf("screenshot=%s\n", options_.screenshotPath.string().c_str());
     } else {
-        logErr("nmxmldiff: could not write " + options_.screenshotPath.string());
+        logErr("nmtreediff: could not write " + options_.screenshotPath.string());
     }
 }
 
@@ -618,7 +618,7 @@ void AppWindow::reload() {
         (void)session_.configureProviders(options_.providerConfig);
         applyConfiguredSettings();
     } else {
-        logErr("nmxmldiff: reload kept the previous configuration");
+        logErr("nmtreediff: reload kept the previous configuration");
     }
 
     // The files are read again either way, because that part cannot be wrong
@@ -1230,4 +1230,4 @@ void AppWindow::drawStatusBar(const DiffSnapshot& snapshot) {
     ImGui::End();
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

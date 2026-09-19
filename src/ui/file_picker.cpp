@@ -10,7 +10,7 @@
 
 #include <nfd.h>
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief What the dialog thread writes and the frame loop reads.
 ///
@@ -161,4 +161,4 @@ PickerOutcome FilePicker::poll() {
     return PickerOutcome::Chosen;
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

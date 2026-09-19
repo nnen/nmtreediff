@@ -12,7 +12,7 @@
 #include "core/provider.h"
 #include "core/tree.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Identifies a node in a TreeLayout.
 using LayoutId = std::uint32_t;
@@ -255,4 +255,4 @@ struct TreeLayout {
 ///          the depth of the tree rather than its size.
 [[nodiscard]] NodeId findNodeAt(const Tree& tree, std::uint32_t offset);
 
-}  // namespace nmxd
+}  // namespace nmtreediff

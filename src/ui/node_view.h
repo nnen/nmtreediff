@@ -11,7 +11,7 @@
 #include "core/snapshot.h"
 #include "ui/selection.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Draws the union of both trees as a pannable, zoomable graph.
 ///
@@ -197,4 +197,4 @@ private:
     float canvasHeight_ = 0.0f;
 };
 
-}  // namespace nmxd
+}  // namespace nmtreediff

@@ -11,7 +11,7 @@
 #include <string>
 #include <string_view>
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -342,4 +342,4 @@ int writeReport(std::ostream& out, const DiffSnapshot& snapshot, const Options& 
     return 0;
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

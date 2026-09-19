@@ -6,7 +6,7 @@
 #include <filesystem>
 #include <string>
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Which side the reader asked to choose, if any.
 enum class WelcomeChoice {
@@ -39,4 +39,4 @@ struct WelcomeState {
 ///          opens a comparison once both are there.
 [[nodiscard]] WelcomeChoice drawWelcome(const WelcomeState& state);
 
-}  // namespace nmxd
+}  // namespace nmtreediff

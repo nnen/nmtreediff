@@ -8,13 +8,13 @@
 #include "core/source.h"
 #include "formats/xml_generic.h"
 
-using nmxd::kInvalidNode;
-using nmxd::kTextProperty;
-using nmxd::Node;
-using nmxd::NodeId;
-using nmxd::ParseError;
-using nmxd::SourceFile;
-using nmxd::Tree;
+using nmtreediff::kInvalidNode;
+using nmtreediff::kTextProperty;
+using nmtreediff::Node;
+using nmtreediff::NodeId;
+using nmtreediff::ParseError;
+using nmtreediff::SourceFile;
+using nmtreediff::Tree;
 
 namespace {
 
@@ -33,7 +33,7 @@ std::stop_token neverStopped() {
     return source.get_token();
 }
 
-Tree parseOrFail(const std::string& xml, const nmxd::IFormatProvider& provider) {
+Tree parseOrFail(const std::string& xml, const nmtreediff::IFormatProvider& provider) {
     const auto source = SourceFile::fromMemory(xml, "test.xml");
     auto parsed = provider.parse(source, neverStopped());
     REQUIRE(parsed.ok());
@@ -43,7 +43,7 @@ Tree parseOrFail(const std::string& xml, const nmxd::IFormatProvider& provider) 
 }  // namespace
 
 TEST_CASE("every element becomes a node and every attribute a property", "[xml]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree tree = parseOrFail(kBehaviorTree, *provider);
 
     REQUIRE(tree.size() == 5);  // root, two nodes, two properties
@@ -69,7 +69,7 @@ TEST_CASE("every element becomes a node and every attribute a property", "[xml]"
 TEST_CASE("spans slice back to exactly the element that produced them", "[xml]") {
     // This is what links the two views. If a span is off by a byte, clicking a
     // node scrolls the text view to the wrong place.
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const std::string xml = kBehaviorTree;
     const auto source = SourceFile::fromMemory(xml, "test.xml");
     const Tree tree = parseOrFail(xml, *provider);
@@ -95,7 +95,7 @@ TEST_CASE("spans slice back to exactly the element that produced them", "[xml]")
 }
 
 TEST_CASE("a child span sits inside its parent span", "[xml]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree tree = parseOrFail(kBehaviorTree, *provider);
 
     for (const Node& node : tree.nodes()) {
@@ -109,20 +109,20 @@ TEST_CASE("a child span sits inside its parent span", "[xml]") {
 }
 
 TEST_CASE("an attribute span slices back to the attribute", "[xml]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const std::string xml = kBehaviorTree;
     const auto source = SourceFile::fromMemory(xml, "test.xml");
     const Tree tree = parseOrFail(xml, *provider);
 
     const Node& outer = tree.node(tree.node(tree.root()).children[0]);
-    const nmxd::Property* id = outer.findProperty("id");
+    const nmtreediff::Property* id = outer.findProperty("id");
     REQUIRE(id != nullptr);
     CHECK(source.slice(id->span) == "id=\"a1b2\"");
 }
 
 TEST_CASE("a greater-than inside an attribute does not end the tag", "[xml]") {
     const std::string xml = "<root><item expr=\"a &gt; b\" note='x>y'/></root>";
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const auto source = SourceFile::fromMemory(xml, "test.xml");
     const Tree tree = parseOrFail(xml, *provider);
 
@@ -133,7 +133,7 @@ TEST_CASE("a greater-than inside an attribute does not end the tag", "[xml]") {
 }
 
 TEST_CASE("leaf text becomes a property, mixed content does not", "[xml]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree tree = parseOrFail("<root><leaf>hello</leaf><mixed>text<child/></mixed></root>",
                                   *provider);
 
@@ -147,7 +147,7 @@ TEST_CASE("leaf text becomes a property, mixed content does not", "[xml]") {
 }
 
 TEST_CASE("malformed and empty documents are refused with a reason", "[xml]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
 
     const auto broken = SourceFile::fromMemory("<root><unclosed></root>", "bad.xml");
     const auto brokenResult = provider->parse(broken, neverStopped());
@@ -173,7 +173,7 @@ TEST_CASE("identity is a hint, never an anchor, for generic XML", "[xml]") {
     // colour swatch name, so generic XML records no identity at all and the
     // matcher works from structure. A format that knows its own schema says
     // strong.
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree tree = parseOrFail(kBehaviorTree, *provider);
 
     const Node& outer = tree.node(tree.node(tree.root()).children[0]);
@@ -183,7 +183,7 @@ TEST_CASE("identity is a hint, never an anchor, for generic XML", "[xml]") {
 }
 
 TEST_CASE("style is stable and identifies the node", "[xml]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree tree = parseOrFail(kBehaviorTree, *provider);
 
     const Node& outer = tree.node(tree.node(tree.root()).children[0]);
@@ -198,12 +198,12 @@ TEST_CASE("style is stable and identifies the node", "[xml]") {
 }
 
 TEST_CASE("property order is presentation and puts identity first", "[xml]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree tree = parseOrFail("<root><n zeta=\"1\" name=\"second\" id=\"first\">body</n></root>",
                                   *provider);
 
     const Node& n = tree.node(tree.node(tree.root()).children[0]);
-    const auto order = nmxd::propertyDisplayOrder(*provider, tree, n.id);
+    const auto order = nmtreediff::propertyDisplayOrder(*provider, tree, n.id);
     REQUIRE(order.size() == 4);
 
     CHECK(n.properties[order[0]].name == "id");
@@ -213,7 +213,7 @@ TEST_CASE("property order is presentation and puts identity first", "[xml]") {
 }
 
 TEST_CASE("the registry sniffs, honours an override and reports a bad name", "[registry]") {
-    const auto registry = nmxd::makeDefaultRegistry();
+    const auto registry = nmtreediff::makeDefaultRegistry();
     REQUIRE(registry.size() >= 1);
 
     const auto byExtension = SourceFile::fromMemory("<root/>", "");
@@ -230,7 +230,7 @@ TEST_CASE("the registry sniffs, honours an override and reports a bad name", "[r
 }
 
 TEST_CASE("a file with no clue still resolves to the fallback", "[registry]") {
-    const auto registry = nmxd::makeDefaultRegistry();
+    const auto registry = nmtreediff::makeDefaultRegistry();
     const auto plain = SourceFile::fromMemory("just some words", "notes.txt");
     const auto* provider = registry.resolve(plain);
     REQUIRE(provider != nullptr);
@@ -252,11 +252,11 @@ TEST_CASE("a document nested thousands of levels deep is read without recursing"
         text += "</e>";
     }
 
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree tree = parseOrFail(text, *provider);
     CHECK(tree.size() == static_cast<std::size_t>(kDepth));
     const Node& deepest = tree.node(tree.size() - 1);
     CHECK(deepest.depth == static_cast<std::uint32_t>(kDepth - 1));
-    CHECK(deepest.findProperty(nmxd::kTextProperty)->value == "leaf");
+    CHECK(deepest.findProperty(nmtreediff::kTextProperty)->value == "leaf");
     CHECK(tree.node(tree.root()).span.end == text.size());
 }

@@ -9,8 +9,8 @@
 #include "formats/json_generic.h"
 
 using namespace std::chrono;
-using nmxd::SourceFile;
-using nmxd::TextDiffQuality;
+using nmtreediff::SourceFile;
+using nmtreediff::TextDiffQuality;
 
 namespace {
 
@@ -58,7 +58,7 @@ TEST_CASE("a 20 MB pair diffs inside the milestone budget", "[budget]") {
     const auto right = SourceFile::fromMemory(rightText, "right");
 
     const auto started = steady_clock::now();
-    const auto diff = nmxd::diffText(left, right, neverStopped());
+    const auto diff = nmtreediff::diffText(left, right, neverStopped());
     const double millis = duration<double, std::milli>(steady_clock::now() - started).count();
 
     INFO("diff took " << millis << " ms, "
@@ -83,10 +83,10 @@ TEST_CASE("a pair that shares nothing still finishes", "[budget]") {
     const auto b = SourceFile::fromMemory(right, "right");
 
     const auto started = steady_clock::now();
-    const auto diff = nmxd::diffText(a, b, neverStopped());
+    const auto diff = nmtreediff::diffText(a, b, neverStopped());
     const double millis = duration<double, std::milli>(steady_clock::now() - started).count();
 
-    INFO("diff took " << millis << " ms with quality " << nmxd::describe(diff.quality));
+    INFO("diff took " << millis << " ms with quality " << nmtreediff::describe(diff.quality));
     CHECK_FALSE(diff.identical());
     CHECK(millis < 4000.0);
 }
@@ -130,7 +130,7 @@ TEST_CASE("a 100k node JSON pair parses and matches inside the budget", "[budget
     constexpr std::size_t kEntities = 50000;
     constexpr std::size_t kModifyEvery = 500;
 
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const auto left = SourceFile::fromMemory(generateJson(kEntities, 0), "left");
     const auto right = SourceFile::fromMemory(generateJson(kEntities, kModifyEvery), "right");
 
@@ -145,7 +145,7 @@ TEST_CASE("a 100k node JSON pair parses and matches inside the budget", "[budget
     CHECK(leftTree.value().size() > 100000);
 
     const auto matchStarted = steady_clock::now();
-    const auto model = nmxd::diffTrees(leftTree.value(), rightTree.value(), *provider);
+    const auto model = nmtreediff::diffTrees(leftTree.value(), rightTree.value(), *provider);
     const double matchMillis =
         duration<double, std::milli>(steady_clock::now() - matchStarted).count();
 
@@ -156,7 +156,7 @@ TEST_CASE("a 100k node JSON pair parses and matches inside the budget", "[budget
     // Only the tweaked entities changed, and each shows up as one modified
     // node. Anything else means the match went wrong rather than slowly, which
     // a timing check alone would not catch.
-    CHECK(model.quality == nmxd::MatchQuality::Full);
+    CHECK(model.quality == nmtreediff::MatchQuality::Full);
     CHECK(model.modified == kEntities / kModifyEvery);
     CHECK(model.added == 0);
     CHECK(model.deleted == 0);
@@ -175,7 +175,7 @@ TEST_CASE("four thousand renumbered entities match clean inside the budget", "[b
     // score is computed once rather than once per candidate.
     constexpr std::size_t kEntities = 4000;
 
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const auto left = SourceFile::fromMemory(generateJson(kEntities, 0), "left");
     const auto right = SourceFile::fromMemory(generateJson(kEntities, 0, 1), "right");
 
@@ -185,7 +185,7 @@ TEST_CASE("four thousand renumbered entities match clean inside the budget", "[b
     REQUIRE(rightTree.ok());
 
     const auto started = steady_clock::now();
-    const auto model = nmxd::diffTrees(leftTree.value(), rightTree.value(), *provider);
+    const auto model = nmtreediff::diffTrees(leftTree.value(), rightTree.value(), *provider);
     const double millis = duration<double, std::milli>(steady_clock::now() - started).count();
 
     INFO("bytes " << left.size() << " a side, match " << millis << " ms, +" << model.added << " -"
@@ -194,7 +194,7 @@ TEST_CASE("four thousand renumbered entities match clean inside the budget", "[b
     // Every entity pairs with the one in its place and differs in its id
     // alone. An addition or a deletion means the guard tripped or the pairing
     // went astray, and either is the wrong answer for a re-export.
-    CHECK(model.quality == nmxd::MatchQuality::Full);
+    CHECK(model.quality == nmtreediff::MatchQuality::Full);
     CHECK(model.modified == kEntities);
     CHECK(model.added == 0);
     CHECK(model.deleted == 0);
@@ -206,7 +206,7 @@ TEST_CASE("parsing a large JSON document can be cancelled", "[budget]") {
     // Cancellation is the normal path when someone switches format or reloads,
     // so the provider has to notice a stop token part way through a document
     // rather than only between documents.
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const auto source = SourceFile::fromMemory(generateJson(40000, 0), "left");
 
     std::stop_source stop;
@@ -218,6 +218,6 @@ TEST_CASE("parsing a large JSON document can be cancelled", "[budget]") {
 
     INFO("cancelled after " << millis << " ms");
     REQUIRE_FALSE(parsed.ok());
-    CHECK(parsed.error() == nmxd::ParseError::Cancelled);
+    CHECK(parsed.error() == nmtreediff::ParseError::Cancelled);
     CHECK(millis < 50.0);
 }

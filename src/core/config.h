@@ -12,7 +12,7 @@
 #include "core/provider.h"
 #include "core/result.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief A format provider defined by a script rather than compiled in.
 ///
@@ -139,4 +139,4 @@ struct ConfigProblem {
 ///          run. Anything else is named with `--config`.
 [[nodiscard]] std::vector<std::filesystem::path> configSearchPaths();
 
-}  // namespace nmxd
+}  // namespace nmtreediff

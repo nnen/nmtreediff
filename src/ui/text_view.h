@@ -10,7 +10,7 @@
 #include "core/snapshot.h"
 #include "ui/selection.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Draws the line diff, and remembers where the reader is in it.
 ///
@@ -94,4 +94,4 @@ private:
     SideMarks rightMarks_;
 };
 
-}  // namespace nmxd
+}  // namespace nmtreediff

@@ -13,7 +13,7 @@
 
 #include "core/lua_state.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -305,4 +305,4 @@ Result<std::monostate, ConfigError> loadConfiguration(const std::filesystem::pat
     return loadConfigScript(explicitPath, config, problems);
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

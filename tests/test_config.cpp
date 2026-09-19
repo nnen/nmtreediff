@@ -12,11 +12,11 @@
 
 namespace fs = std::filesystem;
 
-using nmxd::ConfigError;
-using nmxd::ConfigProblem;
-using nmxd::GraphDirection;
-using nmxd::ProviderConfig;
-using nmxd::SourceFile;
+using nmtreediff::ConfigError;
+using nmtreediff::ConfigProblem;
+using nmtreediff::GraphDirection;
+using nmtreediff::ProviderConfig;
+using nmtreediff::SourceFile;
 
 namespace {
 
@@ -24,7 +24,7 @@ namespace {
 ProviderConfig runClean(const std::string& script) {
     ProviderConfig config;
     std::vector<ConfigProblem> problems;
-    const bool ok = nmxd::runConfigScript(script, "test.lua", config, problems);
+    const bool ok = nmtreediff::runConfigScript(script, "test.lua", config, problems);
     for (const auto& problem : problems) {
         UNSCOPED_INFO("problem: " << problem.message);
     }
@@ -36,7 +36,7 @@ ProviderConfig runClean(const std::string& script) {
 /// Runs a script and collects what was wrong with it.
 std::vector<ConfigProblem> runDirty(const std::string& script, ProviderConfig& config) {
     std::vector<ConfigProblem> problems;
-    CHECK_FALSE(nmxd::runConfigScript(script, "test.lua", config, problems));
+    CHECK_FALSE(nmtreediff::runConfigScript(script, "test.lua", config, problems));
     return problems;
 }
 
@@ -90,8 +90,8 @@ TEST_CASE("a provider declaration sets its stack entry pin", "[config]") {
         "provider 'pinned' { base = 'xml', stack_entry_pin = 'Bottom' }\n"
         "provider 'plain' { base = 'xml' }\n");
     REQUIRE(config.providers.size() == 2);
-    CHECK(config.providers[0].entryPin == nmxd::StackEntryPin::Bottom);
-    CHECK(config.providers[1].entryPin == nmxd::StackEntryPin::Top);
+    CHECK(config.providers[0].entryPin == nmtreediff::StackEntryPin::Bottom);
+    CHECK(config.providers[1].entryPin == nmtreediff::StackEntryPin::Top);
 }
 
 TEST_CASE("an unknown stack entry pin is reported", "[config]") {
@@ -168,13 +168,14 @@ TEST_CASE("a missing configuration file is an error", "[config]") {
     ProviderConfig config;
     std::vector<ConfigProblem> problems;
     const auto loaded =
-        nmxd::loadConfigScript(fs::path(NMXD_TESTDATA_DIR) / "no-such-file.lua", config, problems);
+        nmtreediff::loadConfigScript(fs::path(NMTREEDIFF_TESTDATA_DIR) / "no-such-file.lua", config,
+                                     problems);
     REQUIRE_FALSE(loaded.ok());
     CHECK(loaded.error() == ConfigError::NotFound);
 }
 
 TEST_CASE("a configuration file loads from disk", "[config]") {
-    const fs::path path = fs::temp_directory_path() / "nmxd_test_config.lua";
+    const fs::path path = fs::temp_directory_path() / "nmtreediff_test_config.lua";
     {
         std::ofstream out(path, std::ios::binary);
         out << "formats { ['.bt'] = 'bt' }\nfallback 'xml'\n";
@@ -182,7 +183,7 @@ TEST_CASE("a configuration file loads from disk", "[config]") {
 
     ProviderConfig config;
     std::vector<ConfigProblem> problems;
-    const auto loaded = nmxd::loadConfigScript(path, config, problems);
+    const auto loaded = nmtreediff::loadConfigScript(path, config, problems);
     REQUIRE(loaded.ok());
     CHECK(problems.empty());
     REQUIRE(config.extensions.size() == 1);
@@ -196,9 +197,9 @@ TEST_CASE("a later script overrides an earlier one", "[config]") {
     // general answer and --config is the specific one.
     ProviderConfig config;
     std::vector<ConfigProblem> problems;
-    CHECK(nmxd::runConfigScript("fallback 'xml'\ngraph_direction 'top_down'\n", "home.lua",
-                                config, problems));
-    CHECK(nmxd::runConfigScript("fallback 'json'\n", "explicit.lua", config, problems));
+    CHECK(nmtreediff::runConfigScript("fallback 'xml'\ngraph_direction 'top_down'\n", "home.lua",
+                                      config, problems));
+    CHECK(nmtreediff::runConfigScript("fallback 'json'\n", "explicit.lua", config, problems));
 
     CHECK(problems.empty());
     CHECK(config.fallback == "json");
@@ -207,7 +208,7 @@ TEST_CASE("a later script overrides an earlier one", "[config]") {
 }
 
 TEST_CASE("a configured extension beats sniffing", "[config][registry]") {
-    auto registry = nmxd::makeDefaultRegistry();
+    auto registry = nmtreediff::makeDefaultRegistry();
 
     // Without the override this file is JSON by any reading of it.
     const auto source = makeSource("{\"a\": 1}", "level.data");
@@ -224,7 +225,7 @@ TEST_CASE("a configured extension beats sniffing", "[config][registry]") {
 }
 
 TEST_CASE("an override is matched without regard to case", "[config][registry]") {
-    auto registry = nmxd::makeDefaultRegistry();
+    auto registry = nmtreediff::makeDefaultRegistry();
     CHECK(registry.mapExtension(".Data", "xml"));
 
     REQUIRE(registry.overrideFor(".DATA") != nullptr);
@@ -233,7 +234,7 @@ TEST_CASE("an override is matched without regard to case", "[config][registry]")
 }
 
 TEST_CASE("the last mapping of an extension wins", "[config][registry]") {
-    auto registry = nmxd::makeDefaultRegistry();
+    auto registry = nmtreediff::makeDefaultRegistry();
     ProviderConfig config;
     config.extensions = {{".data", "xml"}, {".data", "bt"}};
     CHECK(registry.apply(config).empty());
@@ -245,7 +246,7 @@ TEST_CASE("the last mapping of an extension wins", "[config][registry]") {
 TEST_CASE("an unknown provider name is reported, not ignored", "[config][registry]") {
     // A typo in a studio-wide configuration would otherwise send every artist's
     // diff quietly through the wrong provider.
-    auto registry = nmxd::makeDefaultRegistry();
+    auto registry = nmtreediff::makeDefaultRegistry();
     ProviderConfig config;
     config.extensions = {{".bt", "behaviour-tree"}};
     config.fallback = "yaml";
@@ -260,7 +261,7 @@ TEST_CASE("an unknown provider name is reported, not ignored", "[config][registr
 }
 
 TEST_CASE("a configured fallback catches what nothing claims", "[config][registry]") {
-    auto registry = nmxd::makeDefaultRegistry();
+    auto registry = nmtreediff::makeDefaultRegistry();
     const auto source = makeSource("neither one thing nor the other", "mystery.dat");
 
     REQUIRE(registry.resolve(source) != nullptr);

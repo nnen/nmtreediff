@@ -3,7 +3,7 @@
 
 #include "formats/xml_spans.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -94,4 +94,4 @@ bool isSelfClosing(std::string_view text, std::uint32_t tagEnd) {
     return tagEnd >= 2 && tagEnd <= text.size() && text[tagEnd - 2] == '/';
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

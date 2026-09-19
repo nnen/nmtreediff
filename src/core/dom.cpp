@@ -3,7 +3,7 @@
 
 #include "core/dom.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 // ---- DomProperty ----------------------------------------------------------
 
@@ -224,4 +224,4 @@ DomNode Dom::at(DomId id) const noexcept {
     return id < tree_->size() ? DomNode(this, id) : DomNode{};
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

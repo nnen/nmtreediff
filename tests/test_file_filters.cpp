@@ -9,8 +9,8 @@
 #include "core/lua_provider.h"
 #include "core/registry.h"
 
-using nmxd::FileFilter;
-using nmxd::ProviderConfig;
+using nmtreediff::FileFilter;
+using nmtreediff::ProviderConfig;
 
 namespace {
 
@@ -34,8 +34,8 @@ bool admits(const FileFilter& filter, const std::string& extension) {
 }  // namespace
 
 TEST_CASE("the dialog offers every built-in format and everything first", "[filters]") {
-    const auto registry = nmxd::makeDefaultRegistry();
-    const auto filters = nmxd::fileFiltersFor(registry);
+    const auto registry = nmtreediff::makeDefaultRegistry();
+    const auto filters = nmtreediff::fileFiltersFor(registry);
 
     REQUIRE(filters.size() >= 2);
     CHECK(filters.front().name == "Tree data");
@@ -69,8 +69,8 @@ TEST_CASE("a scripted format gets an entry under its own name", "[filters]") {
     // R21's example: a Blackboard format claiming .blackboard is offered as
     // "Blackboard", and the everything entry admits .blackboard too.
     ProviderConfig config;
-    std::vector<nmxd::ConfigProblem> problems;
-    REQUIRE(nmxd::runConfigScript(
+    std::vector<nmtreediff::ConfigProblem> problems;
+    REQUIRE(nmtreediff::runConfigScript(
         "provider 'blackboard' {\n"
         "  display_name = 'Blackboard',\n"
         "  base = 'xml',\n"
@@ -78,10 +78,10 @@ TEST_CASE("a scripted format gets an entry under its own name", "[filters]") {
         "}\n"
         "provider 'silent' { base = 'json' }\n",
         "test.lua", config, problems));
-    auto registry = nmxd::makeDefaultRegistry();
-    REQUIRE(nmxd::addScriptedProviders(registry, config).empty());
+    auto registry = nmtreediff::makeDefaultRegistry();
+    REQUIRE(nmtreediff::addScriptedProviders(registry, config).empty());
 
-    const auto filters = nmxd::fileFiltersFor(registry);
+    const auto filters = nmtreediff::fileFiltersFor(registry);
     const FileFilter& blackboard = entryNamed(filters, "Blackboard");
     CHECK(blackboard.extensions == "blackboard,bb");
     CHECK(admits(filters.front(), "blackboard"));
@@ -96,13 +96,13 @@ TEST_CASE("a scripted format gets an entry under its own name", "[filters]") {
 
 TEST_CASE("a configured extension is admitted under the format it points at", "[filters]") {
     ProviderConfig config;
-    std::vector<nmxd::ConfigProblem> problems;
-    REQUIRE(nmxd::runConfigScript("formats { ['.leveldata'] = 'json', ['.XML'] = 'bt' }\n",
-                                  "test.lua", config, problems));
-    auto registry = nmxd::makeDefaultRegistry();
+    std::vector<nmtreediff::ConfigProblem> problems;
+    REQUIRE(nmtreediff::runConfigScript("formats { ['.leveldata'] = 'json', ['.XML'] = 'bt' }\n",
+                                        "test.lua", config, problems));
+    auto registry = nmtreediff::makeDefaultRegistry();
     REQUIRE(registry.apply(config).empty());
 
-    const auto filters = nmxd::fileFiltersFor(registry);
+    const auto filters = nmtreediff::fileFiltersFor(registry);
     CHECK(admits(entryNamed(filters, "JSON (generic)"), "leveldata"));
     CHECK(admits(filters.front(), "leveldata"));
 

@@ -10,9 +10,9 @@
 #include "core/registry.h"
 #include "core/session.h"
 
-using nmxd::Session;
-using nmxd::SessionRequest;
-using nmxd::Stage;
+using nmtreediff::Session;
+using nmtreediff::SessionRequest;
+using nmtreediff::Stage;
 
 namespace {
 
@@ -34,8 +34,8 @@ TEST_CASE("a new session starts idle with no sources", "[session]") {
 }
 
 TEST_CASE("opening a pair publishes both sources", "[session]") {
-    const auto left = writeTemp("nmxd_session_left.xml", "<root>\n  <a/>\n</root>\n");
-    const auto right = writeTemp("nmxd_session_right.xml", "<root>\n  <b/>\n</root>\n");
+    const auto left = writeTemp("nmtreediff_session_left.xml", "<root>\n  <a/>\n</root>\n");
+    const auto right = writeTemp("nmtreediff_session_right.xml", "<root>\n  <b/>\n</root>\n");
 
     Session session(2);
     session.open(SessionRequest{left, right, "left", "right"});
@@ -60,8 +60,9 @@ TEST_CASE("opening a pair publishes both sources", "[session]") {
 }
 
 TEST_CASE("the sources are published before the diff finishes", "[session]") {
-    const auto left = writeTemp("nmxd_session_staged_left.xml", "<root>\n  <a/>\n</root>\n");
-    const auto right = writeTemp("nmxd_session_staged_right.xml", "<root>\n  <b/>\n</root>\n");
+    const auto left = writeTemp("nmtreediff_session_staged_left.xml", "<root>\n  <a/>\n</root>\n");
+    const auto right =
+        writeTemp("nmtreediff_session_staged_right.xml", "<root>\n  <b/>\n</root>\n");
 
     Session session(2);
     const auto before = session.snapshotVersion();
@@ -77,7 +78,7 @@ TEST_CASE("the sources are published before the diff finishes", "[session]") {
 }
 
 TEST_CASE("a missing file fails with the path in the message", "[session]") {
-    const auto left = writeTemp("nmxd_session_present.xml", "<root/>\n");
+    const auto left = writeTemp("nmtreediff_session_present.xml", "<root/>\n");
 
     Session session(1);
     session.open(SessionRequest{left, "no/such/file.xml", "left", "right"});
@@ -93,8 +94,8 @@ TEST_CASE("a missing file fails with the path in the message", "[session]") {
 }
 
 TEST_CASE("each publication bumps the snapshot version", "[session]") {
-    const auto left = writeTemp("nmxd_session_v_left.xml", "<a/>\n");
-    const auto right = writeTemp("nmxd_session_v_right.xml", "<b/>\n");
+    const auto left = writeTemp("nmtreediff_session_v_left.xml", "<a/>\n");
+    const auto right = writeTemp("nmtreediff_session_v_right.xml", "<b/>\n");
 
     Session session(1);
     const auto before = session.snapshotVersion();
@@ -111,8 +112,9 @@ TEST_CASE("each publication bumps the snapshot version", "[session]") {
 }
 
 TEST_CASE("both sides are parsed into trees", "[session]") {
-    const auto left = writeTemp("nmxd_session_tree_left.xml", "<root><a id=\"1\"/></root>\n");
-    const auto right = writeTemp("nmxd_session_tree_right.xml", "<root><a id=\"1\"/><b/></root>\n");
+    const auto left = writeTemp("nmtreediff_session_tree_left.xml", "<root><a id=\"1\"/></root>\n");
+    const auto right =
+        writeTemp("nmtreediff_session_tree_right.xml", "<root><a id=\"1\"/><b/></root>\n");
 
     Session session(2);
     session.open(SessionRequest{left, right, "left", "right", ""});
@@ -142,8 +144,8 @@ TEST_CASE("both sides are parsed into trees", "[session]") {
 }
 
 TEST_CASE("an unknown format is reported, not silently sniffed", "[session]") {
-    const auto left = writeTemp("nmxd_session_fmt_left.xml", "<root/>\n");
-    const auto right = writeTemp("nmxd_session_fmt_right.xml", "<root/>\n");
+    const auto left = writeTemp("nmtreediff_session_fmt_left.xml", "<root/>\n");
+    const auto right = writeTemp("nmtreediff_session_fmt_right.xml", "<root/>\n");
 
     Session session(1);
     session.open(SessionRequest{left, right, "left", "right", "not-a-format"});
@@ -164,17 +166,17 @@ TEST_CASE("reconfiguring rebuilds the providers and keeps an old snapshot valid"
     // comparison must show the change. The first snapshot is held across the
     // swap and its provider must still answer, because a frame may be drawing
     // it while the new comparison runs.
-    const auto left = writeTemp("nmxd_session_reload_left.xml", "<r><a/></r>");
-    const auto right = writeTemp("nmxd_session_reload_right.xml", "<r><a/><b/></r>");
+    const auto left = writeTemp("nmtreediff_session_reload_left.xml", "<r><a/></r>");
+    const auto right = writeTemp("nmtreediff_session_reload_right.xml", "<r><a/><b/></r>");
 
     const auto configure = [](Session& session, const char* title) {
         std::string script = "provider 'scripted' {\n  base = 'xml',\n  shape = function(doc, out)\n";
         script += "    out:root(doc.root):set_title('";
         script += title;
         script += "')\n  end,\n}\n";
-        nmxd::ProviderConfig config;
-        std::vector<nmxd::ConfigProblem> problems;
-        REQUIRE(nmxd::runConfigScript(script, "reload.lua", config, problems));
+        nmtreediff::ProviderConfig config;
+        std::vector<nmtreediff::ConfigProblem> problems;
+        REQUIRE(nmtreediff::runConfigScript(script, "reload.lua", config, problems));
         REQUIRE(session.configureProviders(config).empty());
     };
 
@@ -211,8 +213,8 @@ TEST_CASE("reconfiguring rebuilds the providers and keeps an old snapshot valid"
 TEST_CASE("a malformed document fails after the text diff succeeded", "[session]") {
     // The text view still works on a file the parser rejects, which is exactly
     // why the stages publish separately.
-    const auto left = writeTemp("nmxd_session_bad_left.xml", "<root></root>\n");
-    const auto right = writeTemp("nmxd_session_bad_right.xml", "<root><unclosed></root>\n");
+    const auto left = writeTemp("nmtreediff_session_bad_left.xml", "<root></root>\n");
+    const auto right = writeTemp("nmtreediff_session_bad_right.xml", "<root><unclosed></root>\n");
 
     Session session(1);
     session.open(SessionRequest{left, right, "left", "right", ""});

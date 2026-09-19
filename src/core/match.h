@@ -10,7 +10,7 @@
 #include "core/provider.h"
 #include "core/tree.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief A correspondence between the nodes of two trees.
 ///
@@ -176,4 +176,4 @@ struct MatchResult {
                                      const IFormatProvider& provider, std::stop_token token = {},
                                      MatchOptions options = {});
 
-}  // namespace nmxd
+}  // namespace nmtreediff

@@ -2,10 +2,10 @@
 
 #include "core/tree.h"
 
-using nmxd::kInvalidNode;
-using nmxd::NodeId;
-using nmxd::SourceSpan;
-using nmxd::Tree;
+using nmtreediff::kInvalidNode;
+using nmtreediff::NodeId;
+using nmtreediff::SourceSpan;
+using nmtreediff::Tree;
 
 TEST_CASE("an empty tree has no root", "[tree]") {
     Tree tree;

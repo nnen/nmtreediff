@@ -12,7 +12,7 @@
 #include "core/config.h"
 #include "core/provider.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief The set of formats the tool knows, and how a file resolves to one.
 ///
@@ -150,4 +150,4 @@ private:
 ///          one list that has to be edited.
 [[nodiscard]] ProviderRegistry makeDefaultRegistry();
 
-}  // namespace nmxd
+}  // namespace nmtreediff

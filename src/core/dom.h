@@ -14,7 +14,7 @@
 #include "core/source.h"
 #include "core/tree.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 class Dom;
 class DomNode;
@@ -509,4 +509,4 @@ private:
     std::vector<std::uint32_t> siblingIndex_;
 };
 
-}  // namespace nmxd
+}  // namespace nmtreediff

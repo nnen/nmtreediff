@@ -7,7 +7,7 @@
 -- surface is missing something the compiled provider can say.
 --
 -- Try it with:
---   nmxmldiff --config testdata/sample/behaviortree.lua --format bt-lua \
+--   nmtreediff --config testdata/sample/behaviortree.lua --format bt-lua \
 --             testdata/sample/guard_before.bt testdata/sample/guard_after.bt
 
 provider "bt-lua" {

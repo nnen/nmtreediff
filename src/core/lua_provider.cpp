@@ -15,7 +15,7 @@
 #include "core/registry.h"
 #include "core/shape.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -189,4 +189,4 @@ std::vector<std::string> addScriptedProviders(ProviderRegistry& registry,
     return unknown;
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

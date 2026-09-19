@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -76,8 +76,8 @@ ParseResult parseInto(CLI::App& app, std::vector<std::string> reversedArgs) {
     // path or none is a starting point rather than a mistake: the missing side
     // is chosen in the window.
     if (options.headless && !options.hasInputs()) {
-        logErr("nmxmldiff: two files are required in headless mode");
-        logErr("usage: nmxmldiff [options] <left> <right>");
+        logErr("nmtreediff: two files are required in headless mode");
+        logErr("usage: nmtreediff [options] <left> <right>");
         return ParseResult{std::nullopt, 2};
     }
 
@@ -97,8 +97,8 @@ ParseResult parseInto(CLI::App& app, std::vector<std::string> reversedArgs) {
 }  // namespace
 
 ParseResult parseArguments(const std::vector<std::string>& arguments) {
-    CLI::App app{kDescription, "nmxmldiff"};
-    app.set_version_flag("--version", std::string(NMXD_VERSION));
+    CLI::App app{kDescription, "nmtreediff"};
+    app.set_version_flag("--version", std::string(NMTREEDIFF_VERSION));
 
     std::vector<std::string> reversed(arguments.rbegin(), arguments.rend());
     return parseInto(app, std::move(reversed));
@@ -113,4 +113,4 @@ ParseResult parseCommandLine(int argc, char** argv) {
     return parseArguments(arguments);
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

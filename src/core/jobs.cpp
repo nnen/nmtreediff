@@ -5,7 +5,7 @@
 
 #include <algorithm>
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -131,4 +131,4 @@ void JobSystem::workerLoop(std::stop_token shutdown) {
     }
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

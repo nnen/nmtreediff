@@ -5,7 +5,7 @@
 
 #include <utility>
 
-namespace nmxd {
+namespace nmtreediff {
 
 Log& Log::instance() {
     static Log log;
@@ -84,4 +84,4 @@ void logOut(std::string_view text) { Log::instance().write(LogStream::Out, text)
 
 void logErr(std::string_view text) { Log::instance().write(LogStream::Err, text); }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

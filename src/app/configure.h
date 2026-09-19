@@ -5,7 +5,7 @@
 
 #include "app/cli.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Reads every configuration script that applies to this run.
 ///
@@ -24,4 +24,4 @@ namespace nmxd {
 ///          two cannot drift apart in what they accept.
 [[nodiscard]] bool loadConfiguration(Options& options);
 
-}  // namespace nmxd
+}  // namespace nmtreediff

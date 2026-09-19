@@ -7,7 +7,7 @@
 #include <fstream>
 #include <system_error>
 
-namespace nmxd {
+namespace nmtreediff {
 
 const char* describe(LoadError error) noexcept {
     switch (error) {
@@ -138,4 +138,4 @@ std::string_view SourceFile::slice(SourceSpan span) const noexcept {
     return std::string_view(bytes_).substr(begin, end - begin);
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

@@ -11,7 +11,7 @@
 
 #include "core/file_filters.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Which side of the comparison a chosen file belongs to.
 enum class PickerTarget {
@@ -101,4 +101,4 @@ private:
     PickerTarget target_ = PickerTarget::Left;
 };
 
-}  // namespace nmxd
+}  // namespace nmtreediff

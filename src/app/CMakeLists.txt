@@ -1,22 +1,22 @@
 # The command line surface and the entry point. The GUI is a separate library
 # so that the headless path, and the tests, never link a window toolkit.
 
-add_library(nmxd_cli STATIC
+add_library(nmtreediff_cli STATIC
     cli.cpp
     configure.cpp
     console.cpp
     report.cpp
 )
-target_include_directories(nmxd_cli PUBLIC ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(nmxd_cli
-    PUBLIC nmxd::core
-    PRIVATE CLI11::CLI11 nmxd_warnings
+target_include_directories(nmtreediff_cli PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(nmtreediff_cli
+    PUBLIC nmtreediff::core
+    PRIVATE CLI11::CLI11 nmtreediff_warnings
 )
-target_compile_definitions(nmxd_cli PRIVATE NMXD_VERSION="${PROJECT_VERSION}")
-add_library(nmxd::cli ALIAS nmxd_cli)
+target_compile_definitions(nmtreediff_cli PRIVATE NMTREEDIFF_VERSION="${PROJECT_VERSION}")
+add_library(nmtreediff::cli ALIAS nmtreediff_cli)
 
-if(NMXD_BUILD_GUI)
-    add_library(nmxd_ui STATIC
+if(NMTREEDIFF_BUILD_GUI)
+    add_library(nmtreediff_ui STATIC
         ${CMAKE_SOURCE_DIR}/src/ui/app_window.cpp
         ${CMAKE_SOURCE_DIR}/src/ui/file_picker.cpp
         ${CMAKE_SOURCE_DIR}/src/ui/node_view.cpp
@@ -25,22 +25,22 @@ if(NMXD_BUILD_GUI)
         ${CMAKE_SOURCE_DIR}/src/ui/theme.cpp
         ${CMAKE_SOURCE_DIR}/src/ui/welcome.cpp
     )
-    target_include_directories(nmxd_ui PUBLIC ${CMAKE_SOURCE_DIR}/src)
-    target_link_libraries(nmxd_ui
-        PUBLIC nmxd::core nmxd::cli
-        PRIVATE imgui::imgui nfd::nfd nmxd_warnings
+    target_include_directories(nmtreediff_ui PUBLIC ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(nmtreediff_ui
+        PUBLIC nmtreediff::core nmtreediff::cli
+        PRIVATE imgui::imgui nfd::nfd nmtreediff_warnings
     )
-    add_library(nmxd::ui ALIAS nmxd_ui)
+    add_library(nmtreediff::ui ALIAS nmtreediff_ui)
 endif()
 
-add_executable(nmxmldiff main.cpp)
-target_link_libraries(nmxmldiff PRIVATE nmxd::cli nmxd_warnings)
+add_executable(nmtreediff main.cpp)
+target_link_libraries(nmtreediff PRIVATE nmtreediff::cli nmtreediff_warnings)
 
-if(NMXD_BUILD_GUI)
-    target_link_libraries(nmxmldiff PRIVATE nmxd::ui)
-    target_compile_definitions(nmxmldiff PRIVATE NMXD_HAVE_GUI=1)
+if(NMTREEDIFF_BUILD_GUI)
+    target_link_libraries(nmtreediff PRIVATE nmtreediff::ui)
+    target_compile_definitions(nmtreediff PRIVATE NMTREEDIFF_HAVE_GUI=1)
 else()
-    target_compile_definitions(nmxmldiff PRIVATE NMXD_HAVE_GUI=0)
+    target_compile_definitions(nmtreediff PRIVATE NMTREEDIFF_HAVE_GUI=0)
 endif()
 
 # A GUI subsystem binary, so a launch from the desktop or a version control
@@ -49,7 +49,7 @@ endif()
 # find it again: a redirected handle is used as it is, and otherwise the
 # parent's console is attached. See src/app/console.cpp. The entry point stays
 # main(); only the subsystem changes.
-set_target_properties(nmxmldiff PROPERTIES WIN32_EXECUTABLE ON)
+set_target_properties(nmtreediff PROPERTIES WIN32_EXECUTABLE ON)
 if(MSVC)
-    target_link_options(nmxmldiff PRIVATE /ENTRY:mainCRTStartup)
+    target_link_options(nmtreediff PRIVATE /ENTRY:mainCRTStartup)
 endif()

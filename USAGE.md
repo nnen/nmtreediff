@@ -20,8 +20,8 @@ cmake -S . -B build
 cmake --build build --config RelWithDebInfo
 ```
 
-The program lands at `build/bin/RelWithDebInfo/nmxmldiff`. The rest of this
-guide calls it `nmxmldiff`.
+The program lands at `build/bin/RelWithDebInfo/nmtreediff`. The rest of this
+guide calls it `nmtreediff`.
 
 Comparing two files
 -------------------
@@ -29,7 +29,7 @@ Comparing two files
 Give it two paths. The first is the older side, shown on the left.
 
 ```bash
-nmxmldiff testdata/sample/tree_before.xml testdata/sample/tree_after.xml
+nmtreediff testdata/sample/tree_before.xml testdata/sample/tree_after.xml
 ```
 
 The window opens immediately and the files are read behind it, so a large pair
@@ -71,7 +71,7 @@ By default each side is titled with its path. When a version control system
 hands you a temporary file, that path says nothing, so override it:
 
 ```bash
-nmxmldiff --left-label "tree.xml #14" --right-label "tree.xml #15" old.xml new.xml
+nmtreediff --left-label "tree.xml #14" --right-label "tree.xml #15" old.xml new.xml
 ```
 
 The two views
@@ -200,7 +200,7 @@ Formats
 Three formats are built in. Ask the program what it has:
 
 ```bash
-nmxmldiff --list-formats
+nmtreediff --list-formats
 ```
 
 - **XML**, where every element is a node and every attribute is a property.
@@ -214,7 +214,7 @@ A format is chosen by extension first, and by a look at the first bytes when
 the extension is unfamiliar. Override that when it guesses wrong:
 
 ```bash
-nmxmldiff --format xml odd_suffix.dat other.dat
+nmtreediff --format xml odd_suffix.dat other.dat
 ```
 
 There are two behaviour trees in `testdata/sample`. The small one, `tree_before`
@@ -681,7 +681,7 @@ it to a file, or run it from a script, and none of that applies; a version
 control tool waits on the process and is unaffected.
 
 ```bash
-nmxmldiff --headless testdata/sample/tree_before.xml testdata/sample/tree_after.xml
+nmtreediff --headless testdata/sample/tree_before.xml testdata/sample/tree_after.xml
 ```
 
 Add `--report json` for a machine-readable version of the same thing. Add
@@ -743,7 +743,7 @@ and the details differ more than you would hope.
 ### Perforce
 
 Per-extension diff applications are a P4V setting, in **Preferences, Diff**.
-Add an entry, choose the extension, browse to `nmxmldiff.exe`, and leave the
+Add an entry, choose the extension, browse to `nmtreediff.exe`, and leave the
 arguments field to pass the two files. Perforce substitutes `%1` and `%2` for
 them.
 
@@ -773,7 +773,7 @@ which the two files are the second and the fifth:
 ```bash
 #!/bin/sh
 # $1 path, $2 old file, $3 old hash, $4 old mode, $5 new file, ...
-exec nmxmldiff --left-label "$1 (old)" --right-label "$1" "$2" "$5"
+exec nmtreediff --left-label "$1 (old)" --right-label "$1" "$2" "$5"
 ```
 
 This drives `git diff`. `git difftool` is a separate mechanism with one tool for

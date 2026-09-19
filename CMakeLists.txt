@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(nmxmldiff
+project(nmtreediff
     VERSION 0.3.0
     DESCRIPTION "Diff tree-shaped data in XML and JSON"
     LANGUAGES CXX
@@ -16,30 +16,30 @@ endif()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-option(NMXD_BUILD_GUI "Build the GUI application" ON)
-option(NMXD_BUILD_TESTS "Build the tests" ON)
-option(NMXD_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+option(NMTREEDIFF_BUILD_GUI "Build the GUI application" ON)
+option(NMTREEDIFF_BUILD_TESTS "Build the tests" ON)
+option(NMTREEDIFF_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 
 include(cmake/Dependencies.cmake)
 
 # Warning settings shared by our own targets and not imposed on dependencies.
-add_library(nmxd_warnings INTERFACE)
+add_library(nmtreediff_warnings INTERFACE)
 if(MSVC)
-    target_compile_options(nmxd_warnings INTERFACE /W4 /permissive- /utf-8)
-    if(NMXD_WARNINGS_AS_ERRORS)
-        target_compile_options(nmxd_warnings INTERFACE /WX)
+    target_compile_options(nmtreediff_warnings INTERFACE /W4 /permissive- /utf-8)
+    if(NMTREEDIFF_WARNINGS_AS_ERRORS)
+        target_compile_options(nmtreediff_warnings INTERFACE /WX)
     endif()
 else()
-    target_compile_options(nmxd_warnings INTERFACE -Wall -Wextra -Wpedantic)
-    if(NMXD_WARNINGS_AS_ERRORS)
-        target_compile_options(nmxd_warnings INTERFACE -Werror)
+    target_compile_options(nmtreediff_warnings INTERFACE -Wall -Wextra -Wpedantic)
+    if(NMTREEDIFF_WARNINGS_AS_ERRORS)
+        target_compile_options(nmtreediff_warnings INTERFACE -Werror)
     endif()
 endif()
 
 add_subdirectory(src/core)
 add_subdirectory(src/app)
 
-if(NMXD_BUILD_TESTS)
+if(NMTREEDIFF_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
@@ -60,4 +60,4 @@ else()
     message(STATUS "Doxygen not found; the 'docs' target is unavailable")
 endif()
 
-message(STATUS "nmxmldiff ${PROJECT_VERSION}: gui=${NMXD_BUILD_GUI} tests=${NMXD_BUILD_TESTS}")
+message(STATUS "nmtreediff ${PROJECT_VERSION}: gui=${NMTREEDIFF_BUILD_GUI} tests=${NMTREEDIFF_BUILD_TESTS}")

@@ -128,7 +128,7 @@ cmake --build build --target docs
 Then compare two files:
 
 ```bash
-build/bin/RelWithDebInfo/nmxmldiff testdata/sample/tree_before.xml testdata/sample/tree_after.xml
+build/bin/RelWithDebInfo/nmtreediff testdata/sample/tree_before.xml testdata/sample/tree_after.xml
 ```
 
 [USAGE.md](USAGE.md) covers the rest: the two views, choosing a format, the

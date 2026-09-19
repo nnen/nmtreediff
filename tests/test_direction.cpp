@@ -19,15 +19,15 @@
 // override going the wrong way round, and the two disagreeing about which axis
 // grows with depth.
 
-using nmxd::buildLayout;
-using nmxd::GraphDirection;
-using nmxd::IFormatProvider;
-using nmxd::kInvalidLayout;
-using nmxd::LayoutNode;
-using nmxd::resolveDirection;
-using nmxd::SourceFile;
-using nmxd::Tree;
-using nmxd::TreeLayout;
+using nmtreediff::buildLayout;
+using nmtreediff::GraphDirection;
+using nmtreediff::IFormatProvider;
+using nmtreediff::kInvalidLayout;
+using nmtreediff::LayoutNode;
+using nmtreediff::resolveDirection;
+using nmtreediff::SourceFile;
+using nmtreediff::Tree;
+using nmtreediff::TreeLayout;
 
 namespace {
 
@@ -45,7 +45,7 @@ Tree parse(const IFormatProvider& provider, const std::string& xml) {
 }
 
 TreeLayout layOut(const IFormatProvider& provider, const Tree& tree, GraphDirection direction) {
-    const auto model = nmxd::diffTrees(tree, tree, provider);
+    const auto model = nmtreediff::diffTrees(tree, tree, provider);
     return buildLayout(tree, tree, model, provider, {}, {}, direction);
 }
 
@@ -61,8 +61,9 @@ public:
     std::span<const std::string_view> defaultExtensions() const override { return {}; }
     int score(const SourceFile&) const override { return 0; }
 
-    nmxd::Result<Tree, nmxd::ParseError> read(const SourceFile&, std::stop_token) const override {
-        return nmxd::fail(nmxd::ParseError::Empty);
+    nmtreediff::Result<Tree, nmtreediff::ParseError> read(const SourceFile&,
+                                                          std::stop_token) const override {
+        return nmtreediff::fail(nmtreediff::ParseError::Empty);
     }
 
     GraphDirection graphDirection() const override { return direction_; }
@@ -74,7 +75,7 @@ private:
 }  // namespace
 
 TEST_CASE("top down puts every child below its parent", "[direction]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree tree = parse(*provider, kDeepTree);
     const auto layout = layOut(*provider, tree, GraphDirection::TopDown);
 
@@ -91,7 +92,7 @@ TEST_CASE("top down puts every child below its parent", "[direction]") {
 }
 
 TEST_CASE("left to right puts every child right of its parent", "[direction]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree tree = parse(*provider, kDeepTree);
     const auto layout = layOut(*provider, tree, GraphDirection::LeftToRight);
 
@@ -110,7 +111,7 @@ TEST_CASE("left to right puts every child right of its parent", "[direction]") {
 TEST_CASE("cards at one level line up", "[direction]") {
     // A ragged edge reads as disorder rather than as depth, and it is worst
     // left to right where card widths vary most.
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree tree = parse(*provider, kDeepTree);
 
     for (const GraphDirection direction :
@@ -124,7 +125,7 @@ TEST_CASE("cards at one level line up", "[direction]") {
                 continue;
             }
             const LayoutNode& first = layout.nodes[parent.children.front()];
-            for (const nmxd::LayoutId child : parent.children) {
+            for (const nmtreediff::LayoutId child : parent.children) {
                 const LayoutNode& card = layout.nodes[child];
                 const float a = direction == GraphDirection::LeftToRight ? card.x : card.y;
                 const float b = direction == GraphDirection::LeftToRight ? first.x : first.y;
@@ -135,7 +136,7 @@ TEST_CASE("cards at one level line up", "[direction]") {
 }
 
 TEST_CASE("no two cards overlap in either direction", "[direction]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     const Tree tree = parse(*provider, kDeepTree);
 
     for (const GraphDirection direction :
@@ -155,7 +156,7 @@ TEST_CASE("no two cards overlap in either direction", "[direction]") {
 }
 
 TEST_CASE("a provider with no opinion takes the reader's choice", "[direction]") {
-    const auto provider = nmxd::makeGenericXmlProvider();
+    const auto provider = nmtreediff::makeGenericXmlProvider();
     CHECK(provider->graphDirection() == GraphDirection::Inherit);
     CHECK(resolveDirection(*provider, GraphDirection::TopDown) == GraphDirection::TopDown);
     CHECK(resolveDirection(*provider, GraphDirection::LeftToRight) ==
@@ -174,7 +175,7 @@ TEST_CASE("a provider that names a direction overrules the default", "[direction
 TEST_CASE("the behaviour tree asks to be read left to right", "[direction]") {
     // The sample format is the one that exercises the override, and a behaviour
     // tree is the deep narrow shape the option exists for.
-    const auto registry = nmxd::makeDefaultRegistry();
+    const auto registry = nmtreediff::makeDefaultRegistry();
     const IFormatProvider* provider = registry.byName("bt");
     REQUIRE(provider != nullptr);
     CHECK(provider->graphDirection() == GraphDirection::LeftToRight);

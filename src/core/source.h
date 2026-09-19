@@ -12,7 +12,7 @@
 
 #include "core/result.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief A half-open byte range `[begin, end)` into a SourceFile.
 ///
@@ -195,4 +195,4 @@ private:
     std::vector<std::uint32_t> lineStarts_{0};
 };
 
-}  // namespace nmxd
+}  // namespace nmtreediff

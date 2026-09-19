@@ -13,14 +13,14 @@
 
 namespace fs = std::filesystem;
 
-using nmxd::Property;
-using nmxd::PropertyForm;
-using nmxd::kValueProperty;
-using nmxd::Node;
-using nmxd::NodeId;
-using nmxd::ParseError;
-using nmxd::SourceFile;
-using nmxd::Tree;
+using nmtreediff::Property;
+using nmtreediff::PropertyForm;
+using nmtreediff::kValueProperty;
+using nmtreediff::Node;
+using nmtreediff::NodeId;
+using nmtreediff::ParseError;
+using nmtreediff::SourceFile;
+using nmtreediff::Tree;
 
 namespace {
 
@@ -31,7 +31,7 @@ SourceFile makeSource(std::string text, std::string name = "case.json") {
     return SourceFile::fromMemory(std::move(text), name, name);
 }
 
-Tree parseOrFail(const nmxd::IFormatProvider& provider, const SourceFile& source) {
+Tree parseOrFail(const nmtreediff::IFormatProvider& provider, const SourceFile& source) {
     auto result = provider.parse(source, {});
     REQUIRE(result.ok());
     return std::move(result).value();
@@ -39,7 +39,7 @@ Tree parseOrFail(const nmxd::IFormatProvider& provider, const SourceFile& source
 
 // A span is only useful if it points at the thing it claims to. Slicing the
 // source with it is the only check that actually proves that.
-std::string_view slice(const SourceFile& source, nmxd::SourceSpan span) {
+std::string_view slice(const SourceFile& source, nmtreediff::SourceSpan span) {
     return source.text().substr(span.begin, span.end - span.begin);
 }
 
@@ -56,14 +56,14 @@ const Node* childByKind(const Tree& tree, NodeId parent, std::string_view kind) 
 
 
 TEST_CASE("the JSON provider claims JSON files", "[json]") {
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
 
     CHECK(provider->name() == "json");
 
     // An extension only exists on a file that came from disk, so this one case
     // reads a real one rather than building bytes in memory.
     const auto onDisk =
-        SourceFile::load(fs::path(NMXD_TESTDATA_DIR) / "sample" / "level_before.json");
+        SourceFile::load(fs::path(NMTREEDIFF_TESTDATA_DIR) / "sample" / "level_before.json");
     REQUIRE(onDisk.ok());
     CHECK(provider->claimsExtension(onDisk.value()));
     CHECK(provider->score(onDisk.value()) == 90);
@@ -83,14 +83,14 @@ TEST_CASE("the JSON provider claims JSON files", "[json]") {
 }
 
 TEST_CASE("the registry tells the two built-in formats apart", "[json][registry]") {
-    const auto registry = nmxd::makeDefaultRegistry();
+    const auto registry = nmtreediff::makeDefaultRegistry();
 
     // By extension, which is the path a person actually takes.
-    const auto json = SourceFile::load(fs::path(NMXD_TESTDATA_DIR) / "sample" / "level_before.json");
+    const auto json = SourceFile::load(fs::path(NMTREEDIFF_TESTDATA_DIR) / "sample" / "level_before.json");
     // An ordinary XML file, not the behaviour tree in testdata/sample, which
     // the behavior-tree provider claims on sight.
     const auto xml =
-        SourceFile::load(fs::path(NMXD_TESTDATA_DIR) / "golden" / "node_inserted" / "left.xml");
+        SourceFile::load(fs::path(NMTREEDIFF_TESTDATA_DIR) / "golden" / "node_inserted" / "left.xml");
     REQUIRE(json.ok());
     REQUIRE(xml.ok());
 
@@ -115,7 +115,7 @@ TEST_CASE("the registry tells the two built-in formats apart", "[json][registry]
     CHECK(forced->name() == "xml");
 }
 TEST_CASE("objects become nodes and their scalars become properties", "[json]") {
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const auto source = makeSource(R"({"name": "hut", "hp": 40, "nested": {"a": true}})");
     const Tree tree = parseOrFail(*provider, source);
 
@@ -139,7 +139,7 @@ TEST_CASE("objects become nodes and their scalars become properties", "[json]") 
 }
 
 TEST_CASE("scalar values are kept exactly as written", "[json]") {
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const auto source = makeSource(R"({"a": 1.0, "b": 1, "c": "1", "d": "\u00e9", "e": null})");
     const Tree tree = parseOrFail(*provider, source);
     const Node& root = tree.node(tree.root());
@@ -155,7 +155,7 @@ TEST_CASE("scalar values are kept exactly as written", "[json]") {
 }
 
 TEST_CASE("an array of scalars becomes one property", "[json]") {
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const auto source = makeSource(R"({"tags": ["a", "b"], "rooms": [{"n": 1}]})");
     const Tree tree = parseOrFail(*provider, source);
 
@@ -187,7 +187,7 @@ TEST_CASE("an array of arrays of scalars is one property with parts", "[json]") 
     // A four by four transform matrix is this shape, and it is the case nested
     // properties were asked for: one property, not sixteen anonymous nodes four
     // levels deep.
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const auto source = makeSource(R"({"matrix": [[1, 0], [0, 1]]})");
     const Tree tree = parseOrFail(*provider, source);
 
@@ -209,7 +209,7 @@ TEST_CASE("node spans slice back to the source", "[json][span]") {
   "settings": { "fog": true },
   "tags": [ "a", "bb" ]
 })";
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const auto source = makeSource(text);
     const Tree tree = parseOrFail(*provider, source);
 
@@ -247,7 +247,7 @@ TEST_CASE("spans survive a byte order mark", "[json][span]") {
     // Windows tools write one, it is not part of the document, and a span that
     // ignored it would point three bytes short of the truth.
     const std::string text = "\xEF\xBB\xBF{\"a\": 1}";
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const auto source = makeSource(text);
     const Tree tree = parseOrFail(*provider, source);
 
@@ -256,7 +256,7 @@ TEST_CASE("spans survive a byte order mark", "[json][span]") {
 }
 
 TEST_CASE("object members are unordered and array elements are not", "[json][order]") {
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const auto source = makeSource(R"({"list": [1, 2], "rooms": [{"n": 1}], "map": {"x": 1}})");
     const Tree tree = parseOrFail(*provider, source);
 
@@ -280,18 +280,18 @@ TEST_CASE("object members are unordered and array elements are not", "[json][ord
 
 TEST_CASE("reordering a list is a change and reordering a record is not",
           "[json][order]") {
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const Tree listBefore = parseOrFail(*provider, makeSource(R"({"tags": ["a", "b"]})"));
     const Tree listAfter = parseOrFail(*provider, makeSource(R"({"tags": ["b", "a"]})"));
-    CHECK_FALSE(nmxd::diffTrees(listBefore, listAfter, *provider).identical());
+    CHECK_FALSE(nmtreediff::diffTrees(listBefore, listAfter, *provider).identical());
 
     const Tree recordBefore = parseOrFail(*provider, makeSource(R"({"m": {"x": 1, "y": 2}})"));
     const Tree recordAfter = parseOrFail(*provider, makeSource(R"({"m": {"y": 2, "x": 1}})"));
-    CHECK(nmxd::diffTrees(recordBefore, recordAfter, *provider).identical());
+    CHECK(nmtreediff::diffTrees(recordBefore, recordAfter, *provider).identical());
 }
 
 TEST_CASE("reordering object members is not a change", "[json][order]") {
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const auto before = makeSource(R"({"a": {"p": 1}, "b": {"q": 2}})");
     const auto after = makeSource(R"({"b": {"q": 2}, "a": {"p": 1}})");
 
@@ -302,12 +302,12 @@ TEST_CASE("reordering object members is not a change", "[json][order]") {
     // document match without any comparison work at all.
     CHECK(left.node(left.root()).contentHash == right.node(right.root()).contentHash);
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
     CHECK(model.identical());
 }
 
 TEST_CASE("reordering array elements is a move", "[json][order]") {
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const auto before = makeSource(R"({"list": [{"p": 1}, {"q": 2}]})");
     const auto after = makeSource(R"({"list": [{"q": 2}, {"p": 1}]})");
 
@@ -316,7 +316,7 @@ TEST_CASE("reordering array elements is a move", "[json][order]") {
 
     CHECK(left.node(left.root()).contentHash != right.node(right.root()).contentHash);
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
     CHECK_FALSE(model.identical());
     CHECK(model.moved > 0);
     CHECK(model.added == 0);
@@ -326,16 +326,16 @@ TEST_CASE("reordering array elements is a move", "[json][order]") {
 TEST_CASE("an empty object and an empty array are not the same node", "[json]") {
     // They would hash identically without the type marker, and a diff tool
     // reporting no change here would be quietly wrong.
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const Tree left = parseOrFail(*provider, makeSource(R"({"a": {}})"));
     const Tree right = parseOrFail(*provider, makeSource(R"({"a": []})"));
 
-    const auto model = nmxd::diffTrees(left, right, *provider);
+    const auto model = nmtreediff::diffTrees(left, right, *provider);
     CHECK_FALSE(model.identical());
 }
 
 TEST_CASE("a document holding one scalar is still a tree", "[json]") {
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const Tree tree = parseOrFail(*provider, makeSource("  42  "));
 
     REQUIRE(tree.size() == 1);
@@ -346,7 +346,7 @@ TEST_CASE("a document holding one scalar is still a tree", "[json]") {
 }
 
 TEST_CASE("malformed JSON is refused", "[json]") {
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
 
     const auto refuses = [&provider](std::string text) {
         auto result = provider->parse(makeSource(std::move(text)), {});
@@ -378,7 +378,7 @@ TEST_CASE("malformed JSON is refused", "[json]") {
 TEST_CASE("duplicate keys are both kept", "[json]") {
     // JSON permits them and real files contain them. Dropping one would hide a
     // difference the reader came to see.
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const Tree tree = parseOrFail(*provider, makeSource(R"({"a": 1, "a": 2})"));
 
     const Node& root = tree.node(tree.root());
@@ -392,7 +392,7 @@ TEST_CASE("duplicate keys are both kept", "[json]") {
 }
 
 TEST_CASE("a JSON tree hashes the same twice", "[json][hash]") {
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const auto source = makeSource(R"({"a": [1, {"b": "c"}], "d": {"e": null}})");
 
     const Tree first = parseOrFail(*provider, source);
@@ -406,19 +406,19 @@ TEST_CASE("a JSON tree hashes the same twice", "[json][hash]") {
 }
 
 TEST_CASE("the JSON provider styles nodes distinguishably", "[json]") {
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const Tree tree = parseOrFail(*provider, makeSource(R"({"enemies": [{"id": "orc"}]})"));
 
     const Node* enemies = childByKind(tree, tree.root(), "enemies");
     REQUIRE(enemies != nullptr);
-    const nmxd::NodeStyle arrayStyle = provider->style(tree, enemies->id);
+    const nmtreediff::NodeStyle arrayStyle = provider->style(tree, enemies->id);
     CHECK(arrayStyle.title == "enemies");
     CHECK(arrayStyle.subtitle == "array");
 
     // An element card shows the identifying member rather than the word "item",
     // which is all its kind could offer.
     const Node& element = tree.node(enemies->children.front());
-    const nmxd::NodeStyle elementStyle = provider->style(tree, element.id);
+    const nmtreediff::NodeStyle elementStyle = provider->style(tree, element.id);
     CHECK(elementStyle.title == "item");
     CHECK(elementStyle.subtitle == "\"orc\"");
 
@@ -428,10 +428,10 @@ TEST_CASE("the JSON provider styles nodes distinguishably", "[json]") {
 }
 
 TEST_CASE("the synthetic properties sort last", "[json]") {
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const Tree tree = parseOrFail(*provider, makeSource(R"({"hp": 1, "name": "hut", "id": "a"})"));
 
-    const auto order = nmxd::propertyDisplayOrder(*provider, tree, tree.root());
+    const auto order = nmtreediff::propertyDisplayOrder(*provider, tree, tree.root());
     REQUIRE(order.size() == 4);
     const Node& root = tree.node(tree.root());
     CHECK(root.properties[order[0]].name == "id");
@@ -445,7 +445,7 @@ TEST_CASE("a root array of scalars hangs from the root as its value", "[json][ar
     // list of values is a sequence property on the root node, so a root list
     // and a nested one diff the same way rather than one being a set of node
     // moves and the other one changed property.
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const Tree tree = parseOrFail(*provider, makeSource("[1, 2, 3]"));
 
     CHECK(tree.size() == 1);
@@ -466,7 +466,7 @@ TEST_CASE("a root array of scalars hangs from the root as its value", "[json][ar
 }
 
 TEST_CASE("an empty array is an empty sequence, not an empty string", "[json][array]") {
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const Tree emptyList = parseOrFail(*provider, makeSource(R"({"tags": []})"));
     const Tree emptyText = parseOrFail(*provider, makeSource(R"({"tags": ""})"));
 
@@ -482,7 +482,7 @@ TEST_CASE("read() keeps every array a node, and shape() decides which fold", "[j
     // What a script built on JSON is handed: the document as written, every
     // array a node with an item per element, so it has one shape to reason
     // about and folds per key or not at all.
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     auto raw = provider->read(makeSource(R"({"tags": ["a", "b"], "n": 1})"), {});
     REQUIRE(raw.ok());
     const Tree& read = raw.value();
@@ -513,7 +513,7 @@ TEST_CASE("a document nested thousands of levels deep is read without recursing"
     text += "1";
     text.append(static_cast<std::size_t>(kDepth), '}');
 
-    const auto provider = nmxd::makeGenericJsonProvider();
+    const auto provider = nmtreediff::makeGenericJsonProvider();
     const Tree tree = parseOrFail(*provider, makeSource(text));
     CHECK(tree.size() == static_cast<std::size_t>(kDepth));
     CHECK(tree.node(tree.size() - 1).depth == static_cast<std::uint32_t>(kDepth - 1));

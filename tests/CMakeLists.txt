@@ -1,6 +1,6 @@
 include(Catch)
 
-add_executable(nmxd_tests
+add_executable(nmtreediff_tests
     test_bt_provider.cpp
     test_builder.cpp
     test_dom.cpp
@@ -27,16 +27,16 @@ add_executable(nmxd_tests
     test_xml_provider.cpp
 )
 
-target_link_libraries(nmxd_tests
+target_link_libraries(nmtreediff_tests
     PRIVATE
-        nmxd::core
-        nmxd::cli
-        nmxd_warnings
+        nmtreediff::core
+        nmtreediff::cli
+        nmtreediff_warnings
         Catch2::Catch2WithMain
 )
 
-target_compile_definitions(nmxd_tests PRIVATE
-    NMXD_TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata"
+target_compile_definitions(nmtreediff_tests PRIVATE
+    NMTREEDIFF_TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata"
 )
 
 # The budget tests measure time, so they are registered as their own labelled
@@ -44,5 +44,5 @@ target_compile_definitions(nmxd_tests PRIVATE
 # everything else. Both are registered, and both run by default. They once
 # carried Catch2's hidden tag, which kept them out of ctest altogether, and
 # the numbers in the plan went unenforced for as long as it did.
-catch_discover_tests(nmxd_tests TEST_SPEC "~[budget]")
-catch_discover_tests(nmxd_tests TEST_SPEC "[budget]" PROPERTIES LABELS budget)
+catch_discover_tests(nmtreediff_tests TEST_SPEC "~[budget]")
+catch_discover_tests(nmtreediff_tests TEST_SPEC "[budget]" PROPERTIES LABELS budget)

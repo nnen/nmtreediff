@@ -13,7 +13,7 @@
 #include <thread>
 #include <vector>
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Identifies one round of work.
 ///
@@ -118,4 +118,4 @@ private:
     std::vector<std::jthread> workers_;
 };
 
-}  // namespace nmxd
+}  // namespace nmtreediff

@@ -28,7 +28,7 @@
 // format.txt naming it, which is also how the corpus covers two readings of
 // the same document.
 //
-// Set NMXD_UPDATE_GOLDEN=1 to rewrite the expectations, then read the diff
+// Set NMTREEDIFF_UPDATE_GOLDEN=1 to rewrite the expectations, then read the diff
 // before committing it.
 
 namespace fs = std::filesystem;
@@ -44,7 +44,7 @@ struct GoldenCase {
     std::string format;  ///< From format.txt, or empty to sniff.
 };
 
-fs::path goldenRoot() { return fs::path(NMXD_TESTDATA_DIR) / "golden"; }
+fs::path goldenRoot() { return fs::path(NMTREEDIFF_TESTDATA_DIR) / "golden"; }
 
 std::string readFile(const fs::path& path) {
     std::ifstream in(path, std::ios::binary);
@@ -59,7 +59,7 @@ void writeFile(const fs::path& path, const std::string& contents) {
 }
 
 bool updatingGolden() {
-    const char* flag = std::getenv("NMXD_UPDATE_GOLDEN");
+    const char* flag = std::getenv("NMTREEDIFF_UPDATE_GOLDEN");
     return flag != nullptr && *flag != '\0' && *flag != '0';
 }
 
@@ -131,14 +131,14 @@ TEST_CASE("the golden corpus is present", "[golden]") {
 }
 
 TEST_CASE("golden cases match their expectations", "[golden]") {
-    const auto registry = nmxd::makeDefaultRegistry();
+    const auto registry = nmtreediff::makeDefaultRegistry();
 
     for (const auto& item : goldenCases()) {
         const std::string caseName = item.directory.filename().string();
         INFO("case " << caseName);
 
-        const auto leftSource = nmxd::SourceFile::load(item.left, "left");
-        const auto rightSource = nmxd::SourceFile::load(item.right, "right");
+        const auto leftSource = nmtreediff::SourceFile::load(item.left, "left");
+        const auto rightSource = nmtreediff::SourceFile::load(item.right, "right");
         REQUIRE(leftSource.ok());
         REQUIRE(rightSource.ok());
 
@@ -150,9 +150,9 @@ TEST_CASE("golden cases match their expectations", "[golden]") {
         REQUIRE(leftTree.ok());
         REQUIRE(rightTree.ok());
 
-        const auto model = nmxd::diffTrees(leftTree.value(), rightTree.value(), *provider);
+        const auto model = nmtreediff::diffTrees(leftTree.value(), rightTree.value(), *provider);
         const std::string actual =
-            nmxd::serializeChanges(leftTree.value(), rightTree.value(), model);
+            nmtreediff::serializeChanges(leftTree.value(), rightTree.value(), model);
 
         const fs::path expectedPath = item.directory / "expected.txt";
         if (updatingGolden()) {
@@ -172,11 +172,11 @@ TEST_CASE("golden cases match their expectations", "[golden]") {
 
 TEST_CASE("diffing a document against itself finds nothing", "[golden]") {
     // Not in the corpus because it has to hold for every case in it.
-    const auto registry = nmxd::makeDefaultRegistry();
+    const auto registry = nmtreediff::makeDefaultRegistry();
 
     for (const auto& item : goldenCases()) {
         INFO("case " << item.directory.filename().string());
-        const auto source = nmxd::SourceFile::load(item.left, "left");
+        const auto source = nmtreediff::SourceFile::load(item.left, "left");
         REQUIRE(source.ok());
 
         const auto* provider = registry.resolve(source.value(), item.format);
@@ -184,7 +184,7 @@ TEST_CASE("diffing a document against itself finds nothing", "[golden]") {
         auto tree = provider->parse(source.value(), {});
         REQUIRE(tree.ok());
 
-        const auto model = nmxd::diffTrees(tree.value(), tree.value(), *provider);
+        const auto model = nmtreediff::diffTrees(tree.value(), tree.value(), *provider);
         CHECK(model.identical());
         CHECK(model.changes.empty());
     }

@@ -6,9 +6,9 @@
 
 #include "core/log.h"
 
-using nmxd::Log;
-using nmxd::LogLine;
-using nmxd::LogStream;
+using nmtreediff::Log;
+using nmtreediff::LogLine;
+using nmtreediff::LogStream;
 
 // The sink is process-wide, so every test clears it and reads from its own
 // starting sequence rather than from zero.
@@ -18,15 +18,15 @@ TEST_CASE("a line comes back from the sink with its stream", "[log]") {
     log.forwardTo(nullptr, nullptr);
     const std::uint64_t before = log.lastSequence();
 
-    nmxd::logOut("report line\n");
-    nmxd::logErr("nmxmldiff: something failed");
+    nmtreediff::logOut("report line\n");
+    nmtreediff::logErr("nmtreediff: something failed");
 
     const std::vector<LogLine> lines = log.linesAfter(before);
     REQUIRE(lines.size() == 2);
     CHECK(lines[0].stream == LogStream::Out);
     CHECK(lines[0].text == "report line");  // the newline is the line's own
     CHECK(lines[1].stream == LogStream::Err);
-    CHECK(lines[1].text == "nmxmldiff: something failed");
+    CHECK(lines[1].text == "nmtreediff: something failed");
     CHECK(lines[1].sequence == lines[0].sequence + 1);
     CHECK(log.lastErrorSequence() == lines[1].sequence);
     CHECK(log.lastSequence() == lines[1].sequence);
@@ -41,7 +41,7 @@ TEST_CASE("a multi-line message stays one entry", "[log]") {
     log.forwardTo(nullptr, nullptr);
     const std::uint64_t before = log.lastSequence();
 
-    nmxd::logErr("boom\nstack traceback:\n\t[C]: in function 'error'\n");
+    nmtreediff::logErr("boom\nstack traceback:\n\t[C]: in function 'error'\n");
 
     const std::vector<LogLine> lines = log.linesAfter(before);
     REQUIRE(lines.size() == 1);
@@ -56,7 +56,7 @@ TEST_CASE("the buffer is bounded and the oldest lines go first", "[log]") {
     log.clear();
 
     for (std::size_t i = 0; i < Log::kCapacity + 10; ++i) {
-        nmxd::logOut(std::to_string(i));
+        nmtreediff::logOut(std::to_string(i));
     }
 
     CHECK(log.size() == Log::kCapacity);
@@ -75,10 +75,10 @@ TEST_CASE("clearing keeps the sequence counting", "[log]") {
     Log& log = Log::instance();
     log.forwardTo(nullptr, nullptr);
 
-    nmxd::logOut("one");
+    nmtreediff::logOut("one");
     const std::uint64_t seen = log.lastSequence();
     log.clear();
-    nmxd::logOut("two");
+    nmtreediff::logOut("two");
 
     const std::vector<LogLine> lines = log.linesAfter(seen);
     REQUIRE(lines.size() == 1);
@@ -99,7 +99,7 @@ TEST_CASE("writes from several threads all arrive", "[log]") {
     for (int t = 0; t < kThreads; ++t) {
         writers.emplace_back([t] {
             for (int i = 0; i < kPerThread; ++i) {
-                nmxd::logErr("t" + std::to_string(t) + " " + std::to_string(i));
+                nmtreediff::logErr("t" + std::to_string(t) + " " + std::to_string(i));
             }
         });
     }

@@ -10,7 +10,7 @@
 #include <chrono>
 #include <utility>
 
-namespace nmxd {
+namespace nmtreediff {
 
 const char* describe(Stage stage) noexcept {
     switch (stage) {
@@ -207,4 +207,4 @@ void Session::runOpen(const SessionRequest& request,
     publish(std::move(result), generation);
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

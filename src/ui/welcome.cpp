@@ -5,7 +5,7 @@
 
 #include <imgui.h>
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -112,4 +112,4 @@ WelcomeChoice drawWelcome(const WelcomeState& state) {
     return choice;
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

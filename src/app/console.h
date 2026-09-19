@@ -5,7 +5,7 @@
 
 #include <cstdio>
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Where the process's two output streams can go.
 struct OutputStreams {
@@ -44,4 +44,4 @@ struct OutputStreams {
 ///          were and this changes nothing.
 OutputStreams attachToCaller();
 
-}  // namespace nmxd
+}  // namespace nmtreediff

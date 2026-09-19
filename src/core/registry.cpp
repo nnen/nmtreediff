@@ -12,7 +12,7 @@
 #include "formats/json_generic.h"
 #include "formats/xml_generic.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -172,4 +172,4 @@ ProviderRegistry makeDefaultRegistry() {
     return registry;
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

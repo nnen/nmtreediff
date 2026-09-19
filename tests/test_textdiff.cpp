@@ -7,14 +7,14 @@
 
 #include "core/textdiff.h"
 
-using nmxd::DiffRow;
-using nmxd::kNoLine;
-using nmxd::RowStatus;
-using nmxd::SourceFile;
-using nmxd::TextDiff;
-using nmxd::TextDiffLimits;
-using nmxd::TextDiffQuality;
-using nmxd::tokenizeLine;
+using nmtreediff::DiffRow;
+using nmtreediff::kNoLine;
+using nmtreediff::RowStatus;
+using nmtreediff::SourceFile;
+using nmtreediff::TextDiff;
+using nmtreediff::TextDiffLimits;
+using nmtreediff::TextDiffQuality;
+using nmtreediff::tokenizeLine;
 
 namespace {
 
@@ -26,7 +26,7 @@ std::stop_token neverStopped() {
 TextDiff diffOf(const std::string& left, const std::string& right, TextDiffLimits limits = {}) {
     const auto a = SourceFile::fromMemory(left, "left");
     const auto b = SourceFile::fromMemory(right, "right");
-    return nmxd::diffText(a, b, neverStopped(), limits);
+    return nmtreediff::diffText(a, b, neverStopped(), limits);
 }
 
 std::string join(const std::vector<std::string>& lines) {
@@ -238,7 +238,8 @@ TEST_CASE("word detail points at what actually changed", "[textdiff]") {
     const auto& run = diff.wordRuns[diff.rows[0].words];
     REQUIRE_FALSE(run.left.empty());
 
-    const auto changedText = [](const std::string& line, const std::vector<nmxd::WordSegment>& s) {
+    const auto changedText = [](const std::string& line,
+                                const std::vector<nmtreediff::WordSegment>& s) {
         std::string out;
         for (const auto& segment : s) {
             if (segment.changed) {
@@ -324,7 +325,7 @@ TEST_CASE("a cancelled diff reports that it stopped", "[textdiff]") {
 
     std::stop_source source;
     source.request_stop();
-    const auto diff = nmxd::diffText(a, b, source.get_token());
+    const auto diff = nmtreediff::diffText(a, b, source.get_token());
 
     CHECK(diff.cancelled);
 }

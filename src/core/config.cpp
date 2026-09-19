@@ -5,7 +5,7 @@
 
 #include <cstdlib>
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -74,4 +74,4 @@ std::vector<std::filesystem::path> configSearchPaths() {
     return {home / kHomeScript, home / kHomeDirectory / kHomeDirectoryScript};
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

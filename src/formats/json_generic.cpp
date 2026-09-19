@@ -18,7 +18,7 @@
 #include "core/hash.h"
 #include "core/shape.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -776,4 +776,4 @@ std::unique_ptr<IFormatProvider> makeGenericJsonProvider() {
     return std::make_unique<GenericJsonProvider>();
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

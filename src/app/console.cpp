@@ -16,7 +16,7 @@
 #include <iostream>
 #endif
 
-namespace nmxd {
+namespace nmtreediff {
 
 #ifdef _WIN32
 
@@ -101,4 +101,4 @@ OutputStreams attachToCaller() {
 
 #endif
 
-}  // namespace nmxd
+}  // namespace nmtreediff

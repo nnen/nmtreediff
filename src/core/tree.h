@@ -11,7 +11,7 @@
 
 #include "core/source.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Identifies a node within one Tree.
 ///
@@ -440,4 +440,4 @@ private:
     std::vector<SourceSpan> unrepresented_;
 };
 
-}  // namespace nmxd
+}  // namespace nmtreediff

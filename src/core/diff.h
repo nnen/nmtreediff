@@ -12,7 +12,7 @@
 #include "core/provider.h"
 #include "core/tree.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Which of the two documents a node belongs to.
 enum class Side : std::uint8_t {
@@ -236,4 +236,4 @@ struct DiffModel {
 ///          node of a different kind nearby does not renumber this one.
 [[nodiscard]] std::string nodePath(const Tree& tree, NodeId id);
 
-}  // namespace nmxd
+}  // namespace nmtreediff

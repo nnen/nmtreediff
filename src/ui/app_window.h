@@ -21,7 +21,7 @@
 
 struct GLFWwindow;
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Owns the window, the docking layout, and the frame loop.
 ///
@@ -272,4 +272,4 @@ private:
     GraphDirection graphDirection_ = GraphDirection::TopDown;
 };
 
-}  // namespace nmxd
+}  // namespace nmtreediff

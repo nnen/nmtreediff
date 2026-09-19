@@ -5,7 +5,7 @@
 
 #include <fstream>
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -89,4 +89,4 @@ bool writeBitmap(const std::filesystem::path& path, int width, int height,
     return out.good();
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

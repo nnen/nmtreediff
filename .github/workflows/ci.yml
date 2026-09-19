@@ -65,7 +65,7 @@ jobs:
         run: >
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=$BUILD_CONFIG
-          -DNMXD_BUILD_GUI=OFF
+          -DNMTREEDIFF_BUILD_GUI=OFF
 
       - name: Build
         run: cmake --build build

@@ -8,7 +8,7 @@ counts as a node, which two nodes are the same node across two versions of a
 file, and how a node is titled and coloured. Everything above it, the matcher,
 both views and the reports, works the same whatever you decide.
 
-This document is the contract. `nmxmldiff --list-formats` prints the version
+This document is the contract. `nmtreediff --list-formats` prints the version
 the build in front of you implements, and the number in the heading changes
 when something already declared changes shape or meaning. Version 2 replaced
 the shaping functions of version 1 with the document and the builder described
@@ -583,7 +583,7 @@ ways.
 Generate the expectations, then read the diff before committing it:
 
 ```
-NMXD_UPDATE_GOLDEN=1 ctest --test-dir build -C RelWithDebInfo
+NMTREEDIFF_UPDATE_GOLDEN=1 ctest --test-dir build -C RelWithDebInfo
 ```
 
 This is the main defence against a change in matching quality, and it makes

@@ -7,7 +7,7 @@
 #include <filesystem>
 #include <vector>
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Writes pixels to an uncompressed 24-bit bitmap file.
 ///
@@ -25,4 +25,4 @@ namespace nmxd {
 [[nodiscard]] bool writeBitmap(const std::filesystem::path& path, int width, int height,
                                const std::vector<std::uint8_t>& rgba);
 
-}  // namespace nmxd
+}  // namespace nmtreediff

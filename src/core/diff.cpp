@@ -11,7 +11,7 @@
 
 #include "core/hash.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 bool propertiesDiffer(const Property& left, const Property& right) {
     return hashProperty(left) != hashProperty(right);
@@ -626,4 +626,4 @@ std::string serializeChanges(const Tree& left, const Tree& right, const DiffMode
     return out.str();
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

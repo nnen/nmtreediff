@@ -52,7 +52,7 @@ set_target_properties(simdjson PROPERTIES
     INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_simdjson_includes}")
 
 # ----------------------------------------------------------------- GUI ------
-if(NMXD_BUILD_GUI)
+if(NMTREEDIFF_BUILD_GUI)
     find_package(OpenGL REQUIRED)
 
     FetchContent_Declare(
@@ -144,7 +144,7 @@ FetchContent_MakeAvailable(sol2)
 # an artist expects: recent places, a typed network path, and the shell's own
 # sorting. Writing one per platform is three backends and a COM apartment; this
 # is one small MIT dependency with a CMake build.
-if(NMXD_BUILD_GUI)
+if(NMTREEDIFF_BUILD_GUI)
     FetchContent_Declare(
         nfd
         GIT_REPOSITORY https://github.com/btzy/nativefiledialog-extended.git
@@ -156,7 +156,7 @@ if(NMXD_BUILD_GUI)
 endif()
 
 # --------------------------------------------------------------- Catch2 -----
-if(NMXD_BUILD_TESTS)
+if(NMTREEDIFF_BUILD_TESTS)
     FetchContent_Declare(
         Catch2
         GIT_REPOSITORY https://github.com/catchorg/Catch2.git

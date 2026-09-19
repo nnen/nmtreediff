@@ -12,7 +12,7 @@
 #include "core/hash.h"
 #include "core/shape.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -150,4 +150,4 @@ std::vector<std::uint32_t> propertyDisplayOrder(const IFormatProvider& provider,
     return order;
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

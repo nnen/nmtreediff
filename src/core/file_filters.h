@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace nmxd {
+namespace nmtreediff {
 
 class ProviderRegistry;
 
@@ -36,4 +36,4 @@ struct FileFilter {
 ///          gets no entry, since there is nothing to filter by.
 [[nodiscard]] std::vector<FileFilter> fileFiltersFor(const ProviderRegistry& registry);
 
-}  // namespace nmxd
+}  // namespace nmtreediff

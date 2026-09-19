@@ -16,7 +16,7 @@
 #include "core/dom.h"
 #include "core/shape.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -382,4 +382,4 @@ void runShapeFunction(sol::state& lua, sol::protected_function shape, ShapeConte
     }
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

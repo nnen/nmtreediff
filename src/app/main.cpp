@@ -18,7 +18,7 @@
 #include "core/registry.h"
 #include "core/session.h"
 
-#if NMXD_HAVE_GUI
+#if NMTREEDIFF_HAVE_GUI
 #include "ui/app_window.h"
 #endif
 
@@ -33,17 +33,17 @@ namespace {
 /// \remarks Printed after the configuration is applied, so the listing shows
 ///          the extensions this machine actually resolves rather than the ones
 ///          the build shipped with.
-int listFormats(const nmxd::Options& options) {
+int listFormats(const nmtreediff::Options& options) {
     // Scripted formats are added the same way the session adds them, because a
     // format that works but does not appear here is the one a person gives up
     // looking for.
-    nmxd::ProviderRegistry registry = nmxd::makeDefaultRegistry();
-    (void)nmxd::addScriptedProviders(registry, options.providerConfig);
+    nmtreediff::ProviderRegistry registry = nmtreediff::makeDefaultRegistry();
+    (void)nmtreediff::addScriptedProviders(registry, options.providerConfig);
     (void)registry.apply(options.providerConfig);
 
-    std::cout << "provider interface version " << nmxd::kProviderInterfaceVersion << '\n';
+    std::cout << "provider interface version " << nmtreediff::kProviderInterfaceVersion << '\n';
     for (const auto name : registry.names()) {
-        const nmxd::IFormatProvider* provider = registry.byName(name);
+        const nmtreediff::IFormatProvider* provider = registry.byName(name);
         std::cout << "  " << name << "  " << provider->displayName() << '\n'
                   << "    default extensions:";
         for (const auto extension : provider->defaultExtensions()) {
@@ -65,17 +65,17 @@ int listFormats(const nmxd::Options& options) {
 ///
 /// \param options The run's options.
 ///
-/// \returns The process exit code from nmxd::writeReport().
-int runHeadless(const nmxd::Options& options) {
-    nmxd::Session session;
+/// \returns The process exit code from nmtreediff::writeReport().
+int runHeadless(const nmtreediff::Options& options) {
+    nmtreediff::Session session;
     (void)session.configureProviders(options.providerConfig);
-    session.open(nmxd::SessionRequest{options.leftPath, options.rightPath, options.leftLabel,
-                                      options.rightLabel, options.format});
+    session.open(nmtreediff::SessionRequest{options.leftPath, options.rightPath, options.leftLabel,
+                                            options.rightLabel, options.format});
     session.waitIdle();
 
     const auto snapshot = session.snapshot();
-    static const nmxd::DiffSnapshot kEmpty;
-    return nmxd::writeReport(std::cout, snapshot ? *snapshot : kEmpty, options);
+    static const nmtreediff::DiffSnapshot kEmpty;
+    return nmtreediff::writeReport(std::cout, snapshot ? *snapshot : kEmpty, options);
 }
 
 }  // namespace
@@ -97,16 +97,16 @@ int main(int argc, char** argv) {
 
     // Before anything is written: a GUI-subsystem process has to find its
     // console or pipe, and the sink has to know whether it found one.
-    const nmxd::OutputStreams streams = nmxd::attachToCaller();
-    nmxd::Log::instance().forwardTo(streams.out, streams.err);
+    const nmtreediff::OutputStreams streams = nmtreediff::attachToCaller();
+    nmtreediff::Log::instance().forwardTo(streams.out, streams.err);
 
-    nmxd::ParseResult parsed = nmxd::parseCommandLine(argc, argv);
+    nmtreediff::ParseResult parsed = nmtreediff::parseCommandLine(argc, argv);
     if (!parsed.shouldRun()) {
         return parsed.exitCode;
     }
-    nmxd::Options options = std::move(*parsed.options);
+    nmtreediff::Options options = std::move(*parsed.options);
 
-    if (!nmxd::loadConfiguration(options)) {
+    if (!nmtreediff::loadConfiguration(options)) {
         return 2;
     }
     if (options.listFormats) {
@@ -117,16 +117,16 @@ int main(int argc, char** argv) {
         return runHeadless(options);
     }
 
-#if NMXD_HAVE_GUI
-    nmxd::AppWindow window(options, processStart);
+#if NMTREEDIFF_HAVE_GUI
+    nmtreediff::AppWindow window(options, processStart);
     if (!window.open()) {
-        nmxd::logErr("nmxmldiff: could not open a window; try --headless");
+        nmtreediff::logErr("nmtreediff: could not open a window; try --headless");
         return 2;
     }
     return window.run();
 #else
     (void)processStart;
-    nmxd::logErr("nmxmldiff: built without the GUI; use --headless");
+    nmtreediff::logErr("nmtreediff: built without the GUI; use --headless");
     return 2;
 #endif
 }

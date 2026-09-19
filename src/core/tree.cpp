@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <iterator>
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -104,4 +104,4 @@ void Tree::finalize() {
     }
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

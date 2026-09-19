@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <vector>
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -176,4 +176,4 @@ void computeHashes(Tree& tree, std::stop_token token) {
     }
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

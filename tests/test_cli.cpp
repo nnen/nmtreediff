@@ -5,9 +5,9 @@
 
 #include "app/cli.h"
 
-using nmxd::InitialView;
-using nmxd::parseArguments;
-using nmxd::ReportFormat;
+using nmtreediff::InitialView;
+using nmtreediff::parseArguments;
+using nmtreediff::ReportFormat;
 
 TEST_CASE("two paths are enough", "[cli]") {
     const auto parsed = parseArguments({"left.xml", "right.xml"});

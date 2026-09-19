@@ -20,14 +20,14 @@
 // dropped content and failed shaping jobs has to reach it, and only one of
 // the two may fail the run.
 
-using nmxd::ConfigProblem;
-using nmxd::DiffSnapshot;
-using nmxd::Options;
-using nmxd::ProviderConfig;
-using nmxd::ReportFormat;
-using nmxd::SourceFile;
-using nmxd::Stage;
-using nmxd::Tree;
+using nmtreediff::ConfigProblem;
+using nmtreediff::DiffSnapshot;
+using nmtreediff::Options;
+using nmtreediff::ProviderConfig;
+using nmtreediff::ReportFormat;
+using nmtreediff::SourceFile;
+using nmtreediff::Stage;
+using nmtreediff::Tree;
 
 namespace {
 
@@ -47,7 +47,7 @@ constexpr const char* kScript =
     "}\n";
 
 struct Fixture {
-    nmxd::ProviderRegistry registry = nmxd::makeDefaultRegistry();
+    nmtreediff::ProviderRegistry registry = nmtreediff::makeDefaultRegistry();
     DiffSnapshot snapshot;
 
     /// Compares two documents under one provider: the picky script by
@@ -57,8 +57,8 @@ struct Fixture {
             const char* providerName = "picky") {
         ProviderConfig config;
         std::vector<ConfigProblem> problems;
-        REQUIRE(nmxd::runConfigScript(kScript, "test.lua", config, problems));
-        REQUIRE(nmxd::addScriptedProviders(registry, config).empty());
+        REQUIRE(nmtreediff::runConfigScript(kScript, "test.lua", config, problems));
+        REQUIRE(nmtreediff::addScriptedProviders(registry, config).empty());
         const auto* provider = registry.byName(providerName);
         REQUIRE(provider != nullptr);
 
@@ -73,12 +73,13 @@ struct Fixture {
         snapshot.stage = Stage::TreeReady;
         snapshot.left = left;
         snapshot.right = right;
-        snapshot.text = std::make_shared<nmxd::TextDiff>(nmxd::diffText(*left, *right, {}));
+        snapshot.text =
+            std::make_shared<nmtreediff::TextDiff>(nmtreediff::diffText(*left, *right, {}));
         snapshot.leftTree = std::make_shared<Tree>(std::move(leftTree).value());
         snapshot.rightTree = std::make_shared<Tree>(std::move(rightTree).value());
         snapshot.provider = provider;
-        snapshot.treeDiff = std::make_shared<nmxd::DiffModel>(
-            nmxd::diffTrees(*snapshot.leftTree, *snapshot.rightTree, *provider));
+        snapshot.treeDiff = std::make_shared<nmtreediff::DiffModel>(
+            nmtreediff::diffTrees(*snapshot.leftTree, *snapshot.rightTree, *provider));
     }
 
     std::string report(ReportFormat format, bool exitCode, int& code) {
@@ -87,7 +88,7 @@ struct Fixture {
         options.report = format;
         options.useExitCode = exitCode;
         std::ostringstream out;
-        code = nmxd::writeReport(out, snapshot, options);
+        code = nmtreediff::writeReport(out, snapshot, options);
         return out.str();
     }
 };
@@ -164,14 +165,14 @@ TEST_CASE("without a format the lines decide", "[report]") {
     snapshot.stage = Stage::TextReady;
     snapshot.left = left;
     snapshot.right = right;
-    snapshot.text = std::make_shared<nmxd::TextDiff>(nmxd::diffText(*left, *right, {}));
+    snapshot.text = std::make_shared<nmtreediff::TextDiff>(nmtreediff::diffText(*left, *right, {}));
 
     Options options;
     options.headless = true;
     options.report = ReportFormat::Json;
     options.useExitCode = true;
     std::ostringstream out;
-    const int code = nmxd::writeReport(out, snapshot, options);
+    const int code = nmtreediff::writeReport(out, snapshot, options);
     CHECK(out.str().find("\"comparison\": \"lines\"") != std::string::npos);
     CHECK(out.str().find("\"identical\": false") != std::string::npos);
     CHECK(code == 1);

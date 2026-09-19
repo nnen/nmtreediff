@@ -1,7 +1,7 @@
 # The core library links against no GUI target. That is what keeps the engine
 # testable in continuous integration and reusable by a future merge tool.
 
-add_library(nmxd_core STATIC
+add_library(nmtreediff_core STATIC
     builder.cpp
     dom.cpp
     shape.cpp
@@ -29,18 +29,19 @@ add_library(nmxd_core STATIC
     textdiff.cpp
 )
 
-target_include_directories(nmxd_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
-target_compile_features(nmxd_core PUBLIC cxx_std_20)
-target_link_libraries(nmxd_core PRIVATE nmxd_warnings pugixml::pugixml simdjson::simdjson
-                                     lua::lua sol2::sol2)
+target_include_directories(nmtreediff_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_compile_features(nmtreediff_core PUBLIC cxx_std_20)
+target_link_libraries(nmtreediff_core
+    PRIVATE nmtreediff_warnings pugixml::pugixml simdjson::simdjson lua::lua sol2::sol2
+)
 
 # sol2 instantiates enough templates that an unoptimised build of the Lua
 # bridge exceeds the section count of the default object file format.
 if(MSVC)
-    target_compile_options(nmxd_core PRIVATE /bigobj)
+    target_compile_options(nmtreediff_core PRIVATE /bigobj)
 endif()
 
 find_package(Threads REQUIRED)
-target_link_libraries(nmxd_core PUBLIC Threads::Threads)
+target_link_libraries(nmtreediff_core PUBLIC Threads::Threads)
 
-add_library(nmxd::core ALIAS nmxd_core)
+add_library(nmtreediff::core ALIAS nmtreediff_core)

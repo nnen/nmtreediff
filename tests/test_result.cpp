@@ -4,8 +4,8 @@
 
 #include "core/result.h"
 
-using nmxd::fail;
-using nmxd::Result;
+using nmtreediff::fail;
+using nmtreediff::Result;
 
 namespace {
 

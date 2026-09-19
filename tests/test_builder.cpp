@@ -8,18 +8,18 @@
 #include "core/builder.h"
 #include "core/hash.h"
 
-using nmxd::BuildError;
-using nmxd::Identity;
-using nmxd::Node;
-using nmxd::NodeId;
-using nmxd::ParseError;
-using nmxd::Property;
-using nmxd::PropertyForm;
-using nmxd::Ref;
-using nmxd::RefId;
-using nmxd::RefKind;
-using nmxd::Tree;
-using nmxd::TreeBuilder;
+using nmtreediff::BuildError;
+using nmtreediff::Identity;
+using nmtreediff::Node;
+using nmtreediff::NodeId;
+using nmtreediff::ParseError;
+using nmtreediff::Property;
+using nmtreediff::PropertyForm;
+using nmtreediff::Ref;
+using nmtreediff::RefId;
+using nmtreediff::RefKind;
+using nmtreediff::Tree;
+using nmtreediff::TreeBuilder;
 
 namespace {
 

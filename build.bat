@@ -1,6 +1,6 @@
 @echo off
 REM ===========================================================================
-REM  build.bat - Configures and builds nmxmldiff in one CMake configuration.
+REM  build.bat - Configures and builds nmtreediff in one CMake configuration.
 REM
 REM  Usage:
 REM      build.bat [Debug^|Release^|RelWithDebInfo^|MinSizeRel] [build arguments]
@@ -10,7 +10,7 @@ REM  level CMakeLists.txt applies. Anything after the configuration is handed
 REM  to the build step unchanged, so targets and build tool options work the
 REM  way they do with CMake itself:
 REM
-REM      build.bat Debug --target nmxd_core
+REM      build.bat Debug --target nmtreediff_core
 REM      build.bat Release -- -j4
 REM
 REM  Three things keep this fast:
@@ -26,11 +26,11 @@ REM    - The configure step runs only when the tree does not exist yet. After
 REM      that the build tool re-runs CMake by itself whenever a CMakeLists.txt
 REM      changes, so configuring on every invocation is wasted time.
 REM
-REM  Cache options for the configure step go in the NMXD_CMAKE_ARGS environment
+REM  Cache options for the configure step go in the NMTREEDIFF_CMAKE_ARGS environment
 REM  variable. While it is set, the configure step runs on every invocation so
 REM  that a changed value is picked up:
 REM
-REM      set NMXD_CMAKE_ARGS=-DNMXD_BUILD_GUI=OFF
+REM      set NMTREEDIFF_CMAKE_ARGS=-DNMTREEDIFF_BUILD_GUI=OFF
 REM      build.bat Debug
 REM
 REM  The generator is chosen here and must be a multi configuration one, so do
@@ -46,7 +46,7 @@ set "SOURCE_DIR=%~dp0."
 set "DEFAULT_CONFIG=RelWithDebInfo"
 set "KNOWN_CONFIGS=Debug Release RelWithDebInfo MinSizeRel"
 set "KNOWN_CONFIGS_LIST=Debug;Release;RelWithDebInfo;MinSizeRel"
-set "EXE_NAME=nmxmldiff.exe"
+set "EXE_NAME=nmtreediff.exe"
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 set "VCVARS_RELATIVE_PATH=VC\Auxiliary\Build\vcvars64.bat"
 set "ENV_CACHE_DIR=%SOURCE_DIR%\build"
@@ -109,11 +109,11 @@ REM Configure only when it is needed: on a first run, which is also what fetches
 REM the pinned dependencies, or when there are configure options to apply.
 set "NEEDS_CONFIGURE="
 if not exist "%BUILD_DIR%\%GENERATED_FILE%" set "NEEDS_CONFIGURE=1"
-if defined NMXD_CMAKE_ARGS set "NEEDS_CONFIGURE=1"
+if defined NMTREEDIFF_CMAKE_ARGS set "NEEDS_CONFIGURE=1"
 if not defined NEEDS_CONFIGURE goto configured
 
 echo === Configuring in %BUILD_DIR%
-cmake -S "%SOURCE_DIR%" -B "%BUILD_DIR%" %GENERATOR_ARGS% "-DCMAKE_CONFIGURATION_TYPES=%KNOWN_CONFIGS_LIST%" %NMXD_CMAKE_ARGS%
+cmake -S "%SOURCE_DIR%" -B "%BUILD_DIR%" %GENERATOR_ARGS% "-DCMAKE_CONFIGURATION_TYPES=%KNOWN_CONFIGS_LIST%" %NMTREEDIFF_CMAKE_ARGS%
 set "RESULT=!errorlevel!"
 if not "!RESULT!"=="0" (
     echo build.bat: configuration failed 1>&2

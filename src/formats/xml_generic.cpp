@@ -15,7 +15,7 @@
 #include "core/hash.h"
 #include "formats/xml_spans.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -285,4 +285,4 @@ std::unique_ptr<IFormatProvider> makeGenericXmlProvider() {
     return std::make_unique<GenericXmlProvider>();
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

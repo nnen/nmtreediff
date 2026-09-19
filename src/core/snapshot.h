@@ -15,7 +15,7 @@
 #include "core/textdiff.h"
 #include "core/tree.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 class IFormatProvider;
 class ProviderRegistry;
@@ -168,4 +168,4 @@ private:
     std::uint64_t version_ = 0;
 };
 
-}  // namespace nmxd
+}  // namespace nmtreediff

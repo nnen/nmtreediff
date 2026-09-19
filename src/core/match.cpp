@@ -13,7 +13,7 @@
 
 #include "core/hash.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -804,4 +804,4 @@ MatchResult matchTrees(const Tree& left, const Tree& right, const IFormatProvide
     return matcher.run(token);
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

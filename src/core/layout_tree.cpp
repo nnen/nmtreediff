@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -756,4 +756,4 @@ NodeId findNodeAt(const Tree& tree, std::uint32_t offset) {
     }
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

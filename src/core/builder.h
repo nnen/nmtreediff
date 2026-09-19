@@ -15,7 +15,7 @@
 #include "core/source.h"
 #include "core/tree.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 class DomNode;
 class DomProperty;
@@ -523,4 +523,4 @@ private:
     std::vector<SourceSpan> unrepresented_;
 };
 
-}  // namespace nmxd
+}  // namespace nmtreediff

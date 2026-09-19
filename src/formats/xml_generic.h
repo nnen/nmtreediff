@@ -7,7 +7,7 @@
 
 #include "core/provider.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Creates the generic XML provider.
 ///
@@ -25,4 +25,4 @@ namespace nmxd {
 ///          schema subclasses the interface and returns strong keys instead.
 [[nodiscard]] std::unique_ptr<IFormatProvider> makeGenericXmlProvider();
 
-}  // namespace nmxd
+}  // namespace nmtreediff

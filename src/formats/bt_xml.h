@@ -7,7 +7,7 @@
 
 #include "core/provider.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Creates the sample behavior-tree provider.
 ///
@@ -36,4 +36,4 @@ namespace nmxd {
 ///          revisit.
 [[nodiscard]] std::unique_ptr<IFormatProvider> makeBehaviorTreeProvider();
 
-}  // namespace nmxd
+}  // namespace nmtreediff

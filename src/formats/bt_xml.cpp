@@ -15,7 +15,7 @@
 #include "core/shape.h"
 #include "formats/xml_generic.h"
 
-namespace nmxd {
+namespace nmtreediff {
 
 namespace {
 
@@ -415,4 +415,4 @@ std::unique_ptr<IFormatProvider> makeBehaviorTreeProvider() {
     return std::make_unique<BehaviorTreeProvider>();
 }
 
-}  // namespace nmxd
+}  // namespace nmtreediff

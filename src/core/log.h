@@ -12,7 +12,7 @@
 #include <string_view>
 #include <vector>
 
-namespace nmxd {
+namespace nmtreediff {
 
 /// \brief Which of the process's two output streams a line belongs to.
 enum class LogStream : std::uint8_t {
@@ -128,4 +128,4 @@ void logOut(std::string_view text);
 /// \param text The line, with or without its newline.
 void logErr(std::string_view text);
 
-}  // namespace nmxd
+}  // namespace nmtreediff
