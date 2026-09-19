@@ -519,3 +519,25 @@ TEST_CASE("a document nested thousands of levels deep is read without recursing"
     CHECK(tree.node(tree.size() - 1).depth == static_cast<std::uint32_t>(kDepth - 1));
     CHECK(tree.node(tree.size() - 1).findProperty("a")->value == "1");
 }
+
+TEST_CASE("deeply nested arrays are read, and brackets inside strings do not count as depth",
+          "[json][deep]") {
+    // The parser is sized from the document's own nesting, measured before it
+    // is parsed. Elements sit one level deeper than members do, and a string
+    // full of brackets, escaped quote included, must not throw the count off.
+    constexpr int kDepth = 3000;
+    std::string text;
+    for (int level = 0; level < kDepth; ++level) {
+        text += "[";
+    }
+    text += R"("]]\"[[{{")";
+    text.append(static_cast<std::size_t>(kDepth), ']');
+
+    const auto provider = nmtreediff::makeGenericJsonProvider();
+    auto raw = provider->read(makeSource(text), {});
+    REQUIRE(raw.ok());
+    const Tree& read = raw.value();
+    CHECK(read.size() == static_cast<std::size_t>(kDepth) + 1);
+    CHECK(read.node(static_cast<nmtreediff::NodeId>(read.size() - 1)).depth ==
+          static_cast<std::uint32_t>(kDepth));
+}

@@ -3,8 +3,12 @@
 # tool ships from, and headless on Linux with GCC, which keeps the core and the
 # command line portable.
 #
-# Both jobs build Release. The budget tests measure time against numbers meant
-# for an optimised build, so an unoptimised one tells them nothing.
+# Those two jobs build Release. The budget tests measure time against numbers
+# meant for an optimised build, so an unoptimised one tells them nothing.
+#
+# A third job builds Debug on Windows and runs everything but the budget tests.
+# Assertions, the dependencies' own development checks among them, exist only
+# in that configuration, so a failure they catch is invisible to the other two.
 
 name: CI
 
@@ -48,6 +52,23 @@ jobs:
       - name: Budget tests
         continue-on-error: true
         run: ctest --test-dir build/ninja -C $env:BUILD_CONFIG -L budget --output-on-failure
+
+  windows-debug:
+    name: Windows, MSVC, Debug
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      BUILD_CONFIG: Debug
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        shell: cmd
+        run: build.bat %BUILD_CONFIG%
+
+      # No budget step: the budgets are set for an optimised build.
+      - name: Test
+        run: ctest --test-dir build/ninja -C $env:BUILD_CONFIG -LE budget --output-on-failure
 
   linux:
     name: Linux, GCC, headless

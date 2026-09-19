@@ -72,6 +72,14 @@ constexpr std::array<std::string_view, 3> kExtensions{".json", ".geojson", ".web
 ///          document small enough to finish before anyone could cancel it.
 constexpr std::size_t kCancelCheckInterval = 4096;
 
+/// \brief How many parser depths a document needs beyond its deepest nesting.
+///
+/// \remarks simdjson counts the document itself as depth one, its root
+///          container's members as depth two, and so on, so a value inside
+///          `n` open containers sits at depth `n + 1`. The parser's limit has
+///          to be strictly greater than the deepest depth it visits.
+constexpr std::size_t kDepthHeadroom = 2;
+
 /// \brief Reports whether a byte is JSON whitespace.
 ///
 /// \param c The byte to test.
@@ -103,6 +111,47 @@ std::string_view trimRight(std::string_view token) {
         token.remove_suffix(1);
     }
     return token;
+}
+
+/// \brief Measures how many containers a document has open at its deepest.
+///
+/// \param text The document, which need not be well formed.
+///
+/// \returns The largest number of objects and arrays open at once.
+///
+/// \remarks simdjson's parser is allocated for a fixed depth, 1024 unless told
+///          otherwise, and its On Demand iterator does not refuse a deeper
+///          document: it records where each level started in an array of
+///          that size and asserts, in a build with its development checks
+///          on, that the level fits. Generated data nests deeper than that,
+///          so the parser is sized from the document instead.
+///
+///          Brackets inside strings are skipped the way the parser's own
+///          first stage skips them, which makes the answer exact for any
+///          document that stage accepts. A malformed document may close more
+///          than it opened, hence the guard against counting below zero.
+std::size_t deepestNesting(std::string_view text) {
+    std::size_t open = 0;
+    std::size_t deepest = 0;
+    bool inString = false;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        if (inString) {
+            // An escaped byte is never the closing quote, so step over it.
+            if (c == '\\') {
+                ++i;
+            } else if (c == '"') {
+                inString = false;
+            }
+        } else if (c == '"') {
+            inString = true;
+        } else if (c == '{' || c == '[') {
+            deepest = std::max(deepest, ++open);
+        } else if ((c == '}' || c == ']') && open > 0) {
+            --open;
+        }
+    }
+    return deepest;
 }
 
 /// \brief Returns a file's extension in lower case.
@@ -577,6 +626,11 @@ public:
         simdjson::padded_string buffer(text.data(), text.size());
         ondemand::parser parser;
         ondemand::document document;
+        // The parser is sized for this document's own depth rather than left
+        // at simdjson's default, which a generated file can nest past.
+        if (parser.allocate(buffer.size(), deepestNesting(text) + kDepthHeadroom)) {
+            return fail(ParseError::NotWellFormed);
+        }
         if (parser.iterate(buffer).get(document)) {
             return fail(ParseError::NotWellFormed);
         }
