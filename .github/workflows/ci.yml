@@ -1,0 +1,78 @@
+# Builds the tool and runs its tests on every push to main and on every pull
+# request, on Windows with the Microsoft compiler, which is the toolchain the
+# tool ships from, and headless on Linux with GCC, which keeps the core and the
+# command line portable.
+#
+# Both jobs build Release. The budget tests measure time against numbers meant
+# for an optimised build, so an unoptimised one tells them nothing.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch or pull request makes the older run
+# pointless, so it is cancelled rather than left to finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  BUILD_CONFIG: Release
+
+jobs:
+  windows:
+    name: Windows, MSVC
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # The same script a developer runs, so that it is tested too. It finds
+      # the compiler by itself and uses the Ninja the runner image carries.
+      - name: Build
+        shell: cmd
+        run: build.bat %BUILD_CONFIG%
+
+      - name: Test
+        run: ctest --test-dir build/ninja -C $env:BUILD_CONFIG -LE budget --output-on-failure
+
+      # A shared runner is slower and noisier than the machines the budgets
+      # were set on, so a miss here is reported without failing the run.
+      - name: Budget tests
+        continue-on-error: true
+        run: ctest --test-dir build/ninja -C $env:BUILD_CONFIG -L budget --output-on-failure
+
+  linux:
+    name: Linux, GCC, headless
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install --yes ninja-build
+
+      # Without the GUI, which needs a windowing system's development packages
+      # and has not been built on Linux yet.
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=$BUILD_CONFIG
+          -DNMXD_BUILD_GUI=OFF
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build -LE budget --output-on-failure
+
+      - name: Budget tests
+        continue-on-error: true
+        run: ctest --test-dir build -L budget --output-on-failure

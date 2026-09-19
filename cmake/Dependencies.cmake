@@ -74,7 +74,7 @@ if(NMXD_BUILD_GUI)
         imgui
         GIT_REPOSITORY https://github.com/ocornut/imgui.git
         GIT_TAG        7e1b65d26d52e9dd199d889c148c72184de647b4  # docking
-        GIT_SHALLOW    TRUE
+        GIT_SHALLOW    FALSE
     )
     FetchContent_MakeAvailable(imgui)
 
