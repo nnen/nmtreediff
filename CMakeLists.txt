@@ -21,6 +21,13 @@ endif()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+# The C and C++ runtime is linked statically under the Microsoft compiler, so
+# the executable runs on a machine that has no Visual C++ redistributable
+# installed and can be shipped as a single file. Every library in one program
+# must agree on its runtime, so this is set before the dependencies are added
+# and they inherit it.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 option(NMTREEDIFF_BUILD_GUI "Build the GUI application" ON)
 option(NMTREEDIFF_BUILD_TESTS "Build the tests" ON)
 option(NMTREEDIFF_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
