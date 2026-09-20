@@ -35,7 +35,7 @@ BEGIN
             VALUE "FileDescription",  "NM Tree Diff"
             VALUE "FileVersion",      "@PROJECT_VERSION@"
             VALUE "InternalName",     "nmtreediff"
-            VALUE "LegalCopyright",   "Copyright (c) 2026 Jan Milík"
+            VALUE "LegalCopyright",   "@NMTREEDIFF_COPYRIGHT@"
             VALUE "OriginalFilename", "nmtreediff.exe"
             VALUE "ProductName",      "NM Tree Diff"
             VALUE "ProductVersion",   "@PROJECT_VERSION@"

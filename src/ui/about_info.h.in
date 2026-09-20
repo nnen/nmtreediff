@@ -1,0 +1,26 @@
+#pragma once
+
+/// \file
+/// \brief What the About dialog says about this build.
+///
+/// \remarks This is a template. CMake fills in the names between at signs, so that
+///          each of these is written down in one place only: the version, the
+///          description and the home page in the project() call, and the
+///          copyright line next to the version resource that also states it.
+///          See CMakeLists.txt in src/app.
+
+namespace nmtreediff {
+
+/// \brief The version of the program, as `--version` prints it.
+constexpr const char* kAboutVersion = "@PROJECT_VERSION@";
+
+/// \brief One line saying what the program is for.
+constexpr const char* kAboutDescription = "@PROJECT_DESCRIPTION@";
+
+/// \brief Where the program lives on the web.
+constexpr const char* kAboutHomepage = "@PROJECT_HOMEPAGE_URL@";
+
+/// \brief Who holds the copyright, and since when.
+constexpr const char* kAboutCopyright = "@NMTREEDIFF_COPYRIGHT@";
+
+}  // namespace nmtreediff

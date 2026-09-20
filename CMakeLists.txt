@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.25)
 project(nmtreediff
     VERSION 0.3.1
     DESCRIPTION "Diff tree-shaped data in XML and JSON"
+    HOMEPAGE_URL "https://github.com/nnen/nmtreediff"
     LANGUAGES CXX
 )
 

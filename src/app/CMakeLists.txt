@@ -15,8 +15,13 @@ target_link_libraries(nmtreediff_cli
 target_compile_definitions(nmtreediff_cli PRIVATE NMTREEDIFF_VERSION="${PROJECT_VERSION}")
 add_library(nmtreediff::cli ALIAS nmtreediff_cli)
 
+# The copyright line, which the About dialog and the version resource both
+# state and both take from here.
+set(NMTREEDIFF_COPYRIGHT "Copyright (c) 2026 Jan Milík")
+
 if(NMTREEDIFF_BUILD_GUI)
     add_library(nmtreediff_ui STATIC
+        ${CMAKE_SOURCE_DIR}/src/ui/about.cpp
         ${CMAKE_SOURCE_DIR}/src/ui/app_window.cpp
         ${CMAKE_SOURCE_DIR}/src/ui/file_picker.cpp
         ${CMAKE_SOURCE_DIR}/src/ui/node_view.cpp
@@ -26,6 +31,18 @@ if(NMTREEDIFF_BUILD_GUI)
         ${CMAKE_SOURCE_DIR}/src/ui/welcome.cpp
     )
     target_include_directories(nmtreediff_ui PUBLIC ${CMAKE_SOURCE_DIR}/src)
+
+    # What the About dialog says about this build, as a generated header. It
+    # goes under a directory of its own so that it is included as
+    # "ui/about_info.h", the way the headers beside its template are.
+    set(NMTREEDIFF_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+    configure_file(
+        ${CMAKE_SOURCE_DIR}/src/ui/about_info.h.in
+        ${NMTREEDIFF_GENERATED_DIR}/ui/about_info.h
+        @ONLY
+    )
+    target_include_directories(nmtreediff_ui PRIVATE ${NMTREEDIFF_GENERATED_DIR})
+
     target_link_libraries(nmtreediff_ui
         PUBLIC nmtreediff::core nmtreediff::cli
         PRIVATE imgui::imgui nfd::nfd nmtreediff_warnings

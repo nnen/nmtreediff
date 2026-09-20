@@ -199,6 +199,11 @@ private:
 
     /// \brief Whether the Output pane is shown.
     bool showOutput_ = false;
+    /// \brief Whether the About dialog is shown.
+    ///
+    /// \remarks Set by Help, About and cleared by the dialog when the reader
+    ///          closes it.
+    bool showAbout_ = false;
     /// \brief How many more frames the pane asks for focus.
     ///
     /// \remarks More than one, because a window docks the frame after it

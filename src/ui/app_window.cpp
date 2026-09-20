@@ -3,6 +3,7 @@
 
 #include "ui/app_window.h"
 
+#include "ui/about.h"
 #include "ui/screenshot.h"
 #include "ui/theme.h"
 #include "ui/welcome.h"
@@ -433,6 +434,11 @@ void AppWindow::buildFrame() {
     pollLog();
     drawOutputPane();
 
+    // After the exit key was looked at above, so that the Escape which closes
+    // the dialog is seen there while the dialog is still open and does not
+    // close the window as well.
+    drawAbout(showAbout_);
+
     // Focusing a window requires it to exist, and the panels are only created
     // by the calls above. Doing this after the first frame has built them is
     // what makes --view actually pick the view that starts with the focus.
@@ -490,6 +496,16 @@ void AppWindow::drawMenuBar() {
         ImGui::Separator();
         if (ImGui::MenuItem("Output", nullptr, &showOutput_) && showOutput_) {
             focusOutputFrames_ = kOutputFocusFrames;
+        }
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Help")) {
+        // The dialog is opened from buildFrame() rather than here: a popup
+        // belongs to whatever was being drawn when it was opened, and one
+        // opened inside a menu would close with the menu.
+        if (ImGui::MenuItem("About NM Tree Diff...")) {
+            showAbout_ = true;
         }
         ImGui::EndMenu();
     }
