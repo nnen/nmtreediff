@@ -23,14 +23,27 @@
 # A machine without WiX still packs the zip archive instead of failing, so the
 # installer joins the generators only where it can be built. CPack looks for
 # WiX in the same places: the WIX variable its installer sets, then the path.
+#
+# The variable is also read from the registry, where the WiX installer wrote
+# it for the whole machine. A prompt that was open during the install still
+# has the environment from before it, and WiX does not put itself on the path,
+# so without this the search fails in exactly the prompt it is first tried in.
 file(TO_CMAKE_PATH "$ENV{WIX}" NMTREEDIFF_WIX_ROOT)
+set(NMTREEDIFF_MACHINE_ENVIRONMENT_KEY
+    "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment")
 find_program(NMTREEDIFF_WIX_CANDLE candle
-    PATHS "${NMTREEDIFF_WIX_ROOT}"
+    PATHS "${NMTREEDIFF_WIX_ROOT}" "[${NMTREEDIFF_MACHINE_ENVIRONMENT_KEY};WIX]"
     PATH_SUFFIXES bin
     DOC "The WiX Toolset compiler; the MSI installers are packed when it is found"
 )
 if(NMTREEDIFF_WIX_CANDLE)
     list(APPEND CPACK_GENERATOR WIX)
+
+    # CPack looks for WiX again when it packs, in an environment that may not
+    # be the one this ran in. Telling it where WiX was found keeps the two
+    # from disagreeing, which would fail the packaging of a tree that was
+    # configured to build installers.
+    get_filename_component(CPACK_WIX_ROOT "${NMTREEDIFF_WIX_CANDLE}" DIRECTORY)
 else()
     message(STATUS "WiX Toolset not found; the MSI installers will not be packed")
 endif()
