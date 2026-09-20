@@ -36,6 +36,11 @@ REM
 REM  The generator is chosen here and must be a multi configuration one, so do
 REM  not pass -G. To start over, delete the directory under build\.
 REM
+REM  After a successful build the NMTREEDIFF_BUILD_DIR and NMTREEDIFF_BUILD_CONFIG
+REM  environment variables hold the build tree and the configuration, spelled
+REM  the canonical way, for a script that carries on from there; package.bat
+REM  is one.
+REM
 REM  Exit codes: 0 on success, 2 for a bad argument, otherwise whatever CMake
 REM  returned, so a caller such as a CI job can test it.
 REM ===========================================================================
@@ -136,6 +141,11 @@ if exist "%EXE%" (
     echo === Built %CONFIG% in %BUILD_DIR%
 )
 
+REM Tell a calling script which tree was built and in which configuration.
+REM Both are decided here, so a caller that worked them out for itself could
+REM disagree. The line is expanded before endlocal runs, which is what carries
+REM the values out of this script's own environment.
+endlocal & set "NMTREEDIFF_BUILD_DIR=%BUILD_DIR%" & set "NMTREEDIFF_BUILD_CONFIG=%CONFIG%"
 exit /b 0
 
 REM ---------------------------------------------------------------------------

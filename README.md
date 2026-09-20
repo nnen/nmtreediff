@@ -147,6 +147,10 @@ CPack configuration of its own:
 cpack --config build/CPackUserInstallerConfig.cmake -C RelWithDebInfo -B build/package
 ```
 
+On Windows `package.bat` does all of it: it builds Release with `build.bat`,
+runs both commands over the tree that built, and skips the installers, saying
+so, where WiX was not found.
+
 Pushing a tag such as `v1.2.3`, matching the version in `CMakeLists.txt`,
 makes the continuous integration publish the archive and both installers as a
 GitHub release.
