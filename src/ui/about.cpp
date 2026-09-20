@@ -20,6 +20,10 @@ constexpr const char* kProductName = "NM Tree Diff";
 /// \brief The licence the program is released under.
 constexpr const char* kLicenceLine = "Released under the MIT licence.";
 
+/// \brief Where the notices of the libraries are to be found.
+constexpr const char* kNoticesLine =
+    "Their notices are in THIRD-PARTY-NOTICES.txt, installed with the program.";
+
 /// \brief How wide the Close button is, in characters.
 ///
 /// \remarks Sized in characters rather than pixels so the dialog holds
@@ -38,7 +42,10 @@ struct Component {
 ///          which is not part of the executable. Versions are left out
 ///          because that file is where they are pinned, and a second list of
 ///          them here would be one more thing to forget when pinning a new
-///          one.
+///          one. simdjson offers a choice of two licences, and this names the
+///          one taken. The notices themselves ship in the file that
+///          cmake/ThirdPartyNotices.cmake writes, which lists the same
+///          libraries; a change to one list is a change to both.
 constexpr Component kComponents[] = {
     {"CLI11", "BSD 3-Clause"},
     {"Dear ImGui", "MIT"},
@@ -46,7 +53,7 @@ constexpr Component kComponents[] = {
     {"Lua", "MIT"},
     {"Native File Dialog Extended", "zlib"},
     {"pugixml", "MIT"},
-    {"simdjson", "Apache 2.0"},
+    {"simdjson", "MIT"},
     {"sol2", "MIT"},
 };
 
@@ -81,6 +88,9 @@ void drawComponents() {
         ImGui::TextDisabled("%s", component.licence);
     }
     ImGui::EndTable();
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("%s", kNoticesLine);
 }
 
 /// \brief Draws the Close button, centred under the rest.

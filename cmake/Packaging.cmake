@@ -1,7 +1,8 @@
 # What a release is made of, and how it is packed.
 #
 # The install rules are the one list of what ships: the executable, the
-# licence, the user guide and the guide to writing format providers. CPack
+# licence, the notices of the libraries it is built with, the user guide and
+# the guide to writing format providers. CPack
 # packs exactly that list into a zip archive and, on Windows with the WiX
 # Toolset installed, into the MSI installers of WindowsInstaller.cmake, which
 # also put the tool on the path. They are what the release job in
@@ -31,8 +32,12 @@ install(TARGETS nmtreediff
     RUNTIME DESTINATION ${NMTREEDIFF_INSTALL_BINDIR}
     COMPONENT ${NMTREEDIFF_RUNTIME_COMPONENT}
 )
+# Writes the file of notices and says where it is.
+include(${CMAKE_CURRENT_LIST_DIR}/ThirdPartyNotices.cmake)
+
 install(FILES
         ${CMAKE_SOURCE_DIR}/LICENSE
+        ${NMTREEDIFF_NOTICES_FILE}
         ${CMAKE_SOURCE_DIR}/USAGE.md
     DESTINATION ${NMTREEDIFF_INSTALL_DOCDIR}
     COMPONENT ${NMTREEDIFF_RUNTIME_COMPONENT}

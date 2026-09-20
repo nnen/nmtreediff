@@ -198,7 +198,8 @@ newest line in view.
 
 **Help, About NM Tree Diff** says which version is running, which is what a
 problem report should start with, and has a link to the project's page, the
-terms the tool is released under, and the libraries it is built with. **Close**,
+terms the tool is released under, and the libraries it is built with. Their own
+notices are in the `THIRD-PARTY-NOTICES.txt` installed with the tool. **Close**,
 the cross in its corner and **Escape** all dismiss the dialog; while it is open
 Escape closes the dialog and not the tool, the way it does for an open menu.
 

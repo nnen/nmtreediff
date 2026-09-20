@@ -124,8 +124,9 @@ Build the API reference, which needs Doxygen on the path:
 cmake --build build --target docs
 ```
 
-Pack the executable, the licence, the user guide and the provider guide into a
-zip archive under `build/package`:
+Pack the executable, the licence, the notices of the libraries it is built
+with, the user guide and the provider guide into a zip archive under
+`build/package`:
 
 ```bash
 cpack --config build/CPackConfig.cmake -C RelWithDebInfo -B build/package
