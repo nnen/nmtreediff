@@ -2,7 +2,9 @@
 #
 # The install rules are the one list of what ships: the executable, the
 # licence, the user guide and the guide to writing format providers. CPack
-# packs exactly that list into a zip archive, which is what the release job in
+# packs exactly that list into a zip archive and, on Windows with the WiX
+# Toolset installed, into the MSI installers of WindowsInstaller.cmake, which
+# also put the tool on the path. They are what the release job in
 # .github/workflows/ci.yml publishes:
 #
 #     cpack --config build/ninja/CPackConfig.cmake -C Release -B build/package
@@ -13,9 +15,9 @@
 # keeps those out of the package.
 set(NMTREEDIFF_RUNTIME_COMPONENT runtime)
 
-# A Windows release is unpacked into a directory of its own and run from
-# there, so everything sits side by side at the top. Elsewhere the files go
-# where the platform expects them.
+# A Windows release is unpacked or installed into a directory of its own and
+# run from there, so everything sits side by side at the top. Elsewhere the
+# files go where the platform expects them.
 if(WIN32)
     set(NMTREEDIFF_INSTALL_BINDIR .)
     set(NMTREEDIFF_INSTALL_DOCDIR .)
@@ -59,5 +61,9 @@ set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY OFF)
 set(CPACK_INSTALL_CMAKE_PROJECTS
     "${CMAKE_BINARY_DIR};${PROJECT_NAME};${NMTREEDIFF_RUNTIME_COMPONENT};/"
 )
+
+if(WIN32)
+    include(${CMAKE_CURRENT_LIST_DIR}/WindowsInstaller.cmake)
+endif()
 
 include(CPack)

@@ -1,0 +1,31 @@
+# The CPack configuration of the installer for the current user. It is the
+# configuration of everything else with the differences laid over it;
+# WindowsInstaller.cmake says how the two installers relate and how this file
+# is used.
+
+include("@CMAKE_BINARY_DIR@/CPackConfig.cmake")
+
+set(CPACK_GENERATOR WIX)
+set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_FILE_NAME}-user")
+
+# Under the user's local application data, in the Programs directory Windows
+# sets aside for software installed for one user.
+set(CPACK_WIX_ROOT_FOLDER_ID LocalAppDataFolder)
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "Programs/${CPACK_PACKAGE_INSTALL_DIRECTORY}")
+
+set(CPACK_NMTREEDIFF_INSTALL_SCOPE perUser)
+set(CPACK_NMTREEDIFF_PATH_IS_SYSTEM no)
+
+# Three of the checks WiX runs on a finished package object to files in a user
+# profile: that each should be tracked by a registry value instead of by itself
+# (ICE38), that its directories should be listed for removal (ICE64), and that
+# other users would not get a copy (ICE91). They guard a package installed for
+# the whole machine that also writes into one user's profile, where repairing
+# it as another user or a roaming profile goes wrong. This package installs
+# for one user and nothing else, and CPack writes the file list, so there is no
+# place to add what the first two ask for; they are switched off instead.
+set(CPACK_WIX_LIGHT_EXTRA_FLAGS -sice:ICE38 -sice:ICE64 -sice:ICE91)
+
+# Identifiers of this installer's own, which must never change either.
+set(CPACK_WIX_UPGRADE_GUID AF2CAB39-9F90-40B3-AE3F-982C2BFB987C)
+set(CPACK_NMTREEDIFF_PATH_COMPONENT_GUID 9CD7EF2D-7C0B-4AC7-8148-CC16A2295366)

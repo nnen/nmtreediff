@@ -12,8 +12,9 @@
 #
 # Pushing a tag that starts with "v" also publishes a release: the Windows
 # Release job packs the executable, the licence and the documentation into a
-# zip archive, and once every job has passed the release job attaches it to a
-# GitHub release named after the tag.
+# zip archive and two MSI installers, one for the whole machine and one for
+# the current user, and once every job has passed the release job attaches
+# them to a GitHub release named after the tag.
 
 name: CI
 
@@ -35,8 +36,8 @@ permissions:
 
 env:
   BUILD_CONFIG: Release
-  # The name the packed archive travels under from the Windows job to the
-  # release job.
+  # The name the packed archive and installers travel under from the Windows
+  # job to the release job.
   PACKAGE_ARTIFACT: nmtreediff-windows
 
 jobs:
@@ -62,18 +63,29 @@ jobs:
         continue-on-error: true
         run: ctest --test-dir build/ninja -C $env:BUILD_CONFIG -L budget --output-on-failure
 
-      # What goes into the archive is decided by the install rules in
-      # cmake/Packaging.cmake. It is packed on every run, not only for a tag,
-      # so that packaging cannot break unnoticed between releases, and so that
-      # any run's build can be downloaded and tried.
+      # What goes into the archive and the installers is decided by the
+      # install rules in cmake/Packaging.cmake. They are packed on every run,
+      # not only for a tag, so that packaging cannot break unnoticed between
+      # releases, and so that any run's build can be downloaded and tried.
+      #
+      # The installers are built with the WiX Toolset the runner image
+      # carries. Without it this step would pack only the archive, and then
+      # the next one fails rather than letting that pass.
       - name: Package
         run: cpack --config build/ninja/CPackConfig.cmake -C $env:BUILD_CONFIG -B build/package
+
+      # The installer for the current user is the same package under a second
+      # configuration; cmake/WindowsInstaller.cmake says how the two relate.
+      - name: Package the installer for one user
+        run: cpack --config build/ninja/CPackUserInstallerConfig.cmake -C $env:BUILD_CONFIG -B build/package
 
       - name: Upload the package
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.PACKAGE_ARTIFACT }}
-          path: build/package/*.zip
+          path: |
+            build/package/*.zip
+            build/package/*.msi
           if-no-files-found: error
 
   windows-debug:
@@ -138,16 +150,19 @@ jobs:
           name: ${{ env.PACKAGE_ARTIFACT }}
           path: package
 
-      # The archive is named after the version in CMakeLists.txt. A tag that
-      # says anything else would publish a release whose name and contents
-      # disagree, so that is refused rather than published.
+      # The archive and the installers are named after the version in
+      # CMakeLists.txt. A tag that says anything else would publish a release
+      # whose name and contents disagree, so that is refused rather than
+      # published. Asking for each by name also catches one that is missing.
       - name: Check that the tag matches the project version
         run: |
           version="${GITHUB_REF_NAME#v}"
-          if ! ls package/nmtreediff-"$version"-*.zip > /dev/null 2>&1; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match the packaged version: $(ls package)"
-            exit 1
-          fi
+          for package in win64.zip win64.msi win64-user.msi; do
+            if [ ! -f "package/nmtreediff-$version-$package" ]; then
+              echo "::error::No nmtreediff-$version-$package for tag $GITHUB_REF_NAME: $(ls package)"
+              exit 1
+            fi
+          done
 
       # A published asset is never replaced: package managers record its hash,
       # so a changed file under the same name would break every manifest that
@@ -156,7 +171,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
-          gh release create "$GITHUB_REF_NAME" package/*.zip
+          gh release create "$GITHUB_REF_NAME" package/*.zip package/*.msi
           --repo "$GITHUB_REPOSITORY"
           --title "NM Tree Diff ${GITHUB_REF_NAME#v}"
           --generate-notes

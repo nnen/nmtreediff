@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+    The WiX source of the Windows installers. CPack fills in the files to
+    install from the install rules in Packaging.cmake; what is written here is
+    everything about an installer that those rules cannot say.
+
+    One source serves two installers, one for the whole machine and one for
+    the current user, which differ in the three values between at signs. CPack
+    substitutes those from the variables of the same names, which
+    WindowsInstaller.cmake sets for the first installer and
+    UserInstallerConfig.cmake.in for the second.
+
+    It stands in for the template that CPack carries. That one leaves the
+    install scope to the CMake version that runs it, and an installer that
+    writes to a path has to know whose path that is. The dollar variables come
+    from the cpack_variables.wxi that CPack writes next to this file.
+-->
+
+<?include "cpack_variables.wxi"?>
+
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+    RequiredVersion="3.6.3303.0">
+
+    <Product Id="$(var.CPACK_WIX_PRODUCT_GUID)"
+        Name="$(var.CPACK_PACKAGE_NAME)"
+        Language="1033"
+        Version="$(var.CPACK_PACKAGE_VERSION)"
+        Manufacturer="$(var.CPACK_PACKAGE_VENDOR)"
+        UpgradeCode="$(var.CPACK_WIX_UPGRADE_GUID)">
+
+        <!-- perMachine installs for every user and asks for elevation;
+             perUser installs for the one running it and never does. -->
+        <Package InstallerVersion="301"
+            Compressed="yes"
+            InstallScope="@CPACK_NMTREEDIFF_INSTALL_SCOPE@"/>
+
+        <Media Id="1" Cabinet="media1.cab" EmbedCab="yes"/>
+
+        <MajorUpgrade
+            Schedule="afterInstallInitialize"
+            AllowSameVersionUpgrades="yes"
+            DowngradeErrorMessage="A later version of [ProductName] is already installed. Setup will now exit."/>
+
+        <WixVariable Id="WixUILicenseRtf" Value="$(var.CPACK_WIX_LICENSE_RTF)"/>
+        <Property Id="WIXUI_INSTALLDIR" Value="INSTALL_ROOT"/>
+
+        <Property Id="ARPPRODUCTICON">ProductIcon.ico</Property>
+        <Icon Id="ProductIcon.ico" SourceFile="$(var.CPACK_WIX_PRODUCT_ICON)"/>
+
+        <!-- The install directory goes on the end of the path, so the tool can
+             be run by name from any prompt and from a version control system's
+             configuration: the system path for the whole machine, the user's
+             own for one user. Windows Installer adds the entry on install and
+             takes that entry, and nothing else, out again on uninstall. A
+             prompt that is already open keeps the path it started with. -->
+        <DirectoryRef Id="INSTALL_ROOT">
+            <Component Id="PathEntry"
+                Guid="@CPACK_NMTREEDIFF_PATH_COMPONENT_GUID@"
+                KeyPath="yes">
+                <Environment Id="PathEntry"
+                    Name="PATH"
+                    Value="[INSTALL_ROOT]"
+                    Action="set"
+                    Part="last"
+                    System="@CPACK_NMTREEDIFF_PATH_IS_SYSTEM@"
+                    Permanent="no"/>
+            </Component>
+        </DirectoryRef>
+
+        <FeatureRef Id="ProductFeature"/>
+
+        <!-- A feature of its own because CPack writes ProductFeature itself.
+             Hidden and required, so it is always installed with the rest. -->
+        <Feature Id="PathFeature"
+            Level="1"
+            Display="hidden"
+            Absent="disallow"
+            AllowAdvertise="no">
+            <ComponentRef Id="PathEntry"/>
+        </Feature>
+
+        <UIRef Id="$(var.CPACK_WIX_UI_REF)"/>
+
+        <?include "properties.wxi"?>
+        <?include "product_fragment.wxi"?>
+    </Product>
+</Wix>

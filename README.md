@@ -87,7 +87,6 @@ What it does not do yet
 
 - The text view is side by side only. There is no unified view and no
   option to ignore formatting differences.
-- There is no release to download and no installer. Build it from source.
 - Nothing has been verified against a real Perforce or Git client yet.
 
 Stack
@@ -132,8 +131,24 @@ zip archive under `build/package`:
 cpack --config build/CPackConfig.cmake -C RelWithDebInfo -B build/package
 ```
 
+On Windows, when the [WiX Toolset](https://wixtoolset.org/) version 3 was
+found while configuring, the same command also builds an MSI installer there.
+It installs the same files for every user of the machine, under Program Files,
+and adds the install directory to the system path, so `nmtreediff` runs from
+any prompt opened afterwards. Uninstalling takes the path entry out again.
+
+A second installer, with `-user` at the end of its name, does the same for the
+current user alone: it installs under their local application data, adds the
+install directory to their own path, and never asks for elevation. It has a
+CPack configuration of its own:
+
+```bash
+cpack --config build/CPackUserInstallerConfig.cmake -C RelWithDebInfo -B build/package
+```
+
 Pushing a tag such as `v1.2.3`, matching the version in `CMakeLists.txt`,
-makes the continuous integration publish that archive as a GitHub release.
+makes the continuous integration publish the archive and both installers as a
+GitHub release.
 
 Then compare two files:
 
